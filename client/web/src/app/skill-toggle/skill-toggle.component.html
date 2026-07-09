@@ -1,0 +1,19 @@
+<div class="skill-toggle">
+  <label class="switch-row">
+    <button
+      type="button"
+      role="switch"
+      class="switch"
+      [class.on]="enabled()"
+      [attr.aria-checked]="enabled()"
+      [disabled]="busy()"
+      (click)="toggle()"
+    >
+      <span class="knob"></span>
+    </button>
+    <span class="switch-label">
+      <strong>Kitchen Timer &amp; Units</strong>
+      <small>{{ enabled() ? 'Enabled — free skill' : 'Free skill · tap to enable' }}</small>
+    </span>
+  </label>
+</div>

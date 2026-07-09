@@ -1,0 +1,23 @@
+# Keep the build context small and deterministic - only pom.xml and src/ are
+# needed by backend/Dockerfile's build stage.
+
+# Shared by multiple parallel agents (AGENT-CONTRACT.md rule #2) - never ship
+# host build output into the image; the image always builds fresh inside its
+# own Maven stage.
+target/
+
+# IDE / OS noise.
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Docs and repo tooling - not needed at build time.
+*.md
+.git/
+.gitignore
+
+# This directory's own files don't need to be in their own build context.
+Dockerfile
+.dockerignore

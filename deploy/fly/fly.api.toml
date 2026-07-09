@@ -1,0 +1,82 @@
+# Hydropark - `api` trust zone (BACKEND-DESIGN.md §2, §6.2;
+# AGENT-CONTRACT.md "Trust zones"; sprint/phase-1-backend.md P1-21.1a/1b).
+#
+# PUBLIC ingress. Holds NO signing key (HP_LICENSE_PRIVATE_KEY) and NO MoR
+# webhook secret (HP_STRIPE_WEBHOOK_SECRET) - see deploy/README.md's
+# secret-distribution matrix and deploy/fly/bootstrap-secrets.ps1, which
+# refuses to set the license key on this app.
+#
+# Deploy with deploy/fly/deploy-cloud.ps1 (issuer + worker first, then this
+# app) - not `fly deploy` directly, since [build] is intentionally omitted
+# here (the Dockerfile lives at backend/Dockerfile, one level up from
+# backend/ itself is the repo root; deploy-cloud.ps1 passes --dockerfile and
+# the build context explicitly so this file doesn't need a fragile relative
+# path).
+
+app = "hydropark-api"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[env]
+  SPRING_PROFILES_ACTIVE = "fly"
+  HP_API_ENABLED = "true"
+  HP_ISSUER_ENABLED = "false"
+  HP_WORKER_ENABLED = "false"
+  # The `fly` Spring profile already defaults hydropark.migration.enabled to
+  # false (application.yml) - migrations run ONLY via [deploy] release_command
+  # below, never at a regular instance's boot.
+  HP_MIGRATION_ENABLED = "false"
+  # Flycast/6PN internal DNS - reaches the issuer/worker apps' private
+  # network address directly. No public route exists to either (their
+  # fly.*.toml files omit http_service/services entirely).
+  HP_ISSUER_URL = "http://hydropark-issuer.internal:8080"
+  HP_WORKER_URL = "http://hydropark-worker.internal:8080"
+  HP_PAYMENT_PROVIDER = "stripe"
+  HP_CHECKOUT_SUCCESS_URL = "hydropark://purchase/callback"
+  HP_CHECKOUT_CANCEL_URL = "hydropark://purchase/cancel"
+  # Secrets NOT set here (see deploy/fly/bootstrap-secrets.ps1):
+  #   HP_INTERNAL_TOKEN, HP_JWT_PRIVATE_KEY, HP_STRIPE_API_KEY, MONGODB_URI.
+  # NEVER set here: HP_LICENSE_PRIVATE_KEY, HP_LICENSE_PUBLIC_KEY,
+  # HP_STRIPE_WEBHOOK_SECRET - those belong to issuer / worker only.
+
+[deploy]
+  # Runs the migration one-shot BEFORE any api instance takes traffic
+  # (P1-21). -D system properties are used instead of extra [env] entries
+  # because Spring Boot ranks Java system properties ABOVE OS environment
+  # variables - so this overrides HP_MIGRATION_ENABLED=false (and disables
+  # the api web-tier beans) for THIS invocation only, without touching what
+  # regular instances boot with. Same image, same entrypoint
+  # (JarLauncher) as every other zone - see backend/Dockerfile.
+  release_command = "java -Dhydropark.api.enabled=false -Dhydropark.migration.enabled=true -Dhydropark.migration.exit-after=true org.springframework.boot.loader.launch.JarLauncher"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "15s"
+  method = "GET"
+  path = "/actuator/health/readiness"
+  timeout = "5s"
+
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "15s"
+  method = "GET"
+  path = "/actuator/health/liveness"
+  timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

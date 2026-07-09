@@ -1,0 +1,30 @@
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">HP</span>
+      <span class="brand-name">Hydropark</span>
+      <span class="brand-tag">Phase 0 prototype</span>
+    </div>
+    @if (isMock) {
+      <button type="button" class="dev-btn" (click)="downloadLog()" title="Dev-only: download the in-memory JSONL session log (P0-06.1)">
+        ⬇ session log
+      </button>
+    }
+  </header>
+
+  <app-skill-toggle></app-skill-toggle>
+
+  <main class="layout">
+    <section class="chat-region">
+      <app-chat></app-chat>
+    </section>
+
+    <app-panel-dock [open]="skillEnabled()">
+      <aside class="side-region" aria-label="Skill panels">
+        <app-timer-stack></app-timer-stack>
+        <app-editable-list></app-editable-list>
+        <app-segmented-toggle></app-segmented-toggle>
+      </aside>
+    </app-panel-dock>
+  </main>
+</div>

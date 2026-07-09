@@ -1,0 +1,53 @@
+# Hydropark - `issuer` trust zone (BACKEND-DESIGN.md §2, §6.2;
+# AGENT-CONTRACT.md "Trust zones"; sprint/phase-1-backend.md P1-21.1b).
+#
+# The Ed25519 (JWS) License Issuer. NO [http_service] / [[services]] block -
+# INTENTIONAL. This app takes no public ingress at all; it is reachable
+# ONLY from other Fly apps in the same org, over the private 6PN network, at
+# http://hydropark-issuer.internal:8080 (Flycast/6PN - no public IP is ever
+# allocated to this app). BACKEND-DESIGN §2: "the License Issuer is
+# reachable only from the settlement worker / Entitlements over an internal
+# path... it has no route from the public edge."
+#
+# Do not add a services/http_service block here without re-reading §6.2 N3
+# ("isolation ≠ authorization") - the Issuer's safety also depends on it
+# independently re-verifying settlement on every call, not merely on being
+# unreachable; but staying unreachable from the public edge is still the
+# first, physical layer of that defense, and this file is what makes it true.
+#
+# Sole holder of HP_LICENSE_PRIVATE_KEY (deploy/fly/bootstrap-secrets.ps1
+# refuses to set it anywhere else).
+
+app = "hydropark-issuer"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[env]
+  SPRING_PROFILES_ACTIVE = "fly"
+  HP_API_ENABLED = "false"
+  HP_ISSUER_ENABLED = "true"
+  HP_WORKER_ENABLED = "false"
+  HP_MIGRATION_ENABLED = "false"
+  # Secrets NOT set here in plaintext (see deploy/fly/bootstrap-secrets.ps1):
+  #   HP_INTERNAL_TOKEN, HP_LICENSE_KID, HP_LICENSE_PRIVATE_KEY,
+  #   HP_LICENSE_PUBLIC_KEY, MONGODB_URI (the hp_issuer Atlas user - see
+  #   deploy/fly/atlas-roles.js - read-only on grants/settled_orders/devices,
+  #   write only on licenses/license_audit).
+  # This is the ONLY app in the fleet that may ever hold HP_LICENSE_PRIVATE_KEY.
+
+# No [http_service], no [[services]]. Machines still get a private 6PN
+# address and respond to health checks defined below without any public
+# ingress config.
+[[checks]]
+  port = 8080
+  type = "http"
+  method = "GET"
+  path = "/actuator/health/readiness"
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,48 @@
+# Hydropark - `worker` trust zone (BACKEND-DESIGN.md §2, §6.2, §7.3;
+# AGENT-CONTRACT.md "Trust zones"; sprint/phase-1-backend.md P1-21.1b).
+#
+# The settlement worker. NO [http_service] / [[services]] block -
+# INTENTIONAL, same reasoning as fly.issuer.toml: no public ingress, reachable
+# only over the private 6PN network at http://hydropark-worker.internal:8080.
+#
+# Sole holder of HP_STRIPE_WEBHOOK_SECRET. Sole principal that writes
+# settled_orders + grants (enforced by the hp_worker Atlas role - see
+# deploy/fly/atlas-roles.js - not merely by network isolation: "isolation ≠
+# authorization", BACKEND-DESIGN §6.2 N3 / §11.2 #4).
+#
+# `api`'s public POST /v1/webhooks/mor captures raw bytes and enqueues only -
+# it verifies nothing and holds no secret (AGENT-CONTRACT.md security
+# property #4). This app is where the HMAC signature is actually checked,
+# over the raw body, before parsing.
+
+app = "hydropark-worker"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[env]
+  SPRING_PROFILES_ACTIVE = "fly"
+  HP_API_ENABLED = "false"
+  HP_ISSUER_ENABLED = "false"
+  HP_WORKER_ENABLED = "true"
+  HP_MIGRATION_ENABLED = "false"
+  HP_PAYMENT_PROVIDER = "stripe"
+  # Secrets NOT set here in plaintext (see deploy/fly/bootstrap-secrets.ps1):
+  #   HP_INTERNAL_TOKEN, HP_STRIPE_API_KEY, HP_STRIPE_WEBHOOK_SECRET,
+  #   MONGODB_URI (the hp_worker Atlas user - see deploy/fly/atlas-roles.js -
+  #   the only role with insert/update on settled_orders + grants).
+  # This is the ONLY app in the fleet that may ever hold HP_STRIPE_WEBHOOK_SECRET.
+  # NEVER set here: HP_LICENSE_PRIVATE_KEY / HP_LICENSE_PUBLIC_KEY.
+
+[[checks]]
+  port = 8080
+  type = "http"
+  method = "GET"
+  path = "/actuator/health/readiness"
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

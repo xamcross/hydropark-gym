@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydropark — install a skill, the app becomes the tool</title>
+<meta name="description" content="A small AI that runs on your own laptop, offline. Install the Cooking Assistant and the whole app rearranges itself around dinner: live timers, an ingredient list it fills in, cups into grams. $5 once. Yours forever.">
+<meta name="theme-color" content="#F3EDE2">
+<link rel="canonical" href="https://hydropark.app/">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Install a skill. The whole app rearranges itself.">
+<meta property="og:description" content="An offline AI assistant that stops being a chat box. $5 once, yours forever, works with the Wi-Fi off.">
+<meta property="og:url" content="https://hydropark.app/">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231B1613'/%3E%3Cpath d='M16 6c4 5 7 7 7 11a7 7 0 1 1-14 0c0-2 1.5-3.5 3-5 .5 1.5 1.5 2 2.5 2C13 11 14 8 16 6Z' fill='%23C8462A'/%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..900,0..100,0..1;1,9..144,300..900,0..100,0..1&family=Newsreader:ital,opsz,wght@0,6..72,200..700;1,6..72,200..700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<!-- Fixed left binder spine -->
+<div class="spine" aria-hidden="true">
+  <span class="spine__text">Hydropark — Edition 0.1 — Offline</span>
+</div>
+
+<!-- Scroll progress, right edge -->
+<div class="progress" aria-hidden="true"><span class="progress__bar" id="progressBar"></span></div>
+
+<a class="skip" href="#transform">Skip to the demonstration</a>
+
+<header class="masthead">
+  <div class="masthead__in">
+    <a class="wordmark" href="#top">
+      <svg class="wordmark__mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4c4.6 5.8 8 8.2 8 12.6a8 8 0 1 1-16 0c0-2.4 1.7-4.2 3.5-5.9.6 1.8 1.7 2.4 2.9 2.4-1.7-2.8-.5-6.4 1.6-9.1Z"/></svg>
+      <span>Hydropark</span>
+    </a>
+    <div class="masthead__right">
+      <span class="pricechip"><em>$5</em> once · yours forever</span>
+      <button class="btn btn--sm" data-checkout data-track="checkout_click" data-loc="masthead">Unlock Cooking Assistant</button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ─────────────────────────────  HERO  ───────────────────────────── -->
+<section class="hero">
+  <span class="reg reg--tl" aria-hidden="true"></span>
+  <span class="reg reg--tr" aria-hidden="true"></span>
+
+  <div class="hero__grid">
+    <div class="hero__copy">
+      <p class="eyebrow rv" style="--d:0ms">
+        <span class="dot"></span> Runs on your laptop · Nothing leaves the machine
+      </p>
+
+      <h1 class="rv" style="--d:70ms">
+        Install a skill.<br>
+        <em>The whole app</em><br>
+        rearranges itself.
+      </h1>
+
+      <p class="lede rv" style="--d:160ms">
+        Hydropark is a small AI assistant that lives on your own computer.
+        Out of the box it is a chat box, and chat boxes are not much use when
+        your hands are covered in flour. Install the <strong>Cooking Assistant</strong>
+        and it stops being a chat box: live timers appear, an ingredient list
+        fills itself in from the recipe, and one switch turns every cup into grams.
+      </p>
+
+      <div class="cta rv" style="--d:240ms">
+        <button class="btn btn--lg" data-checkout data-track="checkout_click" data-loc="hero">
+          Unlock Cooking Assistant — $5
+        </button>
+        <a class="link-quiet" href="#transform">Watch it transform ↓</a>
+      </div>
+
+      <ul class="trust rv" style="--d:320ms">
+        <li>One&nbsp;payment, no subscription</li>
+        <li>Works with the Wi-Fi&nbsp;off</li>
+        <li>No account to&nbsp;use&nbsp;it</li>
+        <li>14-day&nbsp;refund</li>
+      </ul>
+    </div>
+
+    <!-- Typeset equation: base + skill = specialist -->
+    <figure class="equation rv" style="--d:400ms" aria-label="Diagram: a base agent plus a skill equals a specialist tool.">
+      <div class="eq-card eq-card--base">
+        <span class="eq-card__label">Free</span>
+        <div class="eq-card__body">
+          <span class="mini-line w70"></span><span class="mini-line w40"></span>
+          <span class="mini-line w85"></span><span class="mini-line w55"></span>
+        </div>
+        <figcaption>Base agent<br><span>a chat box</span></figcaption>
+      </div>
+
+      <span class="eq-op" aria-hidden="true">+</span>
+
+      <div class="eq-card eq-card--skill">
+        <span class="eq-card__label eq-card__label--flame">$5</span>
+        <div class="eq-card__body eq-card__body--skill">
+          <span class="skill-glyph" aria-hidden="true">
+            <svg viewBox="0 0 40 40"><circle cx="20" cy="21" r="12"/><path d="M20 14v7l5 3"/><path d="M16 6h8"/></svg>
+          </span>
+        </div>
+        <figcaption>Cooking skill<br><span>prompt · tools · panels</span></figcaption>
+      </div>
+
+      <span class="eq-op" aria-hidden="true">=</span>
+
+      <div class="eq-card eq-card--result">
+        <span class="eq-card__label eq-card__label--ink">Yours</span>
+        <div class="eq-card__body eq-card__body--result">
+          <span class="mini-line w60"></span><span class="mini-line w35"></span>
+          <span class="mini-line w70"></span>
+          <span class="mini-panel p1"></span>
+          <span class="mini-panel p2"></span>
+          <span class="mini-panel p3"></span>
+        </div>
+        <figcaption>A cooking tool<br><span>timers · list · units</span></figcaption>
+      </div>
+    </figure>
+  </div>
+
+  <p class="scrollcue rv" style="--d:520ms" aria-hidden="true"><span></span>Scroll</p>
+</section>
+
+<!-- ─────────────────────────────  THESIS  ───────────────────────────── -->
+<section class="thesis">
+  <p class="stepno">01 — The point</p>
+  <blockquote class="pull">
+    When your hands are covered in flour you do not want
+    <em>a paragraph.</em> You want a timer that is
+    <em>already running.</em>
+  </blockquote>
+  <div class="thesis__cols">
+    <p>
+      Every AI app is the same shape: a box you type into, and text that comes back.
+      That shape is fine for essays. It is a poor tool for the things people actually
+      repeat — dinner, packing, a weekend repair — where the work is structured,
+      the hands are busy, and the answer needs somewhere to live.
+    </p>
+    <p>
+      Hydropark takes the other road. A <strong>skill</strong> carries its own interface.
+      Install one and the app grows the panels that task needs, and only those.
+      Remove it and they go away. It is closer to slotting a card into a machine
+      than to opening another chat.
+    </p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────  THE TRANSFORM  ───────────────────────────── -->
+<section class="transform" id="transform">
+  <div class="transform__track" id="track">
+    <div class="transform__pin" id="pin" data-stage="0">
+
+      <div class="transform__head">
+        <p class="stepno">02 — The demonstration</p>
+        <button class="replay" id="replay" type="button">↻ Replay</button>
+      </div>
+
+      <div class="transform__body">
+
+        <!-- Narration rail -->
+        <ol class="rail" id="rail">
+          <li class="rail__step" data-for="0">
+            <span class="rail__no">00</span>
+            <h3>An assistant, and nothing else</h3>
+            <p>The base agent is free and knows a little about everything. It has exactly one panel: the conversation. Useful. Unremarkable.</p>
+          </li>
+          <li class="rail__step" data-for="1">
+            <span class="rail__no">01</span>
+            <h3>Installing takes a second</h3>
+            <p>A skill is a text file, a few icons, and a list of panels to draw. No model weights. No code, so there is nothing it could run on your machine even if it wanted to.</p>
+          </li>
+          <li class="rail__step" data-for="2">
+            <span class="rail__no">02</span>
+            <h3>The app is now a cooking tool</h3>
+            <p>Timers, an ingredient list the agent filled in from your recipe, and a switch between cups and grams. The timer below is real — it is counting down right now. So is the switch. Try them.</p>
+          </li>
+          <li class="rail__step" data-for="3">
+            <span class="rail__no">03</span>
+            <h3>Two skills, one list</h3>
+            <p>Add Nutrition Coach and it reads the ingredient list Cooking wrote — the same list, not a copy. Save the pair as a template and it comes back exactly like this next Tuesday.</p>
+          </li>
+        </ol>
+
+        <!-- The application window -->
+        <div class="appwin" id="appwin">
+          <div class="appwin__bar">
+            <span class="appwin__mark" aria-hidden="true"></span>
+            <span class="appwin__title">
+              <b data-title="0">Base Agent</b>
+              <b data-title="2">Cooking Assistant</b>
+              <b data-title="3">Weeknight Chef <i>· 2 skills</i></b>
+            </span>
+            <span class="capacity" title="Capacity: memory and speed headroom on this machine">
+              <span class="capacity__label">Capacity</span>
+              <span class="capacity__track"><span class="capacity__fill"></span></span>
+            </span>
+            <span class="status"><span class="status__dot"></span>Offline · local</span>
+          </div>
+
+          <div class="appwin__stage">
+
+            <!-- Chat column -->
+            <div class="chat">
+              <div class="chat__scroll">
+                <div class="chat__set" data-set="base">
+                  <p class="msg msg--user">What can you do?</p>
+                  <p class="msg msg--bot">I can answer questions, summarise text, draft messages, and help you think something through. Ask me anything and I will do my best.</p>
+                  <p class="msg msg--user">Help me cook carbonara for four.</p>
+                  <p class="msg msg--bot">Certainly. Carbonara traditionally uses guanciale, pecorino romano, eggs, black pepper and spaghetti. Bring a large pot of salted water to the boil, then…</p>
+                  <p class="msg msg--note">…and then it keeps talking. Nothing is timed. Nothing is written down.</p>
+                </div>
+
+                <div class="chat__set" data-set="cook">
+                  <p class="msg msg--user">Help me cook carbonara for four.</p>
+                  <p class="msg msg--bot">
+                    Good choice. I have put the shopping on your ingredient list and set up two timers —
+                    start the pasta whenever the water is at a rolling boil.
+                    <br><br>
+                    One thing that ruins carbonara: heat. Pull the pan off the flame before the eggs go in and
+                    keep it under <span class="qty" data-us="165 °F" data-si="74 °C">165 °F</span>, or you get
+                    sweet scrambled eggs on spaghetti.
+                  </p>
+                  <p class="msg msg--sys" data-sys="start">⏱ Pasta timer started · 9:00</p>
+                  <div class="chat__anchor" id="chatAnchor"></div>
+                </div>
+              </div>
+
+              <div class="chat__input" aria-hidden="true">
+                <span>Message your assistant…</span>
+                <span class="chat__send"></span>
+              </div>
+            </div>
+
+            <!-- Side region: skill panels -->
+            <aside class="dock" aria-label="Skill panels">
+              <!-- segmented_toggle -->
+              <section class="panel panel--units" data-panel="units" style="--i:0">
+                <h4 class="panel__title">Units <span class="panel__badge">segmented_toggle</span></h4>
+                <div class="seg" role="radiogroup" aria-label="Unit system">
+                  <button class="seg__opt is-on" role="radio" aria-checked="true" data-units="us" type="button">US</button>
+                  <button class="seg__opt" role="radio" aria-checked="false" data-units="si" type="button">Metric</button>
+                  <span class="seg__thumb" aria-hidden="true"></span>
+                </div>
+              </section>
+
+              <!-- timer_stack -->
+              <section class="panel panel--timers" data-panel="timers" style="--i:1">
+                <h4 class="panel__title">Timers <span class="panel__badge">timer_stack</span></h4>
+
+                <div class="timer" id="timerPasta" data-total="540" data-left="14">
+                  <svg class="timer__ring" viewBox="0 0 44 44" aria-hidden="true">
+                    <circle class="timer__ring-bg" cx="22" cy="22" r="19"/>
+                    <circle class="timer__ring-fg" cx="22" cy="22" r="19"/>
+                  </svg>
+                  <span class="timer__name">Pasta</span>
+                  <span class="timer__time" role="timer" aria-live="off">0:14</span>
+                  <button class="timer__act" type="button" data-act="toggle" aria-label="Pause pasta timer">❚❚</button>
+                </div>
+
+                <div class="timer is-idle" id="timerGuanciale" data-total="360" data-left="360">
+                  <svg class="timer__ring" viewBox="0 0 44 44" aria-hidden="true">
+                    <circle class="timer__ring-bg" cx="22" cy="22" r="19"/>
+                    <circle class="timer__ring-fg" cx="22" cy="22" r="19"/>
+                  </svg>
+                  <span class="timer__name">Guanciale</span>
+                  <span class="timer__time" role="timer" aria-live="off">6:00</span>
+                  <button class="timer__act" type="button" data-act="toggle" aria-label="Start guanciale timer">▶</button>
+                </div>
+
+                <p class="panel__foot">Alarms sound even when the app is hidden.</p>
+              </section>
+
+              <!-- editable_list -->
+              <section class="panel panel--list" data-panel="ingredients" style="--i:2">
+                <h4 class="panel__title">Ingredients <span class="panel__badge">editable_list</span></h4>
+                <ul class="ilist" id="ilist">
+                  <li><label><input type="checkbox"><span class="ilist__name">Spaghetti</span><span class="qty" data-us="1 lb" data-si="450 g">1 lb</span></label></li>
+                  <li><label><input type="checkbox"><span class="ilist__name">Guanciale</span><span class="qty" data-us="8 oz" data-si="225 g">8 oz</span></label></li>
+                  <li><label><input type="checkbox"><span class="ilist__name">Pecorino romano</span><span class="qty" data-us="1.5 cups" data-si="100 g">1.5 cups</span></label></li>
+                  <li><label><input type="checkbox"><span class="ilist__name">Eggs</span><span class="qty">4 + 2 yolks</span></label></li>
+                  <li><label><input type="checkbox"><span class="ilist__name">Black pepper</span><span class="qty" data-us="2 tsp" data-si="10 ml">2 tsp</span></label></li>
+                </ul>
+                <p class="allergen"><b>Contains</b> eggs · milk · wheat
+                  <span>Checked by a fixed rule, never written by the AI.</span></p>
+              </section>
+
+              <!-- key_value_panel (second skill) -->
+              <section class="panel panel--nutri" data-panel="nutrition" style="--i:3">
+                <h4 class="panel__title">Nutrition <span class="panel__badge panel__badge--alt">reads · ingredients</span></h4>
+                <dl class="kv">
+                  <div><dt>Calories</dt><dd>712 kcal</dd></div>
+                  <div><dt>Protein</dt><dd>31 g</dd></div>
+                  <div><dt>Carbohydrate</dt><dd>68 g</dd></div>
+                  <div><dt>Fat</dt><dd>34 g</dd></div>
+                </dl>
+                <p class="panel__foot">Per serving, four servings. Informational only — not medical advice.</p>
+              </section>
+            </aside>
+
+            <!-- Install sheet (stage 1) -->
+            <div class="sheet" role="status" aria-live="polite">
+              <div class="sheet__card">
+                <p class="sheet__kicker">Installing</p>
+                <h3 class="sheet__name">Cooking Assistant <span>v1.2.0</span></h3>
+                <p class="sheet__cap">This skill may</p>
+                <ul class="sheet__perms">
+                  <li class="yes">set timers</li>
+                  <li class="yes">convert units</li>
+                  <li class="yes">manage a list</li>
+                  <li class="no">reach the network</li>
+                  <li class="no">touch your files</li>
+                  <li class="no">run code, ever</li>
+                </ul>
+                <div class="sheet__bar"><span class="sheet__fill"></span></div>
+                <p class="sheet__pct"><span><span id="installPct">0</span>%</span><span class="sheet__sig">signature verified · ed25519</span></p>
+              </div>
+            </div>
+
+            <!-- Template toast (stage 3) -->
+            <p class="toast" role="status">Saved as a template — <b>“Weeknight Chef”</b></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────  OFFLINE (dark slab)  ───────────────────────────── -->
+<section class="offline" id="offline">
+  <div class="offline__in">
+    <p class="stepno stepno--night">03 — The part nobody else offers</p>
+
+    <div class="offline__grid">
+      <div>
+        <h2 class="h2 h2--night">Pull the plug.<br><em>It keeps working.</em></h2>
+        <p class="lede lede--night">
+          The AI is a two-gigabyte file on your hard drive. It is not a login to somebody's
+          server. Your conversations do not leave the machine, because there is nowhere for
+          them to go. And nothing you bought has an expiry date — the app checks a
+          <strong>signature</strong>, not a clock, so it never needs to phone home to let you cook.
+        </p>
+
+        <div class="killswitch">
+          <button class="switch" id="wifi" type="button" role="switch" aria-checked="true">
+            <span class="switch__track"><span class="switch__thumb"></span></span>
+            <span class="switch__label">Wi-Fi</span>
+          </button>
+          <p class="killswitch__say" id="wifiSay">Connected. Not that it matters much.</p>
+        </div>
+      </div>
+
+      <table class="matrix">
+        <caption>What still works at 35,000 feet</caption>
+        <tbody>
+          <tr><th scope="row">Chat with the assistant</th><td class="ok">Offline</td></tr>
+          <tr><th scope="row">Use every skill you own</th><td class="ok">Offline</td></tr>
+          <tr><th scope="row">Timers, lists, unit switching</th><td class="ok">Offline</td></tr>
+          <tr><th scope="row">Save and reload templates</th><td class="ok">Offline</td></tr>
+          <tr><th scope="row">Check that you own a skill</th><td class="ok">Offline</td></tr>
+          <tr><th scope="row">Buy or download a new skill</th><td class="no">Needs internet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────  THE SKU  ───────────────────────────── -->
+<section class="sku">
+  <p class="stepno">04 — What five dollars buys</p>
+
+  <div class="sku__grid">
+    <article class="card">
+      <div class="card__head">
+        <h2>Cooking Assistant</h2>
+        <p class="card__meta">Home &amp; Lifestyle · v1.2.0 · one-time&nbsp;$5</p>
+      </div>
+      <div class="card__cols">
+        <div>
+          <h4>It becomes</h4>
+          <p>A practical cook. Explains substitutions, scales a recipe to the number of people
+             at the table, and warns you before the thing that ruins the dish.</p>
+        </div>
+        <div>
+          <h4>It adds three panels</h4>
+          <ul class="ticks">
+            <li>Timer stack — many named timers, with alarms</li>
+            <li>Ingredient list — the agent fills it; you check it off</li>
+            <li>US ↔ Metric — flips every quantity, everywhere</li>
+          </ul>
+        </div>
+        <div>
+          <h4>It can only</h4>
+          <p>Start timers, convert units, and edit that one list. No network. No files.
+             No code. That is enforced by the app, not promised by the skill.</p>
+        </div>
+      </div>
+      <p class="card__rule" aria-hidden="true"></p>
+      <p class="card__foot">
+        Comes with two free skills already installed: <b>Kitchen Timer &amp; Units</b> and <b>Packing List</b>.
+        Combine anything you own; save the combination as a template.
+      </p>
+    </article>
+
+    <aside class="honest">
+      <h3>The unglamorous part</h3>
+      <p>We would rather you read this now than discover it later.</p>
+      <ol class="steps">
+        <li><b>You pay $5.</b> We email you a download link and a one-time unlock code.</li>
+        <li><b>You install Hydropark</b> (Windows or macOS). The first run downloads the
+            AI model — about <b>2 GB</b>, once.</li>
+        <li><b>You paste the code.</b> The Cooking Assistant unlocks. About four minutes,
+            most of it waiting on the download.</li>
+      </ol>
+      <p class="honest__note">
+        This is an early release. One paid skill, two free ones, no marketplace yet.
+        If it disappoints you, ask for your money back within 14 days and we will send it,
+        no questions and no survey.
+      </p>
+    </aside>
+  </div>
+</section>
+
+<!-- ─────────────────────────────  HARDWARE  ───────────────────────────── -->
+<section class="hw">
+  <p class="stepno">05 — Will it run on your laptop?</p>
+  <p class="hw__lede">Probably. We would rather tell you the truth than sell you a disappointment.</p>
+  <table class="ledger">
+    <thead>
+      <tr><th scope="col">Your machine</th><th scope="col">What happens</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th scope="row">8 GB memory, no graphics card</th>
+        <td>It works. The assistant writes at roughly four to seven words a second — reading speed, near enough. The timers and panels are instant regardless.</td>
+      </tr>
+      <tr>
+        <th scope="row">16 GB memory, a recent processor</th>
+        <td>Comfortable. This is what we design against.</td>
+      </tr>
+      <tr>
+        <th scope="row">Any real graphics card</th>
+        <td>Fast, with room to spare for larger models later.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="hw__foot">Windows 10 or later, and macOS 12 or later. Linux is coming, but it is not here.</p>
+</section>
+
+<!-- ─────────────────────────────  PRICE  ───────────────────────────── -->
+<section class="price">
+  <span class="reg reg--bl" aria-hidden="true"></span>
+  <span class="reg reg--br" aria-hidden="true"></span>
+  <div class="price__in">
+    <p class="stepno">06 — The offer</p>
+    <p class="price__fig"><span>$</span>5</p>
+    <h2 class="h2 price__h">Once. Not monthly.<br><em>Yours the way a book is yours.</em></h2>
+    <p class="price__body">
+      Nothing is metered, because nothing runs on our computers. There is no usage limit
+      to hit, no seat to renew, no tier above you. You buy the skill, it sits on your disk,
+      and it works in ten years on a laptop with no internet — that is the whole promise,
+      and we have written down what happens to it if this company ever closes.
+    </p>
+    <button class="btn btn--xl" data-checkout data-track="checkout_click" data-loc="price">
+      Unlock Cooking Assistant — $5
+    </button>
+    <p class="price__fine">
+      Secure checkout. US pricing shown; your local price and tax appear at checkout.
+      14-day refund, no questions.
+    </p>
+  </div>
+</section>
+
+<!-- ─────────────────────────────  FAQ  ───────────────────────────── -->
+<section class="faq">
+  <p class="stepno">07 — Reasonable questions</p>
+  <div class="faq__list">
+
+    <details>
+      <summary>Is it as smart as ChatGPT?</summary>
+      <p>No, and it is not trying to be. Hydropark runs a three-billion-parameter model on your
+      processor; ChatGPT runs something hundreds of times larger in a data centre. For
+      “explain quantum tunnelling,” open ChatGPT. For “carbonara for four, start the pasta,
+      show me that in grams” — a structured job with panels and timers, done offline, with
+      the recipe still on screen when you come back — this is the better tool. We chose the
+      job we can win.</p>
+    </details>
+
+    <details>
+      <summary>Is it really offline?</summary>
+      <p>Yes. After you install it and download the model once, you can disconnect for good.
+      Chatting, every skill you own, timers, lists, unit switching and templates all run
+      locally. The only things that need a connection are buying and downloading new skills.
+      There is no periodic check-in; your license has no expiry date to check.</p>
+    </details>
+
+    <details>
+      <summary>Do I have to make an account?</summary>
+      <p>Not to use it. The base assistant and the two free skills work the moment you open
+      the app. When you buy, we take your email to send you the download and the unlock code.
+      There is no login, no password to forget.</p>
+    </details>
+
+    <details>
+      <summary>What actually happens after I pay?</summary>
+      <p>An email arrives with a download link and a one-time unlock code. You install
+      Hydropark, it fetches the AI model on first run — about 2&nbsp;GB, only ever once —
+      and you paste the code to unlock the Cooking Assistant. Roughly four minutes end to
+      end, most of it the download. We are telling you this because the download is real
+      friction and we would rather you meet it here than be surprised by it after paying.</p>
+    </details>
+
+    <details>
+      <summary>Which AI is inside, and did you train it?</summary>
+      <p>Qwen2.5-3B-Instruct, an open model released under the Apache-2.0 licence, running
+      through llama.cpp inside the app. We did not train it and we do not fine-tune it on
+      your conversations — we could not, since we never see them. A skill steers the model
+      with a personality and a set of tools; that is all a skill is.</p>
+    </details>
+
+    <details>
+      <summary>Can a skill do something bad to my computer?</summary>
+      <p>A skill contains no executable code, so there is nothing in it that could run. It is
+      a text description: a personality, which of the app's built-in tools it may call, and
+      which panels to draw. The tools are ours, fixed and audited — start a timer, convert a
+      unit, edit a list. Before you install anything, the app shows you the complete list of
+      what it may touch. Nothing in that catalogue reaches the network or your files.</p>
+    </details>
+
+    <details>
+      <summary>Is the cooking advice safe to follow?</summary>
+      <p>Treat it as a knowledgeable friend, not an authority. Allergen warnings are produced
+      by a fixed rule from the ingredient list — never written by the AI — but you should still
+      verify allergens and quantities yourself, especially where someone's health depends on it.
+      Nutrition figures are informational and are not medical advice.</p>
+    </details>
+
+    <details>
+      <summary>What if Hydropark goes out of business?</summary>
+      <p>What you installed keeps working. Licenses are verified against keys already sitting
+      on your machine, so no server has to exist for you to cook. We have committed, in the
+      terms, to shipping a final offline bundle — your skills plus permanent licenses — before
+      any shutdown, and to never releasing our signing key. Owning what you buy is the whole
+      idea; it would be a strange thing to reserve the right to take back.</p>
+    </details>
+
+    <details>
+      <summary>Refunds?</summary>
+      <p>Fourteen days. Email us and it is done. We report how many people ask, because a
+      product that needs a hard refund policy is a product with a different problem.</p>
+    </details>
+
+  </div>
+</section>
+
+<section class="closer">
+  <p>The demonstration above is the product, not a video of it.</p>
+  <button class="btn btn--lg" data-checkout data-track="checkout_click" data-loc="closer">
+    Unlock Cooking Assistant — $5
+  </button>
+  <p class="closer__sub">One payment · offline forever · 14-day refund</p>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="foot__in">
+    <p class="foot__mark">Hydropark</p>
+    <p class="foot__fine">
+      Hydropark is an offline AI assistant for Windows and macOS. Recipes, substitutions and
+      nutrition figures are informational only and are not medical, dietary or food-safety advice.
+      Allergen notices are generated by a deterministic rule from your ingredient list and may be
+      incomplete — always verify allergens and quantities yourself. AI-generated content can be wrong.
+    </p>
+    <p class="foot__links">
+      <a href="mailto:hello@hydropark.app">hello@hydropark.app</a>
+      <span aria-hidden="true">·</span>
+      <a href="/privacy">Privacy</a>
+      <span aria-hidden="true">·</span>
+      <a href="/terms">Terms &amp; the offline-forever commitment</a>
+    </p>
+    <p class="foot__cr">© 2026 Hydropark. Your conversations never left this building, because they never left your laptop.</p>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

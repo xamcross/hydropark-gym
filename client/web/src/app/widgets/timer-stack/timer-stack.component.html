@@ -1,0 +1,43 @@
+<section class="panel timer-stack" aria-label="Timers">
+  <header>
+    <h2>Timers</h2>
+    <button type="button" class="add-btn" (click)="showAddForm.set(!showAddForm())" aria-expanded="showAddForm()">
+      + Timer
+    </button>
+  </header>
+
+  @if (showAddForm()) {
+    <form class="add-form" (submit)="$event.preventDefault(); addTimer()">
+      <label class="sr-only" for="timer-label">Timer name</label>
+      <input id="timer-label" type="text" placeholder="Name (e.g. Pasta)" [ngModel]="labelDraft()" (ngModelChange)="labelDraft.set($event)" name="label" />
+      <label class="sr-only" for="timer-minutes">Minutes</label>
+      <input id="timer-minutes" type="number" min="1" step="1" [ngModel]="minutesDraft()" (ngModelChange)="minutesDraft.set($event)" name="minutes" />
+      <span class="unit-label">min</span>
+      <button type="submit">Start</button>
+    </form>
+  }
+
+  @if (timers().length === 0 && !showAddForm()) {
+    <p class="empty">No timers yet — tap "+ Timer" to start one.</p>
+  }
+
+  <ul class="timer-list">
+    @for (t of timers(); track t.timer_id) {
+      <li class="timer-card" [class.finished]="t.remaining_sec === 0">
+        <div class="timer-head">
+          <span class="label">{{ t.label }}</span>
+          <span class="remaining">{{ formatRemaining(t.remaining_sec) }}</span>
+        </div>
+        <div class="progress-track" role="progressbar" [attr.aria-valuenow]="progress(t) * 100" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-fill" [style.width.%]="progress(t) * 100"></div>
+        </div>
+        <div class="timer-actions">
+          <button type="button" (click)="toggleRunning(t)" [disabled]="t.remaining_sec === 0">
+            {{ t.running ? 'Pause' : 'Resume' }}
+          </button>
+          <button type="button" (click)="reset(t)">Reset</button>
+        </div>
+      </li>
+    }
+  </ul>
+</section>

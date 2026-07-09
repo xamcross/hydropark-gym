@@ -1,0 +1,132 @@
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: auto;
+  text-align: center;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 68ch;
+}
+
+.message.role-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message.role-assistant,
+.message.role-system {
+  align-self: flex-start;
+}
+
+.who {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 0 var(--space-2);
+}
+
+.bubble {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-alt);
+  white-space: pre-wrap;
+}
+
+.role-user .bubble {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.role-system .bubble {
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.qty-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(63, 125, 92, 0.16);
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: currentColor;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.composer {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.composer button {
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-4);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-weight: 600;
+}
+
+.composer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tok-rate {
+  margin: 0;
+  padding: 2px var(--space-4) var(--space-2);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-align: right;
+}

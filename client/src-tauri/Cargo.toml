@@ -1,0 +1,71 @@
+[package]
+name = "hydropark"
+version = "0.1.0"
+description = "Hydropark Phase-0 desktop shell — throwaway validation prototype (PHASE0-PLAN.md §0). Not the seed of the production client."
+authors = ["xamcross@gmail.com"]
+edition = "2021"
+rust-version = "1.77"
+publish = false
+
+# NOTE TO BUILDERS: this crate is AUTHORED but has never been compiled in
+# this environment — there is no `cargo` on this machine (see
+# client/README.md "What does not build today"). Treat it as a careful
+# first draft: the shapes, the module boundaries, and the IPC contract are
+# meant to be right; individual API calls against `tauri`/`llama-cpp-2`
+# should be re-checked against those crates' current docs on first real
+# build, since they were written from spec + training knowledge, not a
+# compiler.
+
+# Desktop-only for Phase 0 (PHASE0-PLAN §2: "Win + macOS if cheap, else Win
+# only") — no mobile target, so this stays a plain binary crate rather than
+# the lib+thin-main split `cargo tauri init` scaffolds for mobile-capable
+# apps. Revisit if/when a mobile target is ever in scope.
+[[bin]]
+name = "hydropark"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+thiserror = "1"
+sysinfo = "0.30"
+
+# TODO(P0-02.1): embedded llama.cpp binding. Left commented rather than a
+# hard dependency because (a) it needs a C/C++ toolchain to build llama.cpp
+# itself, which isn't available in this authoring environment either, and
+# (b) it should only be pulled in behind the `real-inference` feature so
+# `cargo check --no-default-features` (mock-inference path) stays cheap.
+# Candidates per SPEC §20 / PHASE0-PLAN §8: `llama-cpp-2` (safe bindings
+# over llama.cpp, supports GBNF grammars) or the lower-level `llama_cpp`
+# crate. Re-evaluate whichever has better GGUF + grammar support at build
+# time; either integrates the same way behind `inference.rs`'s `Engine`
+# trait.
+# llama-cpp-2 = { version = "0.1", optional = true }
+
+[features]
+default = ["mock-inference"]
+# The mock engine (inference.rs) — scripted/deterministic token stream, no
+# model file, no native inference dependency. Default so the crate means
+# something (and is reviewable/testable) without the GGUF or a C++ toolchain.
+mock-inference = []
+# TODO(P0-02.1): currently an empty placeholder feature — the `real`
+# module it gates compiles (so `cargo build --features real-inference`
+# never hard-fails today) but only `unimplemented!()`s. Once the
+# `llama-cpp-2` dependency above is uncommented, change this line to
+# `real-inference = ["dep:llama-cpp-2"]` and fill in `inference.rs`'s
+# `real` module.
+real-inference = []
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"

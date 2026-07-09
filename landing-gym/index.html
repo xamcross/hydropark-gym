@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydropark — the gym for your agent</title>
+<meta name="description" content="A free local AI agent that starts out empty. Bolt on skills — timers, lists, planners, unit switches — in any combination, and the app becomes the tool you needed. $5 a skill, yours forever, runs offline on your own machine.">
+<meta name="theme-color" content="#15181A">
+<link rel="canonical" href="https://hydropark.app/gym">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="The gym for your agent">
+<meta property="og:description" content="Load the bar. Your agent becomes the tool you needed — offline, on your own machine.">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%2315181A'/%3E%3Cg fill='%23F0C21B'%3E%3Crect x='7' y='8' width='4' height='16' rx='1.2'/%3E%3Crect x='11' y='14.4' width='10' height='3.2'/%3E%3Crect x='21' y='8' width='4' height='16' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=Chivo:ital,wght@0,300..800;1,300..800&family=Martian+Mono:wght@300..700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="knurl" aria-hidden="true"></div>
+<a class="skip" href="#rack">Skip to the loadout planner</a>
+
+<header class="bar-top">
+  <div class="bar-top__in">
+    <a class="mark" href="#top">
+      <svg viewBox="0 0 32 32" aria-hidden="true" fill="currentColor">
+        <rect x="3" y="13" width="3" height="6" rx="1"/>
+        <rect x="7.5" y="8" width="4" height="16" rx="1.2"/>
+        <rect x="11.5" y="14.4" width="9" height="3.2"/>
+        <rect x="20.5" y="8" width="4" height="16" rx="1.2"/>
+        <rect x="26" y="13" width="3" height="6" rx="1"/>
+      </svg>
+      <span>Hydropark</span>
+    </a>
+    <p class="bar-top__tag">The agent gym</p>
+    <div class="bar-top__cta">
+      <a class="lnk" href="#membership">Pricing</a>
+      <button class="btn btn--sm" data-track="download" data-loc="masthead">Download — free</button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ══════════════════════════ HERO ══════════════════════════ -->
+<section class="hero">
+  <div class="hero__in">
+    <p class="tape rv" style="--d:0ms">Local · Offline · No subscription</p>
+
+    <h1 class="rv" style="--d:60ms">
+      <span>The gym</span>
+      <span>for your <em>agent</em></span>
+    </h1>
+
+    <div class="hero__body">
+      <p class="lede rv" style="--d:150ms">
+        Hydropark runs a small AI on your own computer. Out of the box it can hold
+        a conversation and very little else. Bolt on <strong>skills</strong> — timers,
+        lists, planners, a switch that turns cups into grams — in whatever combination
+        you want, and the app rebuilds itself around the job. Save the combination.
+        Come back to it on Tuesday.
+      </p>
+      <div class="hero__acts rv" style="--d:230ms">
+        <button class="btn btn--lg" data-track="download" data-loc="hero">Download — free</button>
+        <a class="lnk lnk--arrow" href="#rack">Load the bar ↓</a>
+      </div>
+    </div>
+
+    <dl class="hero__stats rv" style="--d:320ms">
+      <div><dt>Base agent</dt><dd>Free</dd></div>
+      <div><dt>Each skill</dt><dd>$5 once</dd></div>
+      <div><dt>Skills at once</dt><dd>As many as it can carry</dd></div>
+      <div><dt>Runs on</dt><dd>Your CPU</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- ══════════════════════════ THE CORRECTION ══════════════════════════ -->
+<section class="correction">
+  <div class="correction__in">
+    <p class="stencil">00</p>
+    <div>
+      <h2 class="h2">You are not<br>training a model.</h2>
+      <p>
+        Nobody is running gradient descent on your laptop, and anyone who tells you
+        otherwise is selling something. The weights never change. What changes is what
+        the agent is <em>allowed to do</em> — which tools it may call, which voice it
+        speaks in, and what the app looks like while it works.
+      </p>
+      <p>
+        That is the useful half, and it takes a second instead of a data centre. So
+        think of it less as a dojo and more as an equipment room. You are not building
+        muscle. You are loading the bar.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ THE RACK ══════════════════════════ -->
+<section class="rack" id="rack">
+  <div class="rack__head">
+    <p class="stencil">01</p>
+    <div>
+      <h2 class="h2">The rack</h2>
+      <p class="sub">
+        Every skill has a weight: the prompt it adds, the tools it brings, the panels
+        it draws. Load what you like. The bar will tell you when it has had enough —
+        and it is a real limit, computed the way the app computes it.
+      </p>
+    </div>
+    <div class="rack__bench" role="radiogroup" aria-label="Your machine">
+      <span class="bench__label">Your bench</span>
+      <button class="bench__opt" role="radio" aria-checked="false" data-tier="minimum" type="button">
+        <b>8 GB</b><i>no graphics card</i>
+      </button>
+      <button class="bench__opt is-on" role="radio" aria-checked="true" data-tier="recommended" type="button">
+        <b>16 GB</b><i>modern processor</i>
+      </button>
+      <button class="bench__opt" role="radio" aria-checked="false" data-tier="enhanced" type="button">
+        <b>GPU</b><i>discrete or integrated</i>
+      </button>
+    </div>
+  </div>
+
+  <div class="rack__grid">
+
+    <!-- ── the plates ── -->
+    <div class="plates">
+      <div class="plates__head">
+        <h3>Plates</h3>
+        <p class="plates__presets">
+          Try a routine:
+          <button class="preset" data-preset="cooking-assistant,nutrition-coach" type="button">Weeknight Chef</button>
+          <button class="preset" data-preset="packing-list,travel-planner" type="button">Trip Week</button>
+          <button class="preset" data-preset="home-diy,car-care,garden-plants" type="button">Saturday Jobs</button>
+        </p>
+      </div>
+
+      <ul class="plates__list">
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="kitchen-timer" data-name="Kitchen Timer &amp; Units" data-price="0"
+            data-role="primary_eligible" data-priority="20"
+            data-prompt="130" data-fewshot="0" data-compressed="30"
+            data-tools="start_timer,convert_units"
+            data-panels="timer_stack#timers,segmented_toggle#unit_system"
+            data-conflicts="cooking-assistant"
+            data-snippet="Timers and unit conversion."
+            data-persona="You are a brisk kitchen helper. Answer in one or two lines and reach for a timer before you reach for a paragraph.">
+            <span class="plate__price plate__price--free">Free</span>
+            <span class="plate__name">Kitchen Timer &amp; Units</span>
+            <span class="plate__blurb">Timers and a cups-to-grams switch. The free sample of the idea.</span>
+            <span class="plate__meta"><i>130 tok</i><i>2 tools</i><i>2 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="packing-list" data-name="Packing List" data-price="0"
+            data-role="primary_eligible" data-priority="25"
+            data-prompt="160" data-fewshot="0" data-compressed="32"
+            data-tools="list_manage,date_math"
+            data-panels="editable_list#packing_list,date_time_picker#dates"
+            data-writes="packing_list"
+            data-snippet="Packing lists and trip dates."
+            data-persona="You are a calm packing assistant. Ask where and how long, then build the list.">
+            <span class="plate__price plate__price--free">Free</span>
+            <span class="plate__name">Packing List</span>
+            <span class="plate__blurb">A checklist and a date picker. Writes the <code>packing_list</code> slot.</span>
+            <span class="plate__meta"><i>160 tok</i><i>2 tools</i><i>2 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="cooking-assistant" data-name="Cooking Assistant" data-price="5"
+            data-role="primary_eligible" data-priority="60"
+            data-prompt="380" data-fewshot="120" data-compressed="45"
+            data-tools="start_timer,convert_units,list_manage"
+            data-panels="timer_stack#timers,editable_list#ingredients,segmented_toggle#unit_system"
+            data-writes="ingredients"
+            data-conflicts="kitchen-timer"
+            data-snippet="Cooking specialist: recipes, substitutions, timers, units."
+            data-persona="You are a warm, practical cooking assistant. Explain substitutions. Never make authoritative allergen claims.">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Cooking Assistant</span>
+            <span class="plate__blurb">Fills the ingredient list from a recipe, runs the timers, flips the units.</span>
+            <span class="plate__meta"><i>500 tok</i><i>3 tools</i><i>3 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="nutrition-coach" data-name="Nutrition Coach" data-price="5"
+            data-role="secondary_only" data-priority="40"
+            data-prompt="300" data-fewshot="0" data-compressed="38"
+            data-tools="calculate,list_manage"
+            data-panels="key_value_panel#nutrition"
+            data-reads="ingredients"
+            data-snippet="Nutrition: calories and macros for the current list. Informational only."
+            data-persona="">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Nutrition Coach</span>
+            <span class="plate__blurb">Reads whatever is in <code>ingredients</code> and shows the macros. Never leads.</span>
+            <span class="plate__meta"><i>38 tok</i><i>2 tools</i><i>1 panel</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="travel-planner" data-name="Travel Planner" data-price="5"
+            data-role="primary_eligible" data-priority="55"
+            data-prompt="420" data-fewshot="260" data-compressed="44"
+            data-tools="list_manage,date_math,convert_units,quick_note"
+            data-panels="editable_list#itinerary,date_time_picker#dates,table#bookings,key_value_panel#budget"
+            data-writes="trip_dates" data-reads="packing_list"
+            data-snippet="Travel planning: itineraries, dates, budgets."
+            data-persona="You are a seasoned trip planner. Work in days, not adjectives. Confirm dates before you commit to a plan.">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Travel Planner</span>
+            <span class="plate__blurb">The heaviest plate on the rack — it carries worked examples. Reads your packing list.</span>
+            <span class="plate__meta"><i>680 tok</i><i>4 tools</i><i>4 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="home-diy" data-name="Home &amp; DIY" data-price="5"
+            data-role="primary_eligible" data-priority="50"
+            data-prompt="340" data-fewshot="90" data-compressed="40"
+            data-tools="convert_units,calculate,list_manage"
+            data-panels="editable_list#shopping_list,stepper#quantities,table#cut_list"
+            data-writes="shopping_list"
+            data-snippet="Home repair: measurements, materials, cut lists."
+            data-persona="You are a patient, safety-minded handyman. Measure twice in every answer.">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Home &amp; DIY</span>
+            <span class="plate__blurb">Cut lists, materials, quantities. Writes the <code>shopping_list</code> slot.</span>
+            <span class="plate__meta"><i>430 tok</i><i>3 tools</i><i>3 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="garden-plants" data-name="Garden &amp; Plants" data-price="5"
+            data-role="primary_eligible" data-priority="45"
+            data-prompt="300" data-fewshot="0" data-compressed="36"
+            data-tools="start_timer,date_math,list_manage"
+            data-panels="editable_list#plants,date_time_picker#dates,media_note#care"
+            data-reads="shopping_list"
+            data-snippet="Garden care: watering schedules, seasons."
+            data-persona="You are an unhurried gardener. Think in seasons.">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Garden &amp; Plants</span>
+            <span class="plate__blurb">Watering schedules and season notes. Shares the date picker with Travel.</span>
+            <span class="plate__meta"><i>300 tok</i><i>3 tools</i><i>3 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="car-care" data-name="Car Care" data-price="5"
+            data-role="primary_eligible" data-priority="35"
+            data-prompt="310" data-fewshot="0" data-compressed="36"
+            data-tools="date_math,calculate,list_manage"
+            data-panels="table#service_log,date_time_picker#dates,key_value_panel#specs"
+            data-reads="shopping_list"
+            data-snippet="Car maintenance: schedules, fluids, service log."
+            data-persona="You are a methodical mechanic. Give intervals, not opinions.">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Car Care</span>
+            <span class="plate__blurb">Service intervals and a log that remembers what you did last spring.</span>
+            <span class="plate__meta"><i>310 tok</i><i>3 tools</i><i>3 panels</i></span>
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <!-- ── the bar + readout ── -->
+    <div class="bench">
+      <div class="bench__bar">
+        <svg id="barSvg" viewBox="0 0 640 220" aria-hidden="true" focusable="false">
+          <defs>
+            <pattern id="knurlpat" width="4" height="4" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+              <line x1="0" y1="0" x2="0" y2="4" stroke="#0E1113" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <g id="barGroup"></g>
+        </svg>
+        <p class="bench__lead" id="leadLine">Nothing loaded — the base agent speaks for itself.</p>
+      </div>
+
+      <p class="alert" id="alert" role="status" aria-live="assertive"></p>
+
+      <div class="gauge">
+        <div class="gauge__head">
+          <span class="gauge__title">Prompt budget</span>
+          <span class="gauge__val"><b id="tokUsed">0</b> / <span id="tokBudget">2600</span> tokens</span>
+        </div>
+        <div class="gauge__track"><span class="gauge__fill" id="tokFill"></span></div>
+        <p class="gauge__foot">
+          The rest of the context window is reserved for your conversation, so a long
+          chat never quietly evicts a skill.
+        </p>
+      </div>
+
+      <dl class="readout" aria-live="polite">
+        <div><dt>Verdict</dt><dd id="verdict" class="v-ready">Ready</dd></div>
+        <div><dt>Speed</dt><dd><span id="tokps">13.0</span> tok/s</dd></div>
+        <div><dt>Skills</dt><dd id="nSkills">0</dd></div>
+        <div><dt>Tools</dt><dd id="nTools">0</dd></div>
+        <div><dt>Panels</dt><dd id="nPanels">0</dd></div>
+      </dl>
+
+      <div class="wires" id="wires" hidden>
+        <h4>Shared state</h4>
+        <ul id="wiresList"></ul>
+      </div>
+
+      <div class="panelchips" id="panelWrap" hidden>
+        <h4>Panels the app will draw <span id="dupeNote"></span></h4>
+        <ul id="panelList"></ul>
+      </div>
+
+      <details class="assembled">
+        <summary>The system prompt this builds</summary>
+        <pre id="assembled">Load a plate to see it assemble.</pre>
+        <p class="assembled__foot">
+          One skill leads and owns the voice. Everything else contributes a single line,
+          its tools, and its panels — which is why a fifth skill costs almost nothing
+          and the first one costs a lot.
+        </p>
+      </details>
+
+      <div class="basket" id="basket">
+        <div class="basket__row">
+          <span class="basket__label">Your rack</span>
+          <span class="basket__price" id="basketPrice">$0</span>
+        </div>
+        <p class="basket__note" id="basketNote">Both free plates are already in the app. Add a paid one and the price appears here.</p>
+        <div class="basket__acts">
+          <button class="btn" id="buyBtn" data-track="checkout" disabled>Nothing selected</button>
+          <button class="lnk lnk--copy" id="copyBtn" type="button">Copy this loadout</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <noscript>
+    <p class="noscript">The loadout planner needs JavaScript. The catalogue above is the whole
+    of it: two free skills, six at $5, combine them however you like.</p>
+  </noscript>
+</section>
+
+<!-- ══════════════════════════ ROUTINES ══════════════════════════ -->
+<section class="routines">
+  <div class="routines__in">
+    <p class="stencil">02</p>
+    <div class="routines__body">
+      <h2 class="h2">Save the <em>loadout.</em><br>Not the conversation.</h2>
+      <p class="sub">
+        A combination that works is worth keeping. Name it and it becomes a template —
+        the same skills, the same lead voice, the same panels in the same places,
+        pinned to versions that behave the way they did the day you saved them.
+      </p>
+      <ul class="routine-cards">
+        <li>
+          <h4>Weeknight Chef</h4>
+          <p>Cooking Assistant leads · Nutrition Coach reads the ingredient list</p>
+          <span class="routine-cards__slot">ingredients</span>
+        </li>
+        <li>
+          <h4>Trip Week</h4>
+          <p>Travel Planner leads · Packing List writes what you take</p>
+          <span class="routine-cards__slot">packing_list</span>
+        </li>
+        <li>
+          <h4>Saturday Jobs</h4>
+          <p>Home &amp; DIY leads · Car Care and Garden read the shopping list</p>
+          <span class="routine-cards__slot">shopping_list</span>
+        </li>
+      </ul>
+      <p class="routines__foot">
+        Loading a routine is instant and needs no network. It is a small file on your
+        disk that names the skills you already own.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ HOUSE RULES ══════════════════════════ -->
+<section class="rules">
+  <div class="rules__in">
+    <p class="stencil">03</p>
+    <h2 class="h2">House rules</h2>
+    <p class="sub sub--wide">
+      A marketplace of things that reshape your software is only safe if the things
+      cannot do very much. So they cannot.
+    </p>
+
+    <ol class="rules__list">
+      <li>
+        <h3>A skill has no code in it</h3>
+        <p>It is a text file: a personality, a list of which built-in tools it may call,
+        and a description of the panels to draw. There is nothing in it that could run.</p>
+      </li>
+      <li>
+        <h3>The tools are ours, and there are not many</h3>
+        <p>Start a timer. Convert a unit. Edit a list. Do arithmetic. Do date maths.
+        A skill picks from that fixed, audited catalogue or it does without. It cannot
+        invent a tool, reach the network, or touch a file.</p>
+      </li>
+      <li>
+        <h3>One skill leads; the rest assist</h3>
+        <p>Stack four personalities onto a three-billion-parameter model and you get a
+        confused one. So exactly one skill owns the voice — you choose which — and the
+        others contribute a line, their tools, and their panels.</p>
+      </li>
+      <li>
+        <h3>The meter blocks, or it warns. It never shrugs</h3>
+        <p>Run out of context and the combination is refused before you enable it, with
+        the name of the plate to drop. Run low on speed and you get an amber warning and
+        the choice. Nothing is silently downgraded behind your back.</p>
+      </li>
+      <li>
+        <h3>Skills cannot bring their own stylesheet</h3>
+        <p>They pick from the app's design tokens. Twelve skills by twelve authors still
+        look like one program, and every panel is keyboard-operable whether its author
+        thought about that or not.</p>
+      </li>
+      <li>
+        <h3>Nothing goes on the floor untested</h3>
+        <p>Before a skill is published it has to pass a behavioural exam on the reference
+        model — representative prompts in, expected tool calls and panels out — plus a
+        safety review and a hard budget on how much prompt it is allowed to spend.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ══════════════════════════ THE FLOOR IS YOURS ══════════════════════════ -->
+<section class="floor">
+  <div class="floor__in">
+    <p class="stencil stencil--dim">04</p>
+    <h2 class="h2 floor__h">The equipment<br>lives in <em>your house.</em></h2>
+    <div class="floor__cols">
+      <p>
+        The model is a two-gigabyte file on your hard drive. There is no session to
+        renew, no server holding your conversation, no monthly bill that decides whether
+        today is a day you get to cook. Turn the Wi-Fi off and everything above still
+        works — chatting, every skill you own, every routine you saved.
+      </p>
+      <p>
+        What you bought is checked against a signature, not a clock. There is no expiry
+        date and no phone-home, so a laptop that never sees the internet again keeps its
+        plates. And we have written into the terms what happens to all of it if this
+        company ever closes: a final offline bundle, your skills, permanent licences,
+        and never a released signing key.
+      </p>
+    </div>
+    <ul class="floor__ticks">
+      <li>Conversations never leave the machine</li>
+      <li>No account needed to use it</li>
+      <li>Qwen2.5-3B, Apache-2.0, via llama.cpp</li>
+      <li>Windows and macOS</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══════════════════════════ MEMBERSHIP (light slab) ══════════════════════════ -->
+<section class="membership" id="membership">
+  <div class="membership__in">
+    <p class="stencil stencil--ink">05</p>
+    <h2 class="h2 h2--ink">There is no<br>membership fee.</h2>
+    <p class="sub sub--ink">
+      The gym is free. The bar is free. Two plates are free. You buy the plates you
+      want, once, and they are yours the way a book is yours.
+    </p>
+
+    <div class="tiers">
+      <article class="tier">
+        <p class="tier__price">$0</p>
+        <h3>The agent</h3>
+        <p>The app, the local model, and two free skills — Kitchen Timer &amp; Units,
+           and Packing List. No account. No trial that ends.</p>
+        <button class="btn btn--ink" data-track="download" data-loc="membership">Download</button>
+      </article>
+      <article class="tier tier--feature">
+        <p class="tier__price">$5</p>
+        <h3>A plate</h3>
+        <p>Any single skill, one payment, perpetual. Install it on up to five of your
+           machines. Uninstall and reinstall for free, forever.</p>
+        <span class="tier__badge">Most people start here</span>
+      </article>
+      <article class="tier">
+        <p class="tier__price">$18</p>
+        <h3>A rack</h3>
+        <p>Five skills in one go, versus $25 apart. A themed three-pack is $12. Or top
+           up a wallet once and spend it without a checkout each time.</p>
+      </article>
+    </div>
+
+    <p class="membership__fine">
+      Prices shown in US dollars; your local price and tax appear at checkout.
+      Fourteen-day refund, no questions. No subscription, no seats, no usage limits —
+      there is nothing to meter, because it is your processor doing the work.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ FAQ ══════════════════════════ -->
+<section class="faq">
+  <div class="faq__in">
+    <p class="stencil">06</p>
+    <h2 class="h2">Questions a<br>spotter would ask</h2>
+
+    <div class="faq__list">
+      <details>
+        <summary>So I really can't train it?</summary>
+        <p>Not in the sense the word usually means. The model's weights are fixed and
+        identical on every machine. A skill changes the instructions it runs under, the
+        tools it can reach, and the interface you see — not what it learned. We call it a
+        gym because you are loading equipment onto something, not because there is a
+        training loop. If you want a model fine-tuned on your data, this is the wrong
+        product and we would rather say so here than in a refund email.</p>
+      </details>
+
+      <details>
+        <summary>How many skills can it hold at once?</summary>
+        <p>There is no fixed number, which is why there is a meter. Each skill spends
+        some of a prompt budget; the leader spends the most. On an 8&nbsp;GB laptop with no
+        graphics card you will get a comfortable two or three and a warning on the fourth.
+        On 16&nbsp;GB you will stop noticing. Set the bench above to the weakest machine and
+        the planner will start telling you no — that is the real rule, not a marketing number.</p>
+      </details>
+
+      <details>
+        <summary>Why does one skill have to lead?</summary>
+        <p>Because concatenating four personalities onto a three-billion-parameter model
+        produces something with none of them. The lead skill's full instructions go in;
+        every other skill contributes one line describing what it can do, plus its tools
+        and its panels. You pick the leader. The order is deterministic, so the same
+        loadout assembles the same way on every machine, every launch.</p>
+      </details>
+
+      <details>
+        <summary>What happens when two skills disagree?</summary>
+        <p>Some pairs are simply refused — the free Kitchen Timer and the full Cooking
+        Assistant are the same muscle at different sizes, so the app will not let you carry
+        both. Where two skills touch the same list, exactly one of them owns it and the
+        other reads or appends; the app decides, deterministically, and tells you which.
+        Panels that are genuinely identical get merged rather than drawn twice.</p>
+      </details>
+
+      <details>
+        <summary>Can I write my own skill?</summary>
+        <p>Not yet, honestly. The catalogue is first-party and curated so that the safety
+        story above is actually true. A closed-beta SDK goes to a handful of design
+        partners first, and a public one — with the same certification pipeline and a
+        revenue share — comes after that. We would rather ship a small shelf that works
+        than a large one that does not.</p>
+      </details>
+
+      <details>
+        <summary>Is it as good as ChatGPT?</summary>
+        <p>At answering anything, no, and it is not pretending to. It is a small model
+        on your processor. What it has instead is a timer that is already running, a list
+        that stays on screen, a unit switch that works mid-sentence, and no internet
+        connection. For a structured job you repeat every week, that is a better tool.
+        For an essay about the Peloponnesian War, open a browser.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="closer">
+  <p class="closer__kicker">The bar is empty and it is free.</p>
+  <button class="btn btn--xl" data-track="download" data-loc="closer">Download Hydropark</button>
+  <p class="closer__sub">Windows &amp; macOS · ~2 GB model, downloaded once · no account</p>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="foot__in">
+    <p class="foot__mark">Hydropark</p>
+    <p class="foot__fine">
+      An offline AI assistant for Windows and macOS. Skills are declarative packages and
+      contain no executable code. Recipes, nutrition figures, repair guidance and
+      maintenance intervals are informational only, are generated in part by an AI that
+      can be wrong, and are not medical, dietary, food-safety, legal or professional
+      advice — verify anything that matters. Token figures in the planner are the app's
+      own estimates, and speed depends on your machine.
+    </p>
+    <p class="foot__links">
+      <a href="mailto:hello@hydropark.app">hello@hydropark.app</a>
+      <span aria-hidden="true">/</span>
+      <a href="/privacy">Privacy</a>
+      <span aria-hidden="true">/</span>
+      <a href="/terms">Terms &amp; the offline-forever commitment</a>
+    </p>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

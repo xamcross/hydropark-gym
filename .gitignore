@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Secrets. `deploy/.gitignore` also guards deploy/.env; this is the belt to its
+# braces, because a secret committed once is public forever - GitHub caches and
+# indexes it, and deleting the file later does not remove it from history.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.env.generated
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+**/secrets/
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+target/
+backend/target/
+client/src-tauri/target/
+client/web/node_modules/
+client/web/dist/
+client/web/.angular/
+node_modules/
+dist/
+*.jar
+*.class
+
+# ---------------------------------------------------------------------------
+# Local model artifacts - the Qwen GGUF is ~2 GB and is side-loaded, never
+# committed (PHASE0-PLAN §8: bundled/side-loaded, no download manager).
+# ---------------------------------------------------------------------------
+*.gguf
+models/
+
+# ---------------------------------------------------------------------------
+# Tooling / OS
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+
+# ---------------------------------------------------------------------------
+# Design + planning docs are kept OUT of this public repo by owner decision.
+# They remain on disk and are the source of truth; the code references them by
+# section number (e.g. "BACKEND-DESIGN §6.2"). If this repo ever goes private,
+# delete this block and `git add` them - splitting spec from implementation is a
+# maintenance hazard, not a feature.
+# ---------------------------------------------------------------------------
+/SPECIFICATION.md
+/BACKEND-DESIGN.md
+/BACKLOG.md
+/SPRINT-BACKLOG.md
+/PHASE0-PLAN.md
+/sprint/
+backend/docs/KEY-COMPROMISE-RUNBOOK.md

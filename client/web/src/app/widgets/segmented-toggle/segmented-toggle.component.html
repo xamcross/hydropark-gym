@@ -1,0 +1,27 @@
+<section class="panel segmented-toggle" aria-label="Unit system">
+  <header>
+    <h2>Units</h2>
+  </header>
+  <div class="segmented" role="radiogroup" aria-label="Unit system">
+    <button
+      type="button"
+      role="radio"
+      [attr.aria-checked]="system() === 'US'"
+      [class.active]="system() === 'US'"
+      [disabled]="busy()"
+      (click)="flip('US')"
+    >
+      US
+    </button>
+    <button
+      type="button"
+      role="radio"
+      [attr.aria-checked]="system() === 'Metric'"
+      [class.active]="system() === 'Metric'"
+      [disabled]="busy()"
+      (click)="flip('Metric')"
+    >
+      Metric
+    </button>
+  </div>
+</section>

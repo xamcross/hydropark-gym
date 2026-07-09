@@ -1,0 +1,43 @@
+<section class="chat" aria-label="Chat">
+  <div class="transcript" role="log" aria-live="polite">
+    @if (messages().length === 0) {
+      <p class="empty">Say hello — try "Help me cook carbonara for 4" once Kitchen Timer &amp; Units is on.</p>
+    }
+    @for (msg of messages(); track msg.id) {
+      <div class="message" [class]="'role-' + msg.role">
+        <span class="who">{{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Agent' : '·' }}</span>
+        <p class="bubble">
+          @for (piece of renderPieces(msg); track $index) {
+            @if (piece.isQty) {
+              <span class="qty-chip">{{ piece.text }}</span>
+            } @else {
+              <span>{{ piece.text }}</span>
+            }
+          }
+          @if (msg.streaming) {
+            <span class="cursor" aria-hidden="true"></span>
+          }
+        </p>
+      </div>
+    }
+    <div #scrollAnchor></div>
+  </div>
+
+  <form class="composer" (submit)="$event.preventDefault(); send()">
+    <label class="sr-only" for="chat-input">Message</label>
+    <textarea
+      id="chat-input"
+      rows="1"
+      placeholder="Ask the agent…"
+      [ngModel]="draft()"
+      (ngModelChange)="draft.set($event)"
+      name="draft"
+      (keydown)="onKeydown($event)"
+    ></textarea>
+    <button type="submit" [disabled]="!draft().trim()">Send</button>
+  </form>
+
+  @if (tokPerSec(); as tps) {
+    <p class="tok-rate" title="Read-only covariate, never gates a feature (P0-02.3)">{{ tps }} tok/s</p>
+  }
+</section>

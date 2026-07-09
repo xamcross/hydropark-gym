@@ -1,0 +1,7 @@
+# Never commit a filled-in .env - only .env.example is checked in.
+.env
+.env.*
+!.env.example
+
+# Anything generate-keys.ps1/.sh output is redirected to.
+*.env.generated

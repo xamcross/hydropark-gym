@@ -1,0 +1,27 @@
+:host {
+  display: contents;
+}
+
+.dock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 320px;
+  min-width: 320px;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateX(0) scale(1);
+  transition:
+    opacity var(--transition-panel),
+    transform var(--transition-panel),
+    width var(--transition-panel),
+    min-width var(--transition-panel);
+}
+
+.dock.phase-entering,
+.dock.phase-exiting {
+  opacity: 0;
+  transform: translateX(16px) scale(0.98);
+  width: 0;
+  min-width: 0;
+}

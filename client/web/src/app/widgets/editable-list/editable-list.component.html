@@ -1,0 +1,39 @@
+<section class="panel editable-list" aria-label="Ingredients">
+  <header>
+    <h2>Ingredients</h2>
+  </header>
+
+  <form class="add-form" (submit)="$event.preventDefault(); addItem()">
+    <label class="sr-only" for="ingredient-name">Add ingredient</label>
+    <input
+      id="ingredient-name"
+      type="text"
+      placeholder="Add an ingredient…"
+      [ngModel]="nameDraft()"
+      (ngModelChange)="nameDraft.set($event)"
+      name="ingredientName"
+    />
+    <button type="submit" [disabled]="!nameDraft().trim()">Add</button>
+  </form>
+
+  @if (items().length === 0) {
+    <p class="empty">No ingredients yet.</p>
+  }
+
+  <ul class="ingredient-list">
+    @for (item of items(); track item.id) {
+      <li class="ingredient-row" [class.checked]="item.checked">
+        <label class="checkbox-row">
+          <input type="checkbox" [checked]="item.checked" (change)="toggleChecked(item)" />
+          <span class="name">{{ item.name }}</span>
+          @if (item.displayQty !== undefined) {
+            <span class="qty">{{ item.displayQty }} {{ item.displayUnit }}</span>
+          } @else if (item.qty !== undefined) {
+            <span class="qty">{{ item.qty }}</span>
+          }
+        </label>
+        <button type="button" class="remove-btn" (click)="remove(item.id)" [attr.aria-label]="'Remove ' + item.name">×</button>
+      </li>
+    }
+  </ul>
+</section>

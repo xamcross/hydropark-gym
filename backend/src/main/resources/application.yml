@@ -1,0 +1,131 @@
+spring:
+  application:
+    name: hydropark-backend
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/hydropark?replicaSet=rs0}
+      auto-index-creation: false   # indexes are created by versioned migrations, never implicitly
+  jackson:
+    # The entire /v1 wire contract is snake_case (BACKEND-DESIGN §4): `next_cursor`, `skill_id`,
+    # `device_id`, `checkout_url`. Setting it globally means a DTO cannot drift from the contract by
+    # forgetting an annotation. Explicit @JsonProperty still wins where a name needs pinning.
+    # Nulls are NOT omitted: `next_cursor: null` ends pagination, and the license payload carries an
+    # explicit `"exp": null` for perpetual entitlement. Dropping either would change a signed byte
+    # sequence and a documented wire shape.
+    property-naming-strategy: SNAKE_CASE
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    io.hydropark: ${LOG_LEVEL:INFO}
+    org.springframework.data.mongodb.core.MongoTemplate: WARN
+
+hydropark:
+  # ---------------------------------------------------------------------------
+  # Trust zones (BACKEND-DESIGN §2, P1-21.1b). The same image boots as any of the
+  # three; only `api` ever takes public ingress.
+  # ---------------------------------------------------------------------------
+  api:
+    enabled: ${HP_API_ENABLED:true}
+  issuer:
+    enabled: ${HP_ISSUER_ENABLED:true}
+  worker:
+    enabled: ${HP_WORKER_ENABLED:true}
+
+  # Zone-crossing. When a zone runs in-process these URLs are unused.
+  internal:
+    token: ${HP_INTERNAL_TOKEN:}
+    issuer-url: ${HP_ISSUER_URL:}
+    worker-url: ${HP_WORKER_URL:}
+
+  migration:
+    enabled: ${HP_MIGRATION_ENABLED:true}
+    exit-after: ${HP_MIGRATION_EXIT_AFTER:false}
+  seed:
+    enabled: ${HP_SEED_ENABLED:false}
+
+  auth:
+    jwt-private-key: ${HP_JWT_PRIVATE_KEY:}
+    jwt-key-id: ${HP_JWT_KEY_ID:hp-access-dev}
+    issuer-name: hydropark
+    access-token-ttl-seconds: 900
+    refresh-token-ttl-seconds: 5184000   # 60 days
+    refresh-retry-grace-seconds: 60
+
+  licensing:
+    issuer-claim: hydropark-licensing
+    max-devices: 5
+    trusted-key-set-size: 5
+    max-issuances-per-user-per-hour: 20
+    max-issuances-global-per-minute: 600
+    # Ed25519 keys. NEVER commit a private key. Populated from Fly secrets / .env.
+    # deploy/scripts/generate-keys.ps1 emits these.
+    keys:
+      - kid: ${HP_LICENSE_KID:hp-lic-dev}
+        private-key: ${HP_LICENSE_PRIVATE_KEY:}
+        public-key: ${HP_LICENSE_PUBLIC_KEY:}
+        active: true
+
+  payments:
+    # `fake` needs no credentials and is what docker-compose uses by default.
+    # `stripe` requires HP_STRIPE_API_KEY + HP_STRIPE_WEBHOOK_SECRET.
+    provider: ${HP_PAYMENT_PROVIDER:fake}
+    stripe-api-key: ${HP_STRIPE_API_KEY:}
+    stripe-webhook-secret: ${HP_STRIPE_WEBHOOK_SECRET:}
+    success-url: ${HP_CHECKOUT_SUCCESS_URL:hydropark://purchase/callback}
+    cancel-url: ${HP_CHECKOUT_CANCEL_URL:hydropark://purchase/cancel}
+    max-purchases-per-user-per-day: 10
+
+  devices:
+    max-active-slots: 5
+    lifetime-rotation-soft-budget: 15
+
+---
+# Local single-process dev: all three zones in one JVM.
+spring:
+  config:
+    activate:
+      on-profile: local
+hydropark:
+  seed:
+    enabled: true
+
+---
+# docker-compose: each zone is a separate container (see deploy/docker-compose.yml).
+spring:
+  config:
+    activate:
+      on-profile: docker
+logging:
+  level:
+    io.hydropark: DEBUG
+
+---
+# Fly.io. Migrations run as the release_command, never at instance boot.
+spring:
+  config:
+    activate:
+      on-profile: fly
+hydropark:
+  migration:
+    enabled: ${HP_MIGRATION_ENABLED:false}
+  seed:
+    enabled: false
