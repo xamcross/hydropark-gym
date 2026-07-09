@@ -140,8 +140,12 @@ public class GenerateHydroparkKeys {
     & openssl genpkey -algorithm ed25519 -out $edPrivPem 2>$null
     if ($LASTEXITCODE -ne 0) { throw "openssl: failed to generate the Ed25519 key" }
 
-    & openssl pkey -in $edPrivPem -outform DER -out $edPrivDer 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "openssl: failed to DER-encode the Ed25519 private key" }
+    # Private keys must be PKCS#8 (Java reads them with PKCS8EncodedKeySpec). `openssl pkey
+    # -outform DER` writes traditional PKCS#1 for RSA - no AlgorithmIdentifier - which Java rejects
+    # with "algid parse error, not a sequence". Ed25519 has no traditional form and so survives,
+    # which is precisely why the bug hides. `pkcs8 -topk8 -nocrypt` is correct for both.
+    & openssl pkcs8 -topk8 -nocrypt -in $edPrivPem -outform DER -out $edPrivDer 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "openssl: failed to PKCS#8-encode the Ed25519 private key" }
 
     & openssl pkey -in $edPrivPem -pubout -outform DER -out $edPubDer 2>$null
     if ($LASTEXITCODE -ne 0) { throw "openssl: failed to derive the Ed25519 public key" }
@@ -149,8 +153,8 @@ public class GenerateHydroparkKeys {
     & openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out $rsaPrivPem 2>$null
     if ($LASTEXITCODE -ne 0) { throw "openssl: failed to generate the RSA-2048 key" }
 
-    & openssl pkey -in $rsaPrivPem -outform DER -out $rsaPrivDer 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "openssl: failed to DER-encode the RSA private key" }
+    & openssl pkcs8 -topk8 -nocrypt -in $rsaPrivPem -outform DER -out $rsaPrivDer 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "openssl: failed to PKCS#8-encode the RSA private key" }
 
     $edPrivB64 = ((& openssl base64 -A -in $edPrivDer) -join "").Trim()
     $edPubB64 = ((& openssl base64 -A -in $edPubDer) -join "").Trim()

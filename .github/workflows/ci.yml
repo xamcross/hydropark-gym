@@ -92,14 +92,17 @@ jobs:
           # PKCS#8 private / X.509 public, base64 - the exact shape backend/docs and
           # deploy/scripts/generate-keys.sh produce.
           openssl genpkey -algorithm ed25519 -out "$TMP_DIR/ed_priv.pem" 2>/dev/null
-          openssl pkey -in "$TMP_DIR/ed_priv.pem" -outform DER -out "$TMP_DIR/ed_priv.der" 2>/dev/null
+          openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/ed_priv.pem" -outform DER -out "$TMP_DIR/ed_priv.der" 2>/dev/null
           openssl pkey -in "$TMP_DIR/ed_priv.pem" -pubout -outform DER -out "$TMP_DIR/ed_pub.der" 2>/dev/null
           HP_LICENSE_PRIVATE_KEY="$(openssl base64 -A -in "$TMP_DIR/ed_priv.der")"
           HP_LICENSE_PUBLIC_KEY="$(openssl base64 -A -in "$TMP_DIR/ed_pub.der")"
 
           # RSA-2048 keypair for access-token signing (HP_JWT_PRIVATE_KEY), PKCS#8 private, base64.
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$TMP_DIR/rsa_priv.pem" 2>/dev/null
-          openssl pkey -in "$TMP_DIR/rsa_priv.pem" -outform DER -out "$TMP_DIR/rsa_priv.der" 2>/dev/null
+          # MUST be `pkcs8 -topk8`, not `pkey -outform DER`: the latter writes traditional PKCS#1
+          # for RSA (no AlgorithmIdentifier), and Java's PKCS8EncodedKeySpec rejects it with
+          # "algid parse error, not a sequence". Ed25519 has no traditional form, so only `api` dies.
+          openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/rsa_priv.pem" -outform DER -out "$TMP_DIR/rsa_priv.der" 2>/dev/null
           HP_JWT_PRIVATE_KEY="$(openssl base64 -A -in "$TMP_DIR/rsa_priv.der")"
 
           rm -rf "$TMP_DIR"

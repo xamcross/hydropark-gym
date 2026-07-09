@@ -75,12 +75,22 @@ else
   TMP_DIR="$(mktemp -d)"
   trap 'rm -rf "$TMP_DIR"' EXIT
 
+  # Private keys MUST be emitted as PKCS#8, because Java parses them with PKCS8EncodedKeySpec.
+  #
+  # `openssl pkey -outform DER` is NOT that. For RSA it writes the *traditional* PKCS#1
+  # `RSAPrivateKey` encoding - a SEQUENCE of raw INTEGERs with no AlgorithmIdentifier - even though
+  # the PEM it was read from says `BEGIN PRIVATE KEY`. Java then fails with the memorable
+  # "algid parse error, not a sequence", because it looked for an AlgorithmIdentifier SEQUENCE and
+  # found an INTEGER. Ed25519 has no traditional encoding, so it silently comes out as PKCS#8 and
+  # works - which is exactly why this bug hides: the issuer boots and only the api dies.
+  #
+  # `openssl pkcs8 -topk8 -nocrypt` is unambiguous for both algorithms. Use it.
   openssl genpkey -algorithm ed25519 -out "$TMP_DIR/ed_priv.pem" 2>/dev/null
-  openssl pkey -in "$TMP_DIR/ed_priv.pem" -outform DER -out "$TMP_DIR/ed_priv.der" 2>/dev/null
+  openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/ed_priv.pem" -outform DER -out "$TMP_DIR/ed_priv.der" 2>/dev/null
   openssl pkey -in "$TMP_DIR/ed_priv.pem" -pubout -outform DER -out "$TMP_DIR/ed_pub.der" 2>/dev/null
 
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$TMP_DIR/rsa_priv.pem" 2>/dev/null
-  openssl pkey -in "$TMP_DIR/rsa_priv.pem" -outform DER -out "$TMP_DIR/rsa_priv.der" 2>/dev/null
+  openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/rsa_priv.pem" -outform DER -out "$TMP_DIR/rsa_priv.der" 2>/dev/null
 
   # -A: single-line output, no 64-char wrapping - reads DER from a FILE
   # (never piped raw binary between two processes).

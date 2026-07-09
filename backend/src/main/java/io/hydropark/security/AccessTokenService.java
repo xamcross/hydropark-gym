@@ -16,6 +16,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.RSAPublicKeySpec;
 import java.text.ParseException;
@@ -69,7 +70,23 @@ public class AccessTokenService {
     } else {
       byte[] der = Base64.getDecoder().decode(configured.replaceAll("\\s", ""));
       KeyFactory kf = KeyFactory.getInstance("RSA");
-      this.privateKey = (RSAPrivateKey) kf.generatePrivate(new PKCS8EncodedKeySpec(der));
+      try {
+        this.privateKey = (RSAPrivateKey) kf.generatePrivate(new PKCS8EncodedKeySpec(der));
+      } catch (InvalidKeySpecException e) {
+        // The overwhelmingly common cause is a PKCS#1 key where PKCS#8 was expected. `openssl pkey
+        // -outform DER` emits traditional PKCS#1 for RSA - a SEQUENCE of bare INTEGERs with no
+        // AlgorithmIdentifier - and the JDK reports that as "algid parse error, not a sequence",
+        // which names the symptom and hides the cause. Detect the shape and say what to run.
+        boolean looksLikePkcs1 = der.length > 6 && der[0] == 0x30 && der[4] == 0x02 && der[7] == 0x02;
+        throw new IllegalStateException(
+            "hydropark.auth.jwt-private-key could not be parsed as PKCS#8"
+                + (looksLikePkcs1
+                    ? ": it looks like a traditional PKCS#1 RSAPrivateKey. Re-encode it with "
+                        + "`openssl pkcs8 -topk8 -nocrypt -in key.pem -outform DER` "
+                        + "(NOT `openssl pkey -outform DER`, which writes PKCS#1 for RSA)."
+                    : " (expected base64 of a DER PrivateKeyInfo)."),
+            e);
+      }
       this.publicKey =
           (RSAPublicKey)
               kf.generatePublic(
