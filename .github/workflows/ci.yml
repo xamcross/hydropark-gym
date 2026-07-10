@@ -150,3 +150,26 @@ jobs:
         if: always()
         working-directory: deploy
         run: docker compose down -v
+
+  client-rust:
+    name: client (cargo build)
+    runs-on: windows-latest   # Tauri's Windows target is the one we ship; WebView2 ships with the runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri
+      - name: Build the Angular bundle the Tauri build embeds
+        run: npm ci && npm run build
+        working-directory: client/web
+      # `--features custom-protocol` is NOT optional. Without it tauri-build emits cfg(dev) and the
+      # release binary loads build.devUrl instead of the embedded frontend - it compiles, links, and
+      # opens on "can't reach this page". See client/README.md.
+      - name: cargo build --release --features custom-protocol
+        run: cargo build --release --features custom-protocol
+        working-directory: client/src-tauri
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: client/src-tauri
+        continue-on-error: true   # warnings are reported, not gating, while the crate is Phase-0 draft

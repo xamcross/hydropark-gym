@@ -8,32 +8,54 @@
 
 | Part | State | Command |
 |---|---|---|
-| `web/` — Angular UI | **Builds and runs.** Verified. | `cd web && npm install && npm run build` |
-| `src-tauri/` — Rust core | **Authored, never compiled.** | see below |
+| `web/` — Angular UI | **Builds.** Verified. | `cd web && npm install && npm run build` |
+| `src-tauri/` — Rust core | **Builds, links, and runs.** Verified on Windows. | see below |
 
-`npm run build` produces `web/dist/web` (~249 kB initial bundle).
+`npm run build` produces `web/dist/web/browser/` (~249 kB initial bundle). Note the `browser/`
+subdirectory — Angular 17+ nests it, and that is the path `tauri.conf.json`'s `frontendDist` points at.
 
-### The Rust core does not compile here
-
-There is **no Rust toolchain on this machine** (`cargo` is not installed), and the Qwen2.5-3B GGUF is
-not bundled. Nothing in `src-tauri/` has ever been type-checked. Treat every line of it as a draft.
-
-To build it you need, in order:
+### Building
 
 ```bash
-# 1. Rust toolchain
-winget install Rustlang.Rustup      # or https://rustup.rs
+# Prerequisites (Windows): Rust (rustup, MSVC host), Visual Studio Build Tools with the
+# C++ workload, the Windows SDK, and the WebView2 runtime (Windows 11 ships it).
 
-# 2. Tauri CLI
-cargo install tauri-cli
+cd web && npm install && npm run build      # the Tauri build embeds this output
 
-# 3. The base model, placed where tauri.conf.json expects it
-#    qwen2.5-3b-instruct-q4_k_m.gguf
-
-# 4. Build
-cd src-tauri && cargo build
-cargo tauri dev
+cd ../src-tauri
+cargo run                                   # dev: loads devUrl, needs `npm run start` in ../web
+cargo build --release --features custom-protocol    # production: embeds the frontend
 ```
+
+Release binary: `src-tauri/target/release/hydropark.exe` (~3.3 MB).
+
+### Two traps that compile, link, launch — and are still broken
+
+Both of these were shipped-looking bugs. Neither produces a compiler warning.
+
+**1. `--features custom-protocol` is not optional for a real build.** Without it, `tauri-build` emits
+`cfg(dev)` and the binary loads `build.devUrl` (`http://localhost:4200`) *even in `--release`*. The app
+opens on WebView2's "Hmmm… can't reach this page / ERR_CONNECTION_REFUSED". The `tauri build` CLI
+passes the feature for you; a bare `cargo build --release` does not. The feature is declared in
+`Cargo.toml` — do not remove it.
+
+**2. Angular's critical-CSS inliner produces a stylesheet Tauri's CSP will not activate.** The
+Angular application builder rewrites the stylesheet link to
+`<link rel="stylesheet" media="print" onload="this.media='all'">`, which only becomes active via an
+**inline event handler**. Tauri's CSP (`default-src 'self'`, no `script-src`) blocks inline handlers,
+so the `onload` never fires, the sheet stays `media="print"`, and the app renders permanently
+unstyled — while every asset returns 200. The fix is `optimization.styles.inlineCritical: false` in
+`angular.json` (already set), **not** loosening the CSP.
+
+### Still stubbed
+
+- `src-tauri/src/inference.rs` — the llama.cpp binding is a `TODO(P0-02.1)` seam. `mock-inference` is
+  the default feature; `real-inference` is an empty placeholder. The `llama-cpp-2` dependency is
+  commented out in `Cargo.toml` because it needs a C++ toolchain and the GGUF, neither of which the
+  build requires today. The Qwen2.5-3B model is **not** bundled.
+- OS timer notification + sound (`P0-05.4`) is authored; the `notification` plugin is wired in Rust.
+  Note `plugins.notification` must be **absent** from `tauri.conf.json` — the v2 plugin's config type
+  is a unit, so even `"notification": {}` fails to deserialize and panics at startup.
 
 Until then, the UI runs against a **mock inference stream** (`web/src/app/ipc/mock-ipc.service.ts`),
 so the chat, widgets, and skill transform are all exercisable without a model. That is deliberate:

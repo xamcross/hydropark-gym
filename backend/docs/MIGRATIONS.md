@@ -158,3 +158,39 @@ environment bootstrap. In practice this gap is currently unreachable in the ship
 (which hardcodes `seed.enabled: false` regardless of this flag combination) — the risk is
 scoped to whoever wires a docker-compose or CI job that sets both flags true expecting a combined
 one-shot migrate-and-seed step.
+
+## Re-keying a document whose `_id` is a natural key
+
+Most collections here use a random UUIDv7 `_id`, so a value that turns out to be wrong is renamed
+with a one-line `$set` on a field. `skills._id` and `bundles._id` are different: the human slug
+**is** the `_id` (AGENT-CONTRACT), and **MongoDB cannot update `_id`**. `V011__rename_kitchen_timer_sku`
+is the reference example — it renamed the free timer slug `kitchen-timer-units` → `kitchen-timer`.
+The recipe:
+
+1. **Copy, don't update.** Read the old document, insert a copy under the new `_id`, then delete the
+   old one. There is no in-place `_id` rename.
+2. **Chase the references yourself — the database won't.** There are **no cross-collection foreign
+   keys** (§11.2 #3), and `regional_prices` is polymorphic (`target_type` + `target_id`), so nothing
+   errors if you miss one. Enumerate references by hand from the schema and the seeder: for the timer
+   slug that was `skill_versions.skill_id`, `bundle_members.skill_id`, `regional_prices` (`target_type='skill'`),
+   `grants.skill_id`, `licenses.skill_id`, `license_audit.skill_id`.
+3. **Watch for the slug hiding inside a _composite_ `_id`.** `CatalogSeeder` mints deterministic
+   composite ids — `"<skill_id>@<version>"` (skill_versions), `"<bundle_id>::<skill_id>"`
+   (bundle_members), `"<target_type>:<target_id>:<region>"` (regional_prices) — so those `_id`s embed
+   the slug and must be **re-keyed too**, not just their `skill_id`/`target_id` field. A stale
+   `kitchen-timer-units@1.0.0` still carries the old slug, violates no index, and sails through
+   review. Rows with a UUIDv7 `_id` (grants/licenses/license_audit) need only the field renamed.
+4. **Don't rewrite what the rename doesn't actually change.** `skill_versions.package_uri` is a
+   pointer to a stored object the migration can't move; `package_sha256`/`signature` are facts about
+   the package bytes. A slug rename leaves all three correct-as-is; rewriting the pointer without
+   relocating the object would break downloads.
+5. **A signed token is not re-signed by renaming its row.** `licenses.skill_id` (and any JWS payload)
+   was signed over the old string; editing the stored field does not re-sign the token. The remedy is
+   **re-issue**, not a field edit — document it even when (as here, a free skill) no such row should
+   exist.
+6. **Make it crash-safe without leaning on a transaction.** Migrations must be idempotent anyway (the
+   ledger insert is outside `apply()`), so order the writes with the old natural-key document as the
+   **completion sentinel**: insert the new-keyed doc first, chase all references, delete the old
+   natural-key doc **last**. Guard on "does the old key still exist" — it stays true until the final
+   write, so any crash is resumed by simply re-running. Running twice, or against a database already
+   seeded under the new slug, is then a clean no-op.

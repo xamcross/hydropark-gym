@@ -52,6 +52,18 @@ sysinfo = "0.30"
 
 [features]
 default = ["mock-inference"]
+
+# Serve the embedded frontend bundle instead of `build.devUrl`.
+#
+# DO NOT REMOVE. Without it `tauri-build` emits `cfg(dev)` and the app loads
+# http://localhost:4200 even in a `--release` build - so a shipped binary opens on
+# WebView2's "can't reach this page / ERR_CONNECTION_REFUSED", having compiled, linked
+# and launched without a single warning. The `tauri build` CLI passes this feature for
+# you; a bare `cargo build --release` does not, which is exactly how this was missed.
+#
+#   production : cargo build --release --features custom-protocol
+#   dev        : cargo run                    (devUrl + `npm --prefix ../web run start`)
+custom-protocol = ["tauri/custom-protocol"]
 # The mock engine (inference.rs) — scripted/deterministic token stream, no
 # model file, no native inference dependency. Default so the crate means
 # something (and is reviewable/testable) without the GGUF or a C++ toolchain.

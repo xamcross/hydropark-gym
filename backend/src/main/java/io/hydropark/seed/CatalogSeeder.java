@@ -88,7 +88,12 @@ public class CatalogSeeder implements ApplicationRunner {
     return List.of(
         // --- free (2) ---
         new SkillSeed(
-            "kitchen-timer-units",
+            // Slug is "kitchen-timer" (matches landing-gym/), NOT "kitchen-timer-units". The
+            // display name keeps the "& Units" wording. Every derived value in this seeder
+            // (skills._id, skill_versions._id/skill_id/package_uri/package_sha256/signature) is a
+            // function of this id, so this single change re-slugs the whole free timer skill.
+            // V011RenameKitchenTimerSku re-keys databases seeded under the old slug.
+            "kitchen-timer",
             "Kitchen Timer & Units",
             "kitchen",
             true,

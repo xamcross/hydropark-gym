@@ -41,8 +41,5 @@
     "resources": [],
     "longDescription": "Hydropark Phase-0 prototype — a throwaway validation build (PHASE0-PLAN.md §0). Do not distribute as a production artifact.",
     "shortDescription": "Hydropark (Phase 0 prototype)"
-  },
-  "plugins": {
-    "notification": {}
   }
 }
