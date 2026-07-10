@@ -102,7 +102,7 @@ class LicenseIssuerAuthorizationTest {
 
     props = LicensingTestKeys.propsWithFreshKey("hp-lic-test");
     keys = new TrustedKeySet(props);
-    signer = new LicenseSigner(SignerConfig.jdkSignerFrom(keys), props);
+    signer = new LicenseSigner(SignerConfig.signerFrom(keys), props);
     verifier = new LicenseVerifier(keys, props);
     rateLimiter = new IssuanceRateLimiter(template, props);
 

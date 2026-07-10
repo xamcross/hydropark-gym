@@ -46,10 +46,13 @@ import java.util.Base64;
 
 public class GenerateHydroparkKeys {
   public static void main(String[] args) throws Exception {
-    KeyPairGenerator edGen = KeyPairGenerator.getInstance("Ed25519");
-    KeyPair edKp = edGen.generateKeyPair();
-    String edPriv = Base64.getEncoder().encodeToString(edKp.getPrivate().getEncoded());
-    String edPub = Base64.getEncoder().encodeToString(edKp.getPublic().getEncoded());
+    // ES256 - License Issuer signing key: ECDSA over NIST P-256 (secp256r1). PKCS#8 private /
+    // X.509 SPKI public, base64 - the exact containers hydropark.licensing.keys binds (P1-16.8).
+    KeyPairGenerator ecGen = KeyPairGenerator.getInstance("EC");
+    ecGen.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+    KeyPair licKp = ecGen.generateKeyPair();
+    String licPriv = Base64.getEncoder().encodeToString(licKp.getPrivate().getEncoded());
+    String licPub = Base64.getEncoder().encodeToString(licKp.getPublic().getEncoded());
 
     KeyPairGenerator rsaGen = KeyPairGenerator.getInstance("RSA");
     rsaGen.initialize(2048);
@@ -57,8 +60,8 @@ public class GenerateHydroparkKeys {
     String rsaPriv = Base64.getEncoder().encodeToString(rsaKp.getPrivate().getEncoded());
     String rsaPub = Base64.getEncoder().encodeToString(rsaKp.getPublic().getEncoded());
 
-    System.out.println("ED25519_PRIVATE=" + edPriv);
-    System.out.println("ED25519_PUBLIC=" + edPub);
+    System.out.println("LICENSE_PRIVATE=" + licPriv);
+    System.out.println("LICENSE_PUBLIC=" + licPub);
     System.out.println("RSA_PRIVATE=" + rsaPriv);
     System.out.println("RSA_PUBLIC=" + rsaPub);
   }
@@ -66,8 +69,8 @@ public class GenerateHydroparkKeys {
 EOF
 
   OUTPUT="$(java --source 21 "$JAVA_FILE")"
-  ED_PRIV="$(echo "$OUTPUT" | grep '^ED25519_PRIVATE=' | cut -d= -f2-)"
-  ED_PUB="$(echo "$OUTPUT" | grep '^ED25519_PUBLIC=' | cut -d= -f2-)"
+  LIC_PRIV="$(echo "$OUTPUT" | grep '^LICENSE_PRIVATE=' | cut -d= -f2-)"
+  LIC_PUB="$(echo "$OUTPUT" | grep '^LICENSE_PUBLIC=' | cut -d= -f2-)"
   RSA_PRIV="$(echo "$OUTPUT" | grep '^RSA_PRIVATE=' | cut -d= -f2-)"
 else
   echo "==> Using openssl." >&2
@@ -84,18 +87,23 @@ else
   # found an INTEGER. Ed25519 has no traditional encoding, so it silently comes out as PKCS#8 and
   # works - which is exactly why this bug hides: the issuer boots and only the api dies.
   #
-  # `openssl pkcs8 -topk8 -nocrypt` is unambiguous for both algorithms. Use it.
-  openssl genpkey -algorithm ed25519 -out "$TMP_DIR/ed_priv.pem" 2>/dev/null
-  openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/ed_priv.pem" -outform DER -out "$TMP_DIR/ed_priv.der" 2>/dev/null
-  openssl pkey -in "$TMP_DIR/ed_priv.pem" -pubout -outform DER -out "$TMP_DIR/ed_pub.der" 2>/dev/null
+  # `openssl pkcs8 -topk8 -nocrypt` is unambiguous. Use it.
+  #
+  # The License Issuer signs with ES256 (ECDSA over NIST P-256 = secp256r1 = prime256v1) as of
+  # P1-16.8 - the switch from Ed25519 that lets a cloud KMS (Azure Managed HSM / AWS KMS, which
+  # sign P-256 but NOT Ed25519) hold the key. `ecparam -genkey` emits a traditional SEC1
+  # "EC PRIVATE KEY"; Java reads PKCS#8, so convert with `pkcs8 -topk8 -nocrypt`.
+  openssl ecparam -genkey -name prime256v1 -out "$TMP_DIR/lic_priv.pem" 2>/dev/null
+  openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/lic_priv.pem" -outform DER -out "$TMP_DIR/lic_priv.der" 2>/dev/null
+  openssl pkey -in "$TMP_DIR/lic_priv.pem" -pubout -outform DER -out "$TMP_DIR/lic_pub.der" 2>/dev/null
 
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$TMP_DIR/rsa_priv.pem" 2>/dev/null
   openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/rsa_priv.pem" -outform DER -out "$TMP_DIR/rsa_priv.der" 2>/dev/null
 
   # -A: single-line output, no 64-char wrapping - reads DER from a FILE
   # (never piped raw binary between two processes).
-  ED_PRIV="$(openssl base64 -A -in "$TMP_DIR/ed_priv.der")"
-  ED_PUB="$(openssl base64 -A -in "$TMP_DIR/ed_pub.der")"
+  LIC_PRIV="$(openssl base64 -A -in "$TMP_DIR/lic_priv.der")"
+  LIC_PUB="$(openssl base64 -A -in "$TMP_DIR/lic_pub.der")"
   RSA_PRIV="$(openssl base64 -A -in "$TMP_DIR/rsa_priv.der")"
 fi
 
@@ -104,10 +112,11 @@ echo "Generated. Paste the lines below into deploy/.env (issuer key material" >&
 echo "goes ONLY on the issuer service) or pipe them to 'fly secrets import'." >&2
 echo "" >&2
 
-echo "# --- Ed25519 License Issuer keypair - issuer service ONLY, never api/worker ---"
+echo "# --- ES256 (P-256) License Issuer keypair - issuer service ONLY, never api/worker ---"
 echo "HP_LICENSE_KID=$KID"
-echo "HP_LICENSE_PRIVATE_KEY=$ED_PRIV"
-echo "HP_LICENSE_PUBLIC_KEY=$ED_PUB"
+echo "HP_LICENSE_ALG=ES256"
+echo "HP_LICENSE_PRIVATE_KEY=$LIC_PRIV"
+echo "HP_LICENSE_PUBLIC_KEY=$LIC_PUB"
 echo ""
 echo "# --- RSA-2048 access-token signing key - api service ---"
 echo "HP_JWT_PRIVATE_KEY=$RSA_PRIV"

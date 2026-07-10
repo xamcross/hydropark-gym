@@ -64,6 +64,11 @@ public final class Pkcs11Ed25519Signer implements Signer {
   }
 
   @Override
+  public String jwsAlg() {
+    return "EdDSA";
+  }
+
+  @Override
   public SigningKeyRef activeKey() {
     return activeKey;
   }

@@ -88,14 +88,16 @@ jobs:
           # (InternalHttpConfig.java, header X-Internal-Token). Any long random string is fine.
           HP_INTERNAL_TOKEN="$(openssl rand -hex 32)"
 
-          # Ed25519 keypair for the License Issuer (HP_LICENSE_PRIVATE_KEY / HP_LICENSE_PUBLIC_KEY),
-          # PKCS#8 private / X.509 public, base64 - the exact shape backend/docs and
-          # deploy/scripts/generate-keys.sh produce.
-          openssl genpkey -algorithm ed25519 -out "$TMP_DIR/ed_priv.pem" 2>/dev/null
-          openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/ed_priv.pem" -outform DER -out "$TMP_DIR/ed_priv.der" 2>/dev/null
-          openssl pkey -in "$TMP_DIR/ed_priv.pem" -pubout -outform DER -out "$TMP_DIR/ed_pub.der" 2>/dev/null
-          HP_LICENSE_PRIVATE_KEY="$(openssl base64 -A -in "$TMP_DIR/ed_priv.der")"
-          HP_LICENSE_PUBLIC_KEY="$(openssl base64 -A -in "$TMP_DIR/ed_pub.der")"
+          # ES256 (P-256) keypair for the License Issuer (HP_LICENSE_PRIVATE_KEY /
+          # HP_LICENSE_PUBLIC_KEY), PKCS#8 private / X.509 SPKI public, base64 - the exact shape
+          # deploy/scripts/generate-keys.sh produces. The Issuer signs ES256 (ECDSA P-256) as of
+          # P1-16.8; a P-256 key here must match, or the issuer zone won't load its own signing key.
+          # ecparam emits SEC1; Java reads PKCS#8, so convert with `pkcs8 -topk8 -nocrypt`.
+          openssl ecparam -genkey -name prime256v1 -out "$TMP_DIR/lic_priv.pem" 2>/dev/null
+          openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/lic_priv.pem" -outform DER -out "$TMP_DIR/lic_priv.der" 2>/dev/null
+          openssl pkey -in "$TMP_DIR/lic_priv.pem" -pubout -outform DER -out "$TMP_DIR/lic_pub.der" 2>/dev/null
+          HP_LICENSE_PRIVATE_KEY="$(openssl base64 -A -in "$TMP_DIR/lic_priv.der")"
+          HP_LICENSE_PUBLIC_KEY="$(openssl base64 -A -in "$TMP_DIR/lic_pub.der")"
 
           # RSA-2048 keypair for access-token signing (HP_JWT_PRIVATE_KEY), PKCS#8 private, base64.
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$TMP_DIR/rsa_priv.pem" 2>/dev/null
@@ -110,6 +112,7 @@ jobs:
           {
             echo "HP_INTERNAL_TOKEN=$HP_INTERNAL_TOKEN"
             echo "HP_LICENSE_KID=hp-lic-ci"
+            echo "HP_LICENSE_ALG=ES256"
             echo "HP_LICENSE_PRIVATE_KEY=$HP_LICENSE_PRIVATE_KEY"
             echo "HP_LICENSE_PUBLIC_KEY=$HP_LICENSE_PUBLIC_KEY"
             echo "HP_JWT_PRIVATE_KEY=$HP_JWT_PRIVATE_KEY"

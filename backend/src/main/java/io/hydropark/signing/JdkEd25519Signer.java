@@ -39,6 +39,11 @@ public final class JdkEd25519Signer implements Signer {
   }
 
   @Override
+  public String jwsAlg() {
+    return "EdDSA";
+  }
+
+  @Override
   public SigningKeyRef activeKey() {
     return activeKey;
   }

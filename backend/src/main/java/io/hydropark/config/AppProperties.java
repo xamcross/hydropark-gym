@@ -194,7 +194,17 @@ public class AppProperties {
     /** e.g. {@code hp-lic-2026a} - names the key in the JWS header. */
     private String kid;
 
-    /** base64 PKCS#8 Ed25519 private key. Only ever set on the issuer zone. */
+    /**
+     * The JWS signature algorithm this key uses: {@code ES256} (ECDSA P-256 + SHA-256, the current
+     * active-signing algorithm — P1-16.8) or {@code EdDSA} (Ed25519, older deployed keys kept for
+     * verification only). <b>Blank/absent is tolerated for backward compatibility</b>: {@code
+     * TrustedKeySet} then infers the algorithm from the key material itself (an EC SPKI/PKCS#8 →
+     * {@code ES256}, an Ed25519 one → {@code EdDSA}), so pre-existing Ed25519-only config still loads
+     * without this field. When set, it wins and the key material must match it.
+     */
+    private String alg = "";
+
+    /** base64 PKCS#8 private key (EC P-256 for ES256, Ed25519 for EdDSA). Only ever set on the issuer zone. */
     private String privateKey = "";
 
     /** base64 X.509 SubjectPublicKeyInfo. Shipped in every app build. */
@@ -208,6 +218,14 @@ public class AppProperties {
 
     public void setKid(String kid) {
       this.kid = kid;
+    }
+
+    public String getAlg() {
+      return alg;
+    }
+
+    public void setAlg(String alg) {
+      this.alg = alg;
     }
 
     public String getPrivateKey() {

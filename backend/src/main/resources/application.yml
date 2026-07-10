@@ -97,10 +97,13 @@ hydropark:
     trusted-key-set-size: 5
     max-issuances-per-user-per-hour: 20
     max-issuances-global-per-minute: 600
-    # Ed25519 keys. NEVER commit a private key. Populated from Fly secrets / .env.
-    # deploy/scripts/generate-keys.ps1 emits these.
+    # License signing keys. NEVER commit a private key. Populated from Fly secrets / .env;
+    # deploy/scripts/generate-keys.{ps1,sh} emit these. New issuance is ES256 (ECDSA P-256,
+    # P1-16.8); older EdDSA (Ed25519) keys may be listed too and stay trusted for verification.
+    # `alg` is optional - TrustedKeySet infers it from the key material when blank.
     keys:
       - kid: ${HP_LICENSE_KID:hp-lic-dev}
+        alg: ${HP_LICENSE_ALG:ES256}
         private-key: ${HP_LICENSE_PRIVATE_KEY:}
         public-key: ${HP_LICENSE_PUBLIC_KEY:}
         active: true

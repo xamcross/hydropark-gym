@@ -13,19 +13,19 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * The sacred signer (BACKEND-DESIGN §6.1). Mints the license as a <b>compact, attached JWS</b> with
- * {@code alg: EdDSA} (Ed25519), signing over the exact ASCII bytes
- * {@code base64url(header) || '.' || base64url(payload)}.
+ * The sacred signer (BACKEND-DESIGN §6.1). Mints the license as a <b>compact, attached JWS</b>,
+ * signing over the exact ASCII bytes {@code base64url(header) || '.' || base64url(payload)}. The
+ * header {@code alg} is taken from the active {@link Signer} — {@code ES256} (ECDSA P-256, the
+ * current default for new issuance) or {@code EdDSA} (Ed25519) — never hardcoded.
  *
  * <p>Deliberate choices, each load-bearing:
  *
  * <ul>
- *   <li><b>The raw Ed25519 signature goes through a {@link Signer}</b> (P1-16.8) — the one seam an
- *       HSM/KMS backend slots into. The default {@code io.hydropark.signing.JdkEd25519Signer} is the
- *       original JDK-native path ({@code Signature.getInstance("Ed25519")}), <em>not</em> Nimbus,
- *       which pulls in Tink; the access-token path uses Nimbus/RSA and must never share a key or a
- *       library assumption with this one. A token minted through the JDK signer is byte-for-byte
- *       identical to what the old inline code produced.
+ *   <li><b>The raw signature goes through a {@link Signer}</b> (P1-16.8) — the one seam an HSM/KMS
+ *       backend slots into. For ES256 the signer returns the JWS-correct 64-byte {@code R||S} (not
+ *       DER); this class just base64url-encodes whatever raw bytes it gets. The default is <em>not</em>
+ *       Nimbus (which pulls in Tink); the access-token path uses Nimbus/RSA and must never share a
+ *       key or a library assumption with this one.
  *   <li><b>No canonical JSON.</b> The bytes we sign are the bytes the client verifies. There is no
  *       re-serialization step anywhere, so no "canonical JSON" disagreement can ever brick a valid
  *       license (§6.1 B3). This class — not the {@code Signer} — owns the token format, so swapping
@@ -81,7 +81,7 @@ public class LicenseSigner {
     SigningKeyRef active = signer.activeKey();
 
     Map<String, Object> header = new LinkedHashMap<>();
-    header.put("alg", "EdDSA");
+    header.put("alg", signer.jwsAlg()); // ES256 for new issuance; EdDSA only if an old key is active
     header.put("kid", active.kid());
     header.put("typ", "hp-lic+jws");
 
