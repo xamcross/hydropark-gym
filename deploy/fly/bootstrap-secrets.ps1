@@ -133,6 +133,27 @@ if ($apiSecrets.ContainsKey("HP_STRIPE_WEBHOOK_SECRET") -or $issuerSecrets.Conta
   throw "REFUSING: HP_STRIPE_WEBHOOK_SECRET must never be set on api or issuer. Aborting without setting anything."
 }
 
+# --- Hard refusal: the migrator identity never reaches a running app. -------
+# hp_migrator_user is the only principal that can create or drop an index, and
+# several correctness invariants in this system are enforced by exactly one
+# unique index and nothing else (webhook dedupe; one active license per device).
+# A zone that can drop an index can silently disable an invariant. Inspect the
+# hashtable VALUES, not just the keys, because the mistake looks like pasting the
+# wrong connection string into MONGODB_URI_API.
+foreach ($pair in @(
+    @{ Name = "api";    Secrets = $apiSecrets },
+    @{ Name = "issuer"; Secrets = $issuerSecrets },
+    @{ Name = "worker"; Secrets = $workerSecrets })) {
+  if ($pair.Secrets.ContainsKey("MONGODB_URI_MIGRATOR")) {
+    throw "REFUSING: MONGODB_URI_MIGRATOR must never be set on any app (found on $($pair.Name)). Aborting without setting anything."
+  }
+  foreach ($v in $pair.Secrets.Values) {
+    if ("$v" -like "*hp_migrator_user*") {
+      throw "REFUSING: the $($pair.Name) app was given hp_migrator_user's connection string. That identity can create and drop indexes; no running zone may. Aborting without setting anything."
+    }
+  }
+}
+
 # --- Apply. --------------------------------------------------------------
 if ($App -eq "all" -or $App -eq "api") {
   Set-FlySecrets $APP_NAMES["api"] $apiSecrets

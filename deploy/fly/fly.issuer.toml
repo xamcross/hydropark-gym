@@ -39,14 +39,50 @@ kill_timeout = "10s"
 # No [http_service], no [[services]]. Machines still get a private 6PN
 # address and respond to health checks defined below without any public
 # ingress config.
-[[checks]]
-  port = 8080
-  type = "http"
-  method = "GET"
-  path = "/actuator/health/readiness"
-  interval = "15s"
-  timeout = "5s"
-  grace_period = "20s"
+# A service, but NEVER a public one.
+#
+# The issuer must scale to zero, and a suspended machine can only be woken by
+# traffic arriving through the Fly proxy. Raw `.internal` 6PN DNS talks to the
+# machine directly and will not start it - so without this block the api's first
+# license request after an idle period simply fails.
+#
+# Declaring a service does NOT expose it. Reachability comes from allocated IPs,
+# and this app gets exactly one, private:
+#
+#     fly ips allocate-v6 --private -a hydropark-issuer     # Flycast, 6PN only
+#     fly ips list -a hydropark-issuer                      # must show NO public v4/v6
+#
+# The api then calls http://hydropark-issuer.flycast:8080. If a public IP is ever
+# allocated here by accident, this app starts answering the internet with the
+# Ed25519 signing keys in memory. Check `fly ips list` after every deploy.
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 8080
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+
+# Machine checks are a NAMED map, not an array of tables: `[checks.<name>]`.
+# `[[checks]]` parses as valid TOML and is rejected by flyctl with
+# "check item name not a string" - a parser will not catch this, only
+# `flyctl config validate` will.
+[checks]
+  [checks.readiness]
+    port = 8080
+    type = "http"
+    method = "GET"
+    path = "/actuator/health/readiness"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
 
 [[vm]]
   size = "shared-cpu-1x"

@@ -30,7 +30,15 @@ kill_timeout = "10s"
   # Flycast/6PN internal DNS - reaches the issuer/worker apps' private
   # network address directly. No public route exists to either (their
   # fly.*.toml files omit http_service/services entirely).
-  HP_ISSUER_URL = "http://hydropark-issuer.internal:8080"
+  # `.flycast`, not `.internal`, for the issuer. `.internal` is raw 6PN DNS: it
+  # addresses the machine directly and cannot start a stopped one. Flycast routes
+  # through the Fly proxy, which auto-starts a suspended machine on first request
+  # - that is what lets the issuer scale to zero. Allocate its private address once:
+  #     fly ips allocate-v6 --private -a hydropark-issuer
+  # No public IP is ever allocated for it, so there is still no public ingress.
+  HP_ISSUER_URL = "http://hydropark-issuer.flycast:8080"
+  # The worker never scales to zero (it polls webhook_events on a schedule), so
+  # plain 6PN DNS is fine and avoids a proxy hop on the wallet-purchase path.
   HP_WORKER_URL = "http://hydropark-worker.internal:8080"
   HP_PAYMENT_PROVIDER = "stripe"
   HP_CHECKOUT_SUCCESS_URL = "hydropark://purchase/callback"
@@ -40,22 +48,36 @@ kill_timeout = "10s"
   # NEVER set here: HP_LICENSE_PRIVATE_KEY, HP_LICENSE_PUBLIC_KEY,
   # HP_STRIPE_WEBHOOK_SECRET - those belong to issuer / worker only.
 
-[deploy]
-  # Runs the migration one-shot BEFORE any api instance takes traffic
-  # (P1-21). -D system properties are used instead of extra [env] entries
-  # because Spring Boot ranks Java system properties ABOVE OS environment
-  # variables - so this overrides HP_MIGRATION_ENABLED=false (and disables
-  # the api web-tier beans) for THIS invocation only, without touching what
-  # regular instances boot with. Same image, same entrypoint
-  # (JarLauncher) as every other zone - see backend/Dockerfile.
-  release_command = "java -Dhydropark.api.enabled=false -Dhydropark.migration.enabled=true -Dhydropark.migration.exit-after=true org.springframework.boot.loader.launch.JarLauncher"
+# NO [deploy] release_command, deliberately. Migrations run out-of-band as
+# hp_migrator_user - see deploy/fly/migrate-cloud.ps1. Two independent reasons:
+#
+#  1. Privilege. A release_command on this app runs with THIS app's MONGODB_URI,
+#     i.e. as hp_api_user - which is read-only on `grants` and cannot create an
+#     index anywhere (atlas-roles.js, asserted by privcheck.js). Migrations create
+#     indexes on `grants`, `users`, and `licenses`. Making it work would mean
+#     granting the public tier the right to create - and therefore drop - the
+#     unique indexes that enforce webhook dedupe and one-license-per-device. That
+#     is exactly the privilege the role split exists to withhold.
+#
+#  2. Mechanics. This image's ENTRYPOINT is
+#     ["java", "org.springframework.boot.loader.launch.JarLauncher"], and Fly
+#     prefixes the image ENTRYPOINT to the release command. A release_command
+#     beginning with `java -D…` would execute
+#         java JarLauncher java -D… JarLauncher
+#     passing the -D flags as *program arguments* rather than JVM options. The
+#     migration flags would never take effect and the "migration" would boot a web
+#     server instead. Spring's own `--key=value` command-line args would work here,
+#     but reason (1) rules the whole approach out regardless.
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "off"
+  # Scale to zero when idle. `suspend` snapshots memory so a warm JVM resumes in
+  # well under a second; `stop` would mean a ~15s cold JVM boot on the first
+  # request after idling, which the Fly proxy holds open but users feel.
+  auto_stop_machines = "suspend"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
   processes = ["app"]
 
   [http_service.concurrency]

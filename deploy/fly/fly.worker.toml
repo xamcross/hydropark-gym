@@ -34,14 +34,31 @@ kill_timeout = "10s"
   # This is the ONLY app in the fleet that may ever hold HP_STRIPE_WEBHOOK_SECRET.
   # NEVER set here: HP_LICENSE_PRIVATE_KEY / HP_LICENSE_PUBLIC_KEY.
 
-[[checks]]
-  port = 8080
-  type = "http"
-  method = "GET"
-  path = "/actuator/health/readiness"
-  interval = "15s"
-  timeout = "5s"
-  grace_period = "20s"
+# The worker deliberately does NOT scale to zero, and has no service block.
+#
+# Nothing calls it to wake it up: it *polls* `webhook_events` on a schedule. A
+# suspended worker receives no traffic, so nothing ever starts it, and settled
+# payments would silently stop being settled - the failure would look like Stripe
+# not delivering webhooks rather than like a stopped machine. Keep exactly one
+# machine running:
+#
+#     fly scale count 1 -a hydropark-worker
+#
+# The api reaches its /internal endpoints over plain 6PN DNS
+# (hydropark-worker.internal), which is fine precisely because it is always up.
+# Machine checks are a NAMED map, not an array of tables: `[checks.<name>]`.
+# `[[checks]]` parses as valid TOML and is rejected by flyctl with
+# "check item name not a string" - a TOML parser will not catch this, only
+# `flyctl config validate` will.
+[checks]
+  [checks.readiness]
+    port = 8080
+    type = "http"
+    method = "GET"
+    path = "/actuator/health/readiness"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
 
 [[vm]]
   size = "shared-cpu-1x"

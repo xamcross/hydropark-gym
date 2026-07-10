@@ -68,8 +68,17 @@ const COMMERCE_ORDERS_COLLECTIONS = ["orders", "webhook_events", "idempotency_ke
 // The privileged pair. Only hp_worker may insert/update these.
 const SETTLEMENT_COLLECTIONS = ["settled_orders", "grants"];
 const LICENSING_COLLECTIONS = ["licenses", "license_audit"];
-const DEVICES_COLLECTIONS = ["devices"];
+// `device_slot_counters` is the per-user atomic slot counter that replaces the
+// advisory lock Postgres would have used (§11.1). It is a real collection the
+// devices package reads and writes on every registration - omitting it here
+// denies device registration outright.
+const DEVICES_COLLECTIONS = ["devices", "device_slot_counters"];
 const WALLET_COLLECTIONS = ["wallet_accounts", "wallet_transactions"];
+
+// The migration ledger and its distributed lock. No running zone ever touches
+// these - `hydropark.migration.enabled` is false in the `fly` profile - so they
+// belong to hp_migrator alone and are deliberately kept out of ALL_COLLECTIONS.
+const SYSTEM_COLLECTIONS = ["schema_migrations", "schema_migrations_lock"];
 
 const ALL_COLLECTIONS = [
   ...AUTH_COLLECTIONS,
@@ -81,13 +90,47 @@ const ALL_COLLECTIONS = [
   ...WALLET_COLLECTIONS,
 ];
 
+/**
+ * The normal write path for a running zone. Note what is NOT here:
+ *
+ *  - no `remove`: nothing in this system hard-deletes as its normal write path.
+ *    The two places that do delete are granted it explicitly below.
+ *  - no `createIndex`: indexes are created by versioned changesets running as
+ *    hp_migrator, and `spring.data.mongodb.auto-index-creation` is false. A
+ *    running app that can mint an index can also mint a *unique* index, and
+ *    several correctness properties in this system are enforced by exactly one
+ *    unique index. Don't hand that to the public tier.
+ */
 function readWriteActions() {
-  // No "remove" beyond what each role explicitly needs below - nothing in
-  // this system hard-deletes rows as its normal write path (GDPR deletion
-  // is a separate anonymization job, not modeled here). createIndex is
-  // included because migrations run under these same zone identities in
-  // some environments; drop it per-role below if that's not true in yours.
-  return ["find", "insert", "update", "createIndex"];
+  return ["find", "insert", "update"];
+}
+
+/**
+ * hp_migrator. Everything the changesets and the seeder actually do:
+ *
+ *  - `remove`      - MigrationRunner reaps an expired lock and releases its own
+ *  - `dropIndex`   - V008 replaces the webhook dedupe index; V009 drops V005's
+ *                    phantom license_audit index
+ *  - `listIndexes` - both of those check before they drop
+ *  - `createCollection` - the first createIndex on an absent collection creates it
+ *
+ * This identity exists so that migrations do not force the privilege split open.
+ * It must NEVER be stored as a Fly app secret: no running zone should be able to
+ * drop an index that a correctness invariant depends on.
+ */
+function migratorActions() {
+  return [
+    "find",
+    "insert",
+    "update",
+    "remove",
+    "createIndex",
+    "dropIndex",
+    "listIndexes",
+    "listCollections",
+    "createCollection",
+    "collStats",
+  ];
 }
 
 function dropRoleIfExists(roleName) {
@@ -127,16 +170,45 @@ function randomPassword() {
 // ---------------------------------------------------------------------------
 print("=== hp_api ===");
 dropRoleIfExists("hp_api");
+// `remove` is granted on exactly the collections the api zone deletes from:
+//   AccountService's GDPR cascade drops oauth_identities / refresh_tokens /
+//   email_verification_tokens / password_reset_tokens / step_up_challenges;
+//   AuthService consumes single-use verify + reset tokens; IdempotencyService
+//   evicts idempotency_keys. NOT `users` - the deletion job anonymizes that row
+//   in place rather than dropping it. Never on grants/settled_orders.
+const API_DELETABLE = [
+  ...AUTH_COLLECTIONS.filter((c) => c !== "users"),
+  "idempotency_keys",
+];
+
+// The api zone READS these and never writes them:
+//   licenses + license_audit are written only by hp_issuer (it alone mints and
+//     supersedes a license, and alone appends to the signer's audit log);
+//   wallet_accounts + wallet_transactions are written only by hp_worker, which
+//     performs the atomic debit inside the settlement transaction (§5.4).
+// GET /v1/licenses and GET /v1/wallet are reads. Giving the public tier write
+// access here would let a compromised api forge issuance metadata or credit a
+// wallet it was never allowed to touch.
+const API_READ_ONLY = [
+  ...SETTLEMENT_COLLECTIONS,
+  ...LICENSING_COLLECTIONS,
+  ...WALLET_COLLECTIONS,
+];
+
 db.createRole({
   role: "hp_api",
   privileges: [
-    ...ALL_COLLECTIONS.filter((c) => !SETTLEMENT_COLLECTIONS.includes(c)).map(
-      (c) => ({
-        resource: { db: DB_NAME, collection: c },
-        actions: readWriteActions(),
-      })
-    ),
-    ...SETTLEMENT_COLLECTIONS.map((c) => ({
+    ...ALL_COLLECTIONS.filter(
+      (c) => !API_READ_ONLY.includes(c) && !API_DELETABLE.includes(c)
+    ).map((c) => ({
+      resource: { db: DB_NAME, collection: c },
+      actions: readWriteActions(),
+    })),
+    ...API_DELETABLE.map((c) => ({
+      resource: { db: DB_NAME, collection: c },
+      actions: [...readWriteActions(), "remove"],
+    })),
+    ...API_READ_ONLY.map((c) => ({
       resource: { db: DB_NAME, collection: c },
       actions: ["find"],
     })),
@@ -206,6 +278,34 @@ db.createRole({
 });
 
 // ---------------------------------------------------------------------------
+// hp_migrator - runs the versioned changesets and the catalog seeder. It is the
+// ONLY identity able to create or drop an index, and the only one that can write
+// the schema_migrations ledger or its lock.
+//
+// It exists because no zone identity can run the migrations, and giving one the
+// privileges to do so would quietly undo the split this file exists to create:
+// migrations create indexes on `grants` (which hp_api may only read) and on
+// `users`/`licenses` (which hp_worker may only read). Granting either of them
+// enough rights to migrate would hand the public tier the ability to drop the
+// unique index that makes webhook dedupe work, or the partial index that stops a
+// second active license per device.
+//
+// Custody: keep this URI OUT of Fly secrets and off every app. It belongs in the
+// operator's shell or a CI secret, used by deploy/fly/migrate-cloud.ps1 and then
+// forgotten. bootstrap-secrets.ps1 refuses to set it on any app.
+// ---------------------------------------------------------------------------
+print("=== hp_migrator ===");
+dropRoleIfExists("hp_migrator");
+db.createRole({
+  role: "hp_migrator",
+  privileges: [...ALL_COLLECTIONS, ...SYSTEM_COLLECTIONS].map((c) => ({
+    resource: { db: DB_NAME, collection: c },
+    actions: migratorActions(),
+  })),
+  roles: [],
+});
+
+// ---------------------------------------------------------------------------
 // Users. One per zone, each granted exactly the one matching role above.
 // ---------------------------------------------------------------------------
 function createZoneUser(userName, roleName) {
@@ -231,8 +331,14 @@ print("");
 createZoneUser("hp_api_user", "hp_api");
 createZoneUser("hp_worker_user", "hp_worker");
 createZoneUser("hp_issuer_user", "hp_issuer");
+createZoneUser("hp_migrator_user", "hp_migrator");
+
 print("=== Done ===");
 print(
-  "Set the three URIs as MONGODB_URI_API / MONGODB_URI_WORKER / MONGODB_URI_ISSUER"
+  "Set the three ZONE URIs as MONGODB_URI_API / MONGODB_URI_WORKER / MONGODB_URI_ISSUER"
 );
 print("before running deploy/fly/bootstrap-secrets.ps1.");
+print("");
+print("hp_migrator_user is DIFFERENT: it is the only identity that can create or");
+print("drop an index. Export its URI as MONGODB_URI_MIGRATOR for");
+print("deploy/fly/migrate-cloud.ps1, and never set it as a Fly app secret.");
