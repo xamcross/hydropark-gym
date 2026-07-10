@@ -50,6 +50,7 @@ stop.
 | `HP_STRIPE_API_KEY` | Y | | Y | creates checkouts (api) + may look up charges (worker) |
 | `HP_STRIPE_WEBHOOK_SECRET` | | | **Y (only)** | worker only - verifies the MoR webhook HMAC |
 | `MONGODB_URI` | Y | Y | Y | **different value per zone** in the cloud path - see below |
+| `HP_INTERNAL_MTLS_*` (opt-in, P1-16.9) | Y | Y | Y | mTLS on the internal hop; each zone gets its OWN `.p12` + shared CA truststore - see "Internal mTLS" below |
 
 Locally, `MONGODB_URI` is the same for all three containers (one replica set,
 one database, no per-zone Atlas roles - see "Local vs. cloud DB privilege"
@@ -82,6 +83,71 @@ above. If you're testing "does a compromised api tier stay unable to write
 grants," that has to be tested against Atlas (or a local Mongo you've
 manually secured with the same roles), not against the default compose
 stack.
+
+---
+
+## Internal mTLS (ticket P1-16.9)
+
+The api→issuer / api→worker hop can be **mutually authenticated with client
+certificates** instead of the shared `X-Internal-Token`. It is **additive and
+opt-in**: with `HP_INTERNAL_MTLS_ENABLED` unset/false (the default) the hop uses
+the bearer token exactly as before, so nothing changes for existing deploys until
+you provision certs and flip the flag.
+
+**What it covers, and what it does NOT replace.** mTLS is a **network
+authentication** layer: it proves the caller is a zone holding a CA-signed client
+cert, and it verifies the server's cert too. It is layered *over* — never instead
+of — the application-level check that keeps the Issuer safe: the Issuer still
+**independently re-verifies settlement for the exact `(user, skill)` on every
+call** (BACKEND-DESIGN §6.2 N3, `LocalLicenseIssuer`). That re-verification is the
+thing that stops a compromised internal caller from minting a license for an
+unowned skill; mTLS is defense in depth on top of it. **The settlement
+re-verification stays in place when mTLS is on** — a network credential is not an
+authorization.
+
+**Design: a dedicated mTLS connector, not connector-wide `clientAuth`.** Tomcat's
+`clientAuth` is a property of a *connector*, not a URL path, and the same image
+serves public `/v1/**` and health checks on port 8080 (in the combined local
+profile, on the *same* connector as `/internal/**`). Requiring a client cert
+connector-wide would break public traffic and every health check. So when mTLS is
+on, the issuer/worker zones open a **second connector on 8443** dedicated to mTLS
+(`certificateVerification="required"` — a certless or non-CA cert is rejected at the
+TLS handshake; "required" not "optional" because JSSE can't do optional client auth
+over TLS 1.3), and `InternalAuthFilter` **re-validates** the presented chain against
+the private CA (`InternalClientCertVerifier`) for defense in depth and to reject a
+`/internal/**` call that arrives on the plain 8080 connector with a clean `403`.
+Port 8080 keeps serving public traffic and health checks untouched. See
+`backend/.../config/InternalMtlsServerConfig.java`.
+
+**Roll it out (generate certs → provide them → flip the flag):**
+
+Local (docker-compose):
+```powershell
+cd deploy
+.\scripts\generate-internal-certs.ps1     # writes ./certs/{ca,api,issuer,worker}.crt/.key/.p12 + truststore.p12
+# In deploy/.env:
+#   HP_INTERNAL_MTLS_ENABLED=true
+#   HP_ISSUER_URL=https://issuer:8443
+#   HP_WORKER_URL=https://worker:8443
+.\local\up.ps1
+```
+`docker-compose.yml` already bind-mounts `./certs` read-only at `/certs` on every
+zone and sets each zone's own keystore (`api.p12` / `issuer.p12` / `worker.p12`)
+plus the shared `truststore.p12`. A certless/wrong-cert call to `/internal/**` is
+rejected; the api reaches the issuer/worker only by presenting `api.p12`.
+
+Cloud (Fly, documented — not deployed by default):
+```powershell
+.\scripts\generate-internal-certs.ps1
+# export the cert bytes as base64 secrets, then:
+.\deploy\fly\bootstrap-secrets.ps1 -Mtls
+# set HP_INTERNAL_MTLS_ENABLED=true (+ https :8443 URLs) in each fly.*.toml [env]
+# and uncomment that toml's [[files]] block so the .p12 bytes land at /certs.
+```
+The `.p12`/`.key` files are **secrets** (gitignored, per-environment — never share a
+CA across dev/staging/prod, same rule as the license keys). Each zone gets **only
+its own** identity keystore; `bootstrap-secrets.ps1 -Mtls` refuses to give two
+zones the same one.
 
 ---
 
@@ -280,6 +346,9 @@ deploy/local/                Windows-first local-stack scripts (.ps1 + .sh twins
 
 deploy/scripts/
   generate-keys.ps1 / .sh     Ed25519 (issuer) + RSA-2048 (access tokens) keypairs, openssl or Java fallback
+  generate-internal-certs.ps1 / .sh   internal mTLS PKI: private CA + per-zone PKCS12 (P1-16.9), openssl or keytool
+
+deploy/certs/                 mTLS keystores land here (gitignored); bind-mounted read-only at /certs
 
 deploy/fly/
   fly.api.toml                 public ingress; release_command runs the migration one-shot

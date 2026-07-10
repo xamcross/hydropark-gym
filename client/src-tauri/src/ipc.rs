@@ -402,6 +402,10 @@ pub enum CmdError {
     UnknownTimer(String),
     #[error("io error: {0}")]
     Io(String),
+    /// The paid Cooking Assistant skill is enabled before a valid unlock code was
+    /// redeemed (P0-05.3/.5). The webview surfaces this as the locked state.
+    #[error("skill is locked; redeem an unlock code first")]
+    SkillLocked,
 }
 
 impl From<std::io::Error> for CmdError {

@@ -4,6 +4,7 @@ import { TimerStackComponent } from './widgets/timer-stack/timer-stack.component
 import { EditableListComponent } from './widgets/editable-list/editable-list.component';
 import { SegmentedToggleComponent } from './widgets/segmented-toggle/segmented-toggle.component';
 import { SkillToggleComponent } from './skill-toggle/skill-toggle.component';
+import { UnlockComponent } from './unlock/unlock.component';
 import { PanelDockComponent } from './shared/panel-dock/panel-dock.component';
 import { SessionService } from './state/session.service';
 import { TelemetryService } from './state/telemetry.service';
@@ -14,7 +15,7 @@ import { MockIpcService } from './ipc/mock-ipc.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [ChatComponent, TimerStackComponent, EditableListComponent, SegmentedToggleComponent, SkillToggleComponent, PanelDockComponent],
+  imports: [ChatComponent, TimerStackComponent, EditableListComponent, SegmentedToggleComponent, SkillToggleComponent, UnlockComponent, PanelDockComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })

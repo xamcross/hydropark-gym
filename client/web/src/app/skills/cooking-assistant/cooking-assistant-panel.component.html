@@ -1,0 +1,94 @@
+<section class="cooking-panel" aria-label="Cooking Assistant">
+  <header class="ca-head">
+    <div class="ca-title">
+      <span class="ca-badge" aria-hidden="true">🍳</span>
+      <div>
+        <strong>Cooking Assistant</strong>
+        <small>{{ cooking.recipe().title }}</small>
+      </div>
+    </div>
+    <label class="servings">
+      <span>Servings</span>
+      <input
+        type="number"
+        min="1"
+        [value]="cooking.servings()"
+        (input)="onServingsInput($any($event.target).value)"
+        aria-label="Number of servings"
+      />
+    </label>
+  </header>
+
+  <!-- SAFETY: deterministic allergen layer, never model-trusted (SPEC §28.1). -->
+  <div class="allergen-note" role="note">
+    <strong>Allergen check (automatic):</strong>
+    @if (cooking.recipe().allergens.length > 0) {
+      <span class="chips">
+        @for (a of cooking.recipe().allergens; track a) {
+          <span class="chip">{{ allergenLabel(a) }}</span>
+        }
+      </span>
+    } @else {
+      <span>No Big-9 allergens detected.</span>
+    }
+    <small>Flagged by an on-device rule-based layer — not the AI. Always double-check labels.</small>
+  </div>
+
+  <div class="ca-section">
+    <div class="ca-section-head">
+      <h4>Ingredients</h4>
+      <button type="button" class="ghost-btn" (click)="cooking.addAllToList()">Add all to list</button>
+    </div>
+    <ul class="ingredients">
+      @for (ing of cooking.recipe().ingredients; track ing.name) {
+        <li>
+          <span class="ing-name">{{ ing.name }}</span>
+          <span class="ing-qty" [class.non-linear]="!ing.scalesLinearly">
+            {{ qtyLabel(ing) }}
+            @if (!ing.scalesLinearly) { <em title="Does not scale linearly — use judgement">·adjust</em> }
+          </span>
+        </li>
+      }
+    </ul>
+  </div>
+
+  <div class="ca-section">
+    <div class="ca-section-head">
+      <h4>Step {{ cooking.currentStepIndex() + 1 }} of {{ cooking.steps().length }}</h4>
+      <div class="step-nav">
+        <button type="button" class="ghost-btn" [disabled]="cooking.currentStepIndex() === 0" (click)="cooking.prevStep()">‹ Prev</button>
+        <button type="button" class="ghost-btn" [disabled]="cooking.currentStepIndex() === cooking.steps().length - 1" (click)="cooking.nextStep()">Next ›</button>
+      </div>
+    </div>
+
+    @if (cooking.currentStep(); as step) {
+      <div class="current-step">
+        <p class="step-text"><span class="step-num">{{ step.number }}</span>{{ step.text }}</p>
+        @if (step.timer) {
+          <button type="button" class="timer-btn" (click)="cooking.startStepTimer(step)">⏱ {{ timerLabel(step) }}</button>
+        }
+      </div>
+    }
+
+    <ol class="all-steps">
+      @for (step of cooking.steps(); track step.number; let i = $index) {
+        <li [class.active]="i === cooking.currentStepIndex()">
+          <button type="button" class="step-jump" (click)="cooking.goToStep(i)">{{ step.text }}</button>
+        </li>
+      }
+    </ol>
+  </div>
+
+  <div class="ca-section">
+    <h4>Substitutions</h4>
+    <ul class="subs">
+      @for (s of cooking.recipe().substitutions; track s.ingredient) {
+        <li>
+          <span class="sub-from">{{ s.ingredient }}</span> →
+          <span class="sub-to">{{ s.swap }}</span>
+          <small class="sub-ratio">{{ s.ratio }}</small>
+        </li>
+      }
+    </ul>
+  </div>
+</section>

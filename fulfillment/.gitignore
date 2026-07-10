@@ -1,0 +1,3 @@
+outbox/*.eml
+__pycache__/
+*.pyc

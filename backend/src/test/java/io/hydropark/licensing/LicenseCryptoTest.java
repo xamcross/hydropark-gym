@@ -13,7 +13,9 @@ import org.junit.jupiter.api.Test;
 class LicenseCryptoTest {
 
   private LicenseSigner signerFor(AppProperties props) {
-    return new LicenseSigner(new TrustedKeySet(props), props);
+    // Exercise the refactored seam: LicenseSigner -> Signer (the default JdkEd25519Signer) -> Ed25519.
+    // Behaviour must be byte-identical to the old inline path, which these round-trip/tamper tests assert.
+    return new LicenseSigner(SignerConfig.jdkSignerFrom(new TrustedKeySet(props)), props);
   }
 
   private LicenseVerifier verifierFor(AppProperties props) {

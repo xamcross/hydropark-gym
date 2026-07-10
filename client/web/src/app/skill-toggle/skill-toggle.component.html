@@ -16,4 +16,41 @@
       <small>{{ enabled() ? 'Enabled — free skill' : 'Free skill · tap to enable' }}</small>
     </span>
   </label>
+
+  <!-- Paid Cooking Assistant (P0-05.3) — $5 SKU, gated behind the receipt-unlock. -->
+  <div class="switch-row paid-row">
+    <button
+      type="button"
+      role="switch"
+      class="switch"
+      [class.on]="cookingEnabled()"
+      [class.locked]="!cookingUnlocked()"
+      [attr.aria-checked]="cookingEnabled()"
+      [attr.aria-disabled]="!cookingUnlocked()"
+      [disabled]="cookingBusy() || !cookingUnlocked()"
+      (click)="toggleCooking()"
+    >
+      <span class="knob">@if (!cookingUnlocked()) { <span class="lock" aria-hidden="true">🔒</span> }</span>
+    </button>
+    <span class="switch-label">
+      <strong>Cooking Assistant <span class="paid-badge">$5 · Paid</span></strong>
+      @if (cookingUnlocked()) {
+        <small>{{ cookingEnabled() ? 'Enabled — recipe steps & timers' : 'Unlocked · tap to enable' }}</small>
+      } @else {
+        <small class="locked-text">Locked — unlock for $5 to enable</small>
+      }
+    </span>
+    @if (isMock && !cookingUnlocked()) {
+      <button type="button" class="dev-unlock" (click)="simulateUnlock()" title="Dev-only: stand in for the receipt→unlock flow">
+        Simulate unlock (dev)
+      </button>
+    }
+  </div>
 </div>
+
+<!-- The paid skill's UI transform: same PanelDock enter/exit as the free skill. -->
+<app-panel-dock [open]="cookingEnabled()">
+  <div class="cooking-dock">
+    <app-cooking-assistant-panel></app-cooking-assistant-panel>
+  </div>
+</app-panel-dock>

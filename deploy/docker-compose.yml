@@ -33,6 +33,21 @@
 
 name: hydropark
 
+# -----------------------------------------------------------------------------
+# Internal mTLS (BACKEND-DESIGN §6.2, ticket P1-16.9) is an OPT-IN here and OFF by
+# default. With HP_INTERNAL_MTLS_ENABLED unset/false the api->issuer / api->worker
+# hop uses the shared X-Internal-Token exactly as before. To exercise mTLS locally:
+#   1. deploy/scripts/generate-internal-certs.ps1   (writes deploy/certs/*.p12)
+#   2. in deploy/.env set:
+#        HP_INTERNAL_MTLS_ENABLED=true
+#        HP_ISSUER_URL=https://issuer:8443
+#        HP_WORKER_URL=https://worker:8443
+#      (optionally HP_INTERNAL_MTLS_PASSWORD if you changed it from "changeit")
+#   3. .\local\up.ps1
+# The deploy/certs dir is always bind-mounted read-only at /certs; when mTLS is off
+# nothing reads it, so an empty dir is fine.
+# -----------------------------------------------------------------------------
+
 x-common-app-env: &common-app-env
   MONGODB_URI: "mongodb://mongo:27017/hydropark?replicaSet=rs0"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
@@ -43,6 +58,15 @@ x-common-app-env: &common-app-env
   # mem_limit; SerialGC because G1's per-region overhead is not worth paying on a
   # ~250 MB heap.
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k"
+
+# Shared mTLS knobs (opt-in). Per-zone identity keystore (HP_INTERNAL_MTLS_KEYSTORE)
+# is set on each service since it differs by zone (api.p12 / issuer.p12 / worker.p12).
+x-mtls-env: &mtls-env
+  HP_INTERNAL_MTLS_ENABLED: "${HP_INTERNAL_MTLS_ENABLED:-false}"
+  HP_INTERNAL_MTLS_PORT: "${HP_INTERNAL_MTLS_PORT:-8443}"
+  HP_INTERNAL_MTLS_TRUSTSTORE: "/certs/truststore.p12"
+  HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD: "${HP_INTERNAL_MTLS_PASSWORD:-changeit}"
+  HP_INTERNAL_MTLS_KEYSTORE_PASSWORD: "${HP_INTERNAL_MTLS_PASSWORD:-changeit}"
 
 services:
   # ---------------------------------------------------------------------
@@ -163,13 +187,17 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      <<: *common-app-env
+      <<: [*common-app-env, *mtls-env]
       HP_API_ENABLED: "true"
       HP_ISSUER_ENABLED: "false"
       HP_WORKER_ENABLED: "false"
       HP_MIGRATION_ENABLED: "false"
-      HP_ISSUER_URL: "http://issuer:8080"
-      HP_WORKER_URL: "http://worker:8080"
+      # Overridable so mTLS can flip these to https://issuer:8443 / https://worker:8443
+      # via deploy/.env; default stays plain http on 8080 (mTLS off).
+      HP_ISSUER_URL: "${HP_ISSUER_URL:-http://issuer:8080}"
+      HP_WORKER_URL: "${HP_WORKER_URL:-http://worker:8080}"
+      # api presents THIS as its client cert when mTLS is on (unused when off).
+      HP_INTERNAL_MTLS_KEYSTORE: "/certs/api.p12"
       HP_INTERNAL_TOKEN: "${HP_INTERNAL_TOKEN:?set HP_INTERNAL_TOKEN in deploy/.env - shared by api/issuer/worker}"
       HP_JWT_PRIVATE_KEY: "${HP_JWT_PRIVATE_KEY:-}"
       HP_JWT_KEY_ID: "${HP_JWT_KEY_ID:-hp-access-dev}"
@@ -188,6 +216,9 @@ services:
       # (AGENT-CONTRACT.md security property #4).
       # NOTE: HP_LICENSE_* is intentionally NOT set here. `api` must never
       # hold the Issuer's Ed25519 private key (BACKEND-DESIGN §6.2).
+    # Read-only mount of the internal mTLS PKI. Inert unless HP_INTERNAL_MTLS_ENABLED=true.
+    volumes:
+      - ./certs:/certs:ro
     ports:
       - "8080:8080"
     mem_limit: 512m
@@ -208,17 +239,25 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      <<: *common-app-env
+      <<: [*common-app-env, *mtls-env]
       HP_API_ENABLED: "false"
       HP_ISSUER_ENABLED: "true"
       HP_WORKER_ENABLED: "false"
       HP_MIGRATION_ENABLED: "false"
+      # issuer serves /internal over a dedicated mTLS connector (port 8443) when
+      # enabled, presenting THIS as its server cert.
+      HP_INTERNAL_MTLS_KEYSTORE: "/certs/issuer.p12"
       HP_INTERNAL_TOKEN: "${HP_INTERNAL_TOKEN:?set HP_INTERNAL_TOKEN in deploy/.env - shared by api/issuer/worker}"
       HP_LICENSE_KID: "${HP_LICENSE_KID:-hp-lic-dev}"
       HP_LICENSE_PRIVATE_KEY: "${HP_LICENSE_PRIVATE_KEY:?set HP_LICENSE_PRIVATE_KEY in deploy/.env - run deploy/scripts/generate-keys.ps1. This must NEVER be set on the api or worker service.}"
       HP_LICENSE_PUBLIC_KEY: "${HP_LICENSE_PUBLIC_KEY:?set HP_LICENSE_PUBLIC_KEY in deploy/.env - run deploy/scripts/generate-keys.ps1}"
+    volumes:
+      - ./certs:/certs:ro
+    # expose only; no host `ports:` - the mTLS connector (8443) is reachable only
+    # on the compose network, same isolation as 8080.
     expose:
       - "8080"
+      - "8443"
     mem_limit: 384m
     networks: [hydropark]
 
@@ -238,19 +277,25 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      <<: *common-app-env
+      <<: [*common-app-env, *mtls-env]
       HP_API_ENABLED: "false"
       HP_ISSUER_ENABLED: "false"
       HP_WORKER_ENABLED: "true"
       HP_MIGRATION_ENABLED: "false"
+      # worker serves /internal over the dedicated mTLS connector (port 8443) when
+      # enabled, presenting THIS as its server cert.
+      HP_INTERNAL_MTLS_KEYSTORE: "/certs/worker.p12"
       HP_INTERNAL_TOKEN: "${HP_INTERNAL_TOKEN:?set HP_INTERNAL_TOKEN in deploy/.env - shared by api/issuer/worker}"
       HP_PAYMENT_PROVIDER: "${HP_PAYMENT_PROVIDER:-fake}"
       HP_STRIPE_API_KEY: "${HP_STRIPE_API_KEY:-}"
       HP_STRIPE_WEBHOOK_SECRET: "${HP_STRIPE_WEBHOOK_SECRET:-}"
       # NOTE: HP_LICENSE_* is intentionally NOT set here either - only
       # `issuer` ever holds the license private key.
+    volumes:
+      - ./certs:/certs:ro
     expose:
       - "8080"
+      - "8443"
     mem_limit: 384m
     networks: [hydropark]
 

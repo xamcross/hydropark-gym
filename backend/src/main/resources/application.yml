@@ -55,6 +55,27 @@ hydropark:
     token: ${HP_INTERNAL_TOKEN:}
     issuer-url: ${HP_ISSUER_URL:}
     worker-url: ${HP_WORKER_URL:}
+    # ---------------------------------------------------------------------
+    # Mutual TLS on the api->issuer / api->worker hop (BACKEND-DESIGN §6.2,
+    # ticket P1-16.9). ADDITIVE and OFF by default: when `enabled=false` the
+    # shared X-Internal-Token path above is used exactly as before. When
+    # `enabled=true`, the api client presents its client cert and issuer/worker
+    # require + verify a CA-signed client cert on /internal/** (over a dedicated
+    # https connector on `server-port`). Generate certs with
+    # deploy/scripts/generate-internal-certs.{ps1,sh}; keystore/truststore are
+    # PKCS12. mTLS is a NETWORK auth layer only - the Issuer still independently
+    # re-verifies settlement underneath it (§6.2 N3).
+    mtls:
+      enabled: ${HP_INTERNAL_MTLS_ENABLED:false}
+      server-port: ${HP_INTERNAL_MTLS_PORT:8443}
+      # This zone's own identity: PKCS12 with its cert+key. On api it is the
+      # CLIENT cert presented to issuer/worker; on issuer/worker it is the SERVER
+      # cert presented back. One file per zone (api.p12 / issuer.p12 / worker.p12).
+      keystore-path: ${HP_INTERNAL_MTLS_KEYSTORE:}
+      keystore-password: ${HP_INTERNAL_MTLS_KEYSTORE_PASSWORD:}
+      # The private CA, same on every zone: verifies the peer's cert.
+      truststore-path: ${HP_INTERNAL_MTLS_TRUSTSTORE:}
+      truststore-password: ${HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD:}
 
   migration:
     enabled: ${HP_MIGRATION_ENABLED:true}

@@ -35,6 +35,28 @@ kill_timeout = "10s"
   #   deploy/fly/atlas-roles.js - read-only on grants/settled_orders/devices,
   #   write only on licenses/license_audit).
   # This is the ONLY app in the fleet that may ever hold HP_LICENSE_PRIVATE_KEY.
+  #
+  # --- Internal mTLS (BACKEND-DESIGN §6.2, ticket P1-16.9) - OPT-IN, documented ---
+  # Default OFF (shared X-Internal-Token). To turn mTLS on for this app, set:
+  #   HP_INTERNAL_MTLS_ENABLED = "true"
+  #   HP_INTERNAL_MTLS_PORT = "8443"                      # dedicated mTLS connector
+  #   HP_INTERNAL_MTLS_KEYSTORE = "/certs/issuer.p12"     # issuer's SERVER cert
+  #   HP_INTERNAL_MTLS_TRUSTSTORE = "/certs/truststore.p12"
+  # and stage passwords + base64 cert secrets via bootstrap-secrets.ps1 -Mtls:
+  #   HP_INTERNAL_MTLS_KEYSTORE_PASSWORD, HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD,
+  #   HP_INTERNAL_MTLS_KEYSTORE_B64 (= base64 of issuer.p12),
+  #   HP_INTERNAL_MTLS_TRUSTSTORE_B64 (= base64 of truststore.p12).
+  # [[files]] materializes the cert bytes onto the machine:
+  # [[files]]
+  #   guest_path = "/certs/issuer.p12"
+  #   secret_name = "HP_INTERNAL_MTLS_KEYSTORE_B64"
+  # [[files]]
+  #   guest_path = "/certs/truststore.p12"
+  #   secret_name = "HP_INTERNAL_MTLS_TRUSTSTORE_B64"
+  # The mTLS connector listens on 8443; add a [[services.ports]] port = 8443 to the
+  # [[services]] block below so Flycast routes (and wakes) it - it stays 6PN-only,
+  # no public IP, exactly like 8080. The api then calls
+  # https://hydropark-issuer.flycast:8443/internal/... presenting its client cert.
 
 # No [http_service], no [[services]]. Machines still get a private 6PN
 # address and respond to health checks defined below without any public

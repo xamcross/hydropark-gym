@@ -47,6 +47,28 @@ kill_timeout = "10s"
   #   HP_INTERNAL_TOKEN, HP_JWT_PRIVATE_KEY, HP_STRIPE_API_KEY, MONGODB_URI.
   # NEVER set here: HP_LICENSE_PRIVATE_KEY, HP_LICENSE_PUBLIC_KEY,
   # HP_STRIPE_WEBHOOK_SECRET - those belong to issuer / worker only.
+  #
+  # --- Internal mTLS (BACKEND-DESIGN §6.2, ticket P1-16.9) - OPT-IN, documented ---
+  # Default OFF: the api->issuer/worker hop uses HP_INTERNAL_TOKEN. To turn mTLS on
+  # for this app, set the following (env is fine; the cert BYTES come via [[files]]
+  # below, sourced from Fly secrets so they never sit in the image):
+  #   HP_INTERNAL_MTLS_ENABLED = "true"
+  #   HP_INTERNAL_MTLS_KEYSTORE = "/certs/api.p12"        # api's CLIENT cert
+  #   HP_INTERNAL_MTLS_TRUSTSTORE = "/certs/truststore.p12"
+  #   HP_ISSUER_URL = "https://hydropark-issuer.flycast:8443"   # https over the mTLS port
+  #   HP_WORKER_URL = "https://hydropark-worker.internal:8443"
+  # and stage the passwords + base64 cert secrets via bootstrap-secrets.ps1 -Mtls:
+  #   HP_INTERNAL_MTLS_KEYSTORE_PASSWORD, HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD,
+  #   HP_INTERNAL_MTLS_KEYSTORE_B64 (= base64 of api.p12),
+  #   HP_INTERNAL_MTLS_TRUSTSTORE_B64 (= base64 of truststore.p12).
+  #
+  # [[files]] materializes the cert bytes from those secrets onto the machine:
+  # [[files]]
+  #   guest_path = "/certs/api.p12"
+  #   secret_name = "HP_INTERNAL_MTLS_KEYSTORE_B64"
+  # [[files]]
+  #   guest_path = "/certs/truststore.p12"
+  #   secret_name = "HP_INTERNAL_MTLS_TRUSTSTORE_B64"
 
 # NO [deploy] release_command, deliberately. Migrations run out-of-band as
 # hp_migrator_user - see deploy/fly/migrate-cloud.ps1. Two independent reasons:

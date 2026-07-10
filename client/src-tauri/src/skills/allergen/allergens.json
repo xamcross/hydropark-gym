@@ -1,0 +1,100 @@
+{
+  "_comment": [
+    "CANONICAL, SINGLE-SOURCE allergen -> trigger-term map (P0-07.4, SPEC §28.1).",
+    "This file is the ONE source of truth for the deterministic, NON-MODEL allergen-warning",
+    "layer. It is consumed by two loaders that must never drift:",
+    "  1. the shipped app  -> client/src-tauri/src/skills/allergen/mod.rs (include_str! this file)",
+    "  2. the H2 harness   -> eval/allergen.py (reads this file by repo-relative path)",
+    "Data lives WITH THE APP (not in eval/) on purpose: the allergen layer is safety-critical and",
+    "must ship inside the self-contained Rust core; a dev-only eval/ tree does not ship. The harness",
+    "takes the dependency on the app, never the reverse. See report / mod.rs header for the rationale.",
+    "",
+    "DESIGN: this layer optimises RECALL over precision. The H2 floor is '100% coverage' — it must",
+    "FIRE on every known allergen. Over-flagging (e.g. bare 'flour' -> wheat even when it is almond",
+    "flour, or 'lecithin' -> soy) is deliberate and acceptable: a false warning is a nuisance, a",
+    "missed allergen is a safety failure. Matching is whole-word, case-insensitive (see mod.rs /",
+    "allergen.py), so 'egg' does NOT match 'eggplant' and 'fish' does NOT match 'shellfish'.",
+    "REQUIRED hidden-source aliases are present: casein->milk, albumin->egg, tahini->sesame, and more."
+  ],
+  "version": 1,
+  "big9": [
+    "milk", "eggs", "fish", "shellfish", "tree_nuts", "peanuts", "wheat", "soy", "sesame"
+  ],
+  "allergens": {
+    "milk": {
+      "display": "Milk",
+      "terms": [
+        "milk", "buttermilk", "butter", "ghee", "cream", "heavy cream", "sour cream",
+        "half and half", "cheese", "cream cheese", "parmesan", "pecorino", "mozzarella",
+        "curd", "custard", "whey", "casein", "caseinate", "sodium caseinate", "lactose",
+        "yogurt", "yoghurt", "kefir", "condensed milk", "evaporated milk", "milk powder",
+        "nonfat dry milk", "milk solids"
+      ]
+    },
+    "eggs": {
+      "display": "Eggs",
+      "terms": [
+        "egg", "eggs", "egg white", "egg whites", "egg yolk", "egg yolks", "albumin",
+        "albumen", "ovalbumin", "mayonnaise", "mayo", "meringue", "egg powder",
+        "dried egg", "eggnog", "aioli", "egg wash"
+      ]
+    },
+    "fish": {
+      "display": "Fish",
+      "terms": [
+        "fish", "anchovy", "anchovies", "cod", "salmon", "tuna", "tilapia", "halibut",
+        "sardine", "sardines", "fish sauce", "fish stock", "worcestershire", "surimi",
+        "trout", "bass", "haddock", "pollock", "caviar", "roe"
+      ]
+    },
+    "shellfish": {
+      "display": "Shellfish",
+      "terms": [
+        "shellfish", "shrimp", "prawn", "prawns", "crab", "crab meat", "lobster",
+        "crayfish", "crawfish", "clam", "clams", "mussel", "mussels", "oyster", "oysters",
+        "scallop", "scallops", "squid", "calamari", "octopus", "langoustine", "shrimp paste"
+      ]
+    },
+    "tree_nuts": {
+      "display": "Tree nuts",
+      "terms": [
+        "tree nut", "tree nuts", "almond", "almonds", "almond milk", "almond flour",
+        "walnut", "walnuts", "pecan", "pecans", "cashew", "cashews", "pistachio",
+        "pistachios", "hazelnut", "hazelnuts", "filbert", "macadamia", "brazil nut",
+        "pine nut", "pine nuts", "chestnut", "praline", "marzipan", "nut butter",
+        "gianduja", "nutella"
+      ]
+    },
+    "peanuts": {
+      "display": "Peanuts",
+      "terms": [
+        "peanut", "peanuts", "peanut butter", "peanut oil", "peanut flour", "groundnut",
+        "groundnuts", "goober", "arachis"
+      ]
+    },
+    "wheat": {
+      "display": "Wheat",
+      "terms": [
+        "wheat", "flour", "all-purpose flour", "wheat flour", "whole wheat", "wheat starch",
+        "bread", "breadcrumbs", "bread crumbs", "pasta", "spaghetti", "noodles", "semolina",
+        "durum", "farina", "bulgur", "couscous", "seitan", "vital wheat gluten", "gluten",
+        "spelt", "farro", "graham flour", "cracker", "crackers", "roux"
+      ]
+    },
+    "soy": {
+      "display": "Soy",
+      "terms": [
+        "soy", "soya", "soybean", "soybeans", "soy sauce", "tofu", "edamame", "tempeh",
+        "miso", "soy milk", "soy lecithin", "lecithin", "soybean oil", "tamari",
+        "textured vegetable protein", "tvp", "natto"
+      ]
+    },
+    "sesame": {
+      "display": "Sesame",
+      "terms": [
+        "sesame", "sesame seed", "sesame seeds", "sesame oil", "tahini", "sesame paste",
+        "benne", "gomashio", "hummus", "halva", "za'atar", "zaatar"
+      ]
+    }
+  }
+}

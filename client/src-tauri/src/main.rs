@@ -7,8 +7,10 @@
 
 mod inference;
 mod ipc;
+mod skills;
 mod telemetry;
 mod tools;
+mod unlock;
 
 use tauri::{AppHandle, Manager, State};
 
@@ -72,12 +74,17 @@ fn inference_cancel(args: InferenceCancelArgs, cancel: State<'_, inference::Canc
 
 #[tauri::command]
 fn skill_enable(args: SkillEnableArgs) -> Result<SkillEnableResult, CmdError> {
-    // Phase 0 has no real skill manifest/registry (SPEC §8.5's fixed,
-    // audited tool catalog is hardcoded, not loaded) — this just confirms
-    // the fixed panel/tool set for the one skill this client scaffold
-    // wires up, `kitchen-timer`. `cooking-assistant` (the paid SKU,
-    // P0-05.3/.5) is out of scope for this deliverable; enabling it here
-    // would return the same shape but is not exercised by the Angular UI.
+    // Phase 0 has no real skill manifest/registry (SPEC §8.5's fixed, audited tool
+    // catalog is hardcoded, not loaded). The free `kitchen-timer` skill enables
+    // unconditionally; the paid `cooking-assistant` (P0-05.3/.5) is gated on the
+    // receipt-unlock. The gate reads a session cache that main()'s setup seeds from
+    // unlock.rs's persisted state and that unlock_redeem refreshes - one source of
+    // truth (the persisted unlock), one cache the synchronous gate can read.
+    if args.skill_id == ipc::SkillId::CookingAssistant
+        && skills::cooking_assistant::gate() == skills::cooking_assistant::GateResult::Locked
+    {
+        return Err(CmdError::SkillLocked);
+    }
     Ok(SkillEnableResult {
         skill_id: args.skill_id,
         persona_injected: true,
@@ -89,6 +96,15 @@ fn skill_enable(args: SkillEnableArgs) -> Result<SkillEnableResult, CmdError> {
 #[tauri::command]
 fn skill_disable(_args: SkillDisableArgs) -> Result<(), CmdError> {
     Ok(())
+}
+
+/// Runs the deterministic, non-model allergen layer (P0-07.4) over ingredient
+/// text and returns the flags. This is what makes the safety layer actually
+/// protect the running app rather than only the eval harness: the model is never
+/// trusted for this — the layer is rule-based over the Big-9 map in allergens.json.
+#[tauri::command]
+fn allergen_scan(names: Vec<String>) -> Vec<skills::allergen::AllergenFlag> {
+    skills::allergen::scan_ingredients(names)
 }
 
 #[tauri::command]
@@ -155,12 +171,44 @@ fn notify(args: NotifyArgs, app: AppHandle) -> Result<(), CmdError> {
 
 // ---------------------------------------------------------------------------
 
+/// Hardware profiling (P0-02.3): read RAM + physical cores and which
+/// inference backend is compiled in, and log it once at startup. Read-only —
+/// this is a covariate for the H2 analysis, never a feature gate. Whether GPU
+/// offload was *actually* used is logged separately by the real engine when it
+/// loads the model (it depends on the `cuda` feature + n_gpu_layers).
+fn log_hardware_profile() {
+    use sysinfo::System;
+    let mut sys = System::new_all();
+    sys.refresh_memory();
+    let ram_gb = sys.total_memory() as f64 / (1024.0 * 1024.0 * 1024.0);
+    let physical = sys.physical_core_count().unwrap_or(0);
+    let logical = sys.cpus().len();
+    let backend = if cfg!(feature = "real-inference") {
+        if cfg!(feature = "cuda") {
+            "real (llama.cpp, cuda feature compiled)"
+        } else {
+            "real (llama.cpp, CPU)"
+        }
+    } else {
+        "mock"
+    };
+    eprintln!(
+        "[hydropark] startup hardware profile: {ram_gb:.1} GiB RAM, {physical} physical cores ({logical} logical); inference backend = {backend}"
+    );
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(tools::AppState::new())
         .manage(inference::CancelRegistry::new())
         .setup(|app| {
+            log_hardware_profile();
+            // Seed the paid-skill session cache from the persisted unlock so a
+            // returning buyer's Cooking Assistant is already enabled at launch.
+            skills::cooking_assistant::set_unlocked(unlock::is_cooking_assistant_unlocked(
+                app.handle(),
+            ));
             let handle = app.handle();
             let sink = telemetry::TelemetrySink::new(handle)
                 .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::other(e.to_string())) })?;
@@ -173,12 +221,15 @@ fn main() {
             inference_cancel,
             skill_enable,
             skill_disable,
+            allergen_scan,
             timer_pause,
             timer_resume,
             timer_reset,
             get_hardware_profile,
             telemetry_log,
             notify,
+            unlock::unlock_redeem,
+            unlock::unlock_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Hydropark Tauri application");

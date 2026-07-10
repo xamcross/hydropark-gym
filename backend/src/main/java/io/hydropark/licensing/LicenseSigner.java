@@ -2,8 +2,9 @@ package io.hydropark.licensing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.hydropark.config.AppProperties;
+import io.hydropark.signing.Signer;
+import io.hydropark.signing.SigningKeyRef;
 import java.nio.charset.StandardCharsets;
-import java.security.Signature;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -19,17 +20,21 @@ import org.springframework.stereotype.Component;
  * <p>Deliberate choices, each load-bearing:
  *
  * <ul>
- *   <li><b>JDK-native Ed25519</b> ({@code Signature.getInstance("Ed25519")}), <em>not</em> Nimbus -
- *       Nimbus's EdDSA path pulls in Tink. The access-token path uses Nimbus/RSA; this must never
- *       share a key or a library assumption with it.
+ *   <li><b>The raw Ed25519 signature goes through a {@link Signer}</b> (P1-16.8) — the one seam an
+ *       HSM/KMS backend slots into. The default {@code io.hydropark.signing.JdkEd25519Signer} is the
+ *       original JDK-native path ({@code Signature.getInstance("Ed25519")}), <em>not</em> Nimbus,
+ *       which pulls in Tink; the access-token path uses Nimbus/RSA and must never share a key or a
+ *       library assumption with this one. A token minted through the JDK signer is byte-for-byte
+ *       identical to what the old inline code produced.
  *   <li><b>No canonical JSON.</b> The bytes we sign are the bytes the client verifies. There is no
  *       re-serialization step anywhere, so no "canonical JSON" disagreement can ever brick a valid
- *       license (§6.1 B3).
+ *       license (§6.1 B3). This class — not the {@code Signer} — owns the token format, so swapping
+ *       the signer never changes a byte of the format.
  *   <li>base64url <b>without padding</b>.
  * </ul>
  *
- * <p>Gated on {@code hydropark.issuer.enabled=true}: only the isolated issuer zone holds a private
- * key, so only there does this bean exist. The private key is never logged, echoed, or returned.
+ * <p>Gated on {@code hydropark.issuer.enabled=true}: only the isolated issuer zone holds signing
+ * material, so only there does this bean exist. The private key is never logged, echoed, or returned.
  */
 @Component
 @ConditionalOnProperty(name = "hydropark.issuer.enabled", havingValue = "true")
@@ -40,12 +45,12 @@ public class LicenseSigner {
 
   private static final Base64.Encoder B64URL = Base64.getUrlEncoder().withoutPadding();
 
-  private final TrustedKeySet keys;
+  private final Signer signer;
   private final AppProperties.Licensing cfg;
   private final ObjectMapper json = new ObjectMapper();
 
-  public LicenseSigner(TrustedKeySet keys, AppProperties props) {
-    this.keys = keys;
+  public LicenseSigner(Signer signer, AppProperties props) {
+    this.signer = signer;
     this.cfg = props.getLicensing();
   }
 
@@ -73,7 +78,7 @@ public class LicenseSigner {
    * mints a new {@code license_id} + {@code iat} under the newest key.
    */
   public Signed signPayload(LicensePayload p) {
-    TrustedKeySet.TrustedKey active = keys.active();
+    SigningKeyRef active = signer.activeKey();
 
     Map<String, Object> header = new LinkedHashMap<>();
     header.put("alg", "EdDSA");
@@ -94,7 +99,9 @@ public class LicenseSigner {
     payload.put("iss", p.iss());
 
     String signingInput = B64URL.encodeToString(toBytes(header)) + "." + B64URL.encodeToString(toBytes(payload));
-    byte[] sig = ed25519Sign(active, signingInput.getBytes(StandardCharsets.US_ASCII));
+    // The one line that differs between in-memory keys and a hardware HSM: the raw signature over
+    // these exact bytes. Everything else in this method is signer-independent token assembly.
+    byte[] sig = signer.sign(signingInput.getBytes(StandardCharsets.US_ASCII), active);
     String token = signingInput + "." + B64URL.encodeToString(sig);
     return new Signed(token, active.kid());
   }
@@ -104,18 +111,6 @@ public class LicenseSigner {
       return json.writeValueAsBytes(node);
     } catch (Exception e) {
       throw new IllegalStateException("failed to serialize license segment", e);
-    }
-  }
-
-  private static byte[] ed25519Sign(TrustedKeySet.TrustedKey key, byte[] signingInput) {
-    try {
-      Signature s = Signature.getInstance("Ed25519");
-      s.initSign(key.privateKey());
-      s.update(signingInput);
-      return s.sign();
-    } catch (Exception e) {
-      // Never include the key material in the message.
-      throw new IllegalStateException("license signing failed for kid=" + key.kid(), e);
     }
   }
 }

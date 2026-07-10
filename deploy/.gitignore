@@ -5,3 +5,13 @@
 
 # Anything generate-keys.ps1/.sh output is redirected to.
 *.env.generated
+
+# Internal mTLS PKI (deploy/scripts/generate-internal-certs.{ps1,sh}) - private
+# keys and keystores. NEVER commit. The certs/ dir is kept via .gitkeep.
+certs/*.key
+certs/*.crt
+certs/*.csr
+certs/*.p12
+certs/*.srl
+certs/*.ext
+!certs/.gitkeep

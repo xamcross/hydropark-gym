@@ -1,0 +1,40 @@
+<section class="unlock" aria-labelledby="unlock-title">
+  @if (unlocked()) {
+    <p class="unlock-done" role="status">
+      <span class="tick" aria-hidden="true">✓</span>
+      <span><strong>Cooking Assistant unlocked.</strong> Enable it from the toggle above.</span>
+    </p>
+  } @else {
+    <h3 id="unlock-title" class="unlock-title">Have an unlock code?</h3>
+    <p class="unlock-hint">
+      Paste the one-time code from your purchase email to unlock the
+      <strong>Cooking Assistant</strong>.
+    </p>
+
+    <form class="unlock-form" (ngSubmit)="redeem()">
+      <label class="sr-only" for="unlock-input">Unlock code</label>
+      <input
+        id="unlock-input"
+        class="unlock-input"
+        type="text"
+        autocomplete="off"
+        autocapitalize="characters"
+        spellcheck="false"
+        placeholder="HP0-CA-XXXXXXXX-XXXX-XXXX-XXXX-XXXX"
+        [ngModel]="code()"
+        (ngModelChange)="code.set($event)"
+        name="code"
+        [disabled]="busy()"
+        [attr.aria-invalid]="errorMessage() ? 'true' : null"
+        [attr.aria-describedby]="errorMessage() ? 'unlock-error' : null"
+      />
+      <button type="submit" class="unlock-btn" [disabled]="busy() || !code().trim()">
+        {{ busy() ? 'Checking…' : 'Redeem' }}
+      </button>
+    </form>
+
+    <p class="unlock-msg unlock-error" id="unlock-error" role="alert" aria-live="assertive" [hidden]="!errorMessage()">
+      {{ errorMessage() }}
+    </p>
+  }
+</section>

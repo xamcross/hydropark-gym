@@ -66,3 +66,9 @@ backend/docs/KEY-COMPROMISE-RUNBOOK.md
 # binary and the exact dependency graph should be reproducible.
 # ---------------------------------------------------------------------------
 client/src-tauri/gen/
+
+# Python + eval transient output
+__pycache__/
+*.pyc
+eval/out/
+fulfillment/outbox/

@@ -83,6 +83,16 @@ public class TrustedKeySet {
   }
 
   /**
+   * The active-flagged key <b>without</b> asserting a private half is present. Empty if no key is
+   * flagged active. Use this on the PKCS#11/HSM path (P1-16.8): there the private half lives in
+   * hardware and is absent from config, so only the {@code kid} + public half are known here — which
+   * is all the signer needs from the trusted set (it addresses the private key by PKCS#11 label).
+   */
+  public Optional<TrustedKey> activeKeyOrEmpty() {
+    return Optional.ofNullable(active);
+  }
+
+  /**
    * The signing key. Present only where a private key is configured (the issuer zone); callers off
    * that zone never reach here because the signer bean itself is gated on {@code issuer.enabled}.
    */

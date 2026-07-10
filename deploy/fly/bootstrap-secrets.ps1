@@ -14,6 +14,17 @@
     script reads MONGODB_URI_API / MONGODB_URI_ISSUER / MONGODB_URI_WORKER,
     one connection string per zone, and never reuses one across zones.
 
+  Internal mTLS (ticket P1-16.9), staged ONLY with -Mtls (opt-in; default OFF so the
+  existing token-based deploy is unchanged). Certs are files, so they travel as
+  base64 Fly secrets that the fly.*.toml [[files]] blocks decode onto each machine:
+  - HP_INTERNAL_MTLS_KEYSTORE_PASSWORD / HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD -> all three.
+  - HP_INTERNAL_MTLS_TRUSTSTORE_B64  (= base64 of truststore.p12)             -> all three.
+  - HP_INTERNAL_MTLS_KEYSTORE_B64    (= base64 of THIS zone's own .p12)        -> per zone,
+    read from HP_INTERNAL_MTLS_API_P12_B64 / _ISSUER_P12_B64 / _WORKER_P12_B64. A zone is
+    NEVER given another zone's keystore (each reads only its own), same rule as the
+    license key. Produce a base64 with, e.g.:
+      $env:HP_INTERNAL_MTLS_ISSUER_P12_B64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("..\certs\issuer.p12"))
+
   This script REFUSES to set HP_LICENSE_PRIVATE_KEY or HP_LICENSE_PUBLIC_KEY
   on the api app - that check runs unconditionally, even if you edit the
   variable-assignment code below, because it re-inspects the built
@@ -46,7 +57,11 @@
 [CmdletBinding()]
 param(
   [ValidateSet("api", "issuer", "worker", "all")]
-  [string]$App = "all"
+  [string]$App = "all",
+
+  # Opt-in: also stage the internal mTLS cert secrets (ticket P1-16.9). Default OFF
+  # so the token-based deploy path is unchanged unless you ask for mTLS.
+  [switch]$Mtls
 )
 
 $ErrorActionPreference = "Stop"
@@ -117,6 +132,36 @@ $workerSecrets = @{
 }
 if ($stripeApiKey) {
   $workerSecrets["HP_STRIPE_API_KEY"] = $stripeApiKey
+}
+
+# --- Optional: internal mTLS cert secrets (opt-in via -Mtls, ticket P1-16.9). ---
+# Passwords + the CA truststore go to all three zones; each zone gets ONLY its own
+# identity keystore, read from a per-zone env var. Certs travel base64-encoded and
+# the fly.*.toml [[files]] blocks decode them onto each machine at /certs.
+if ($Mtls) {
+  $mtlsKsPw = Get-RequiredEnv "HP_INTERNAL_MTLS_KEYSTORE_PASSWORD"
+  $mtlsTsPw = Get-RequiredEnv "HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD"
+  $mtlsTrustB64 = Get-RequiredEnv "HP_INTERNAL_MTLS_TRUSTSTORE_B64"
+
+  foreach ($set in @($apiSecrets, $issuerSecrets, $workerSecrets)) {
+    $set["HP_INTERNAL_MTLS_KEYSTORE_PASSWORD"] = $mtlsKsPw
+    $set["HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD"] = $mtlsTsPw
+    $set["HP_INTERNAL_MTLS_TRUSTSTORE_B64"] = $mtlsTrustB64
+  }
+  $apiSecrets["HP_INTERNAL_MTLS_KEYSTORE_B64"] = (Get-RequiredEnv "HP_INTERNAL_MTLS_API_P12_B64")
+  $issuerSecrets["HP_INTERNAL_MTLS_KEYSTORE_B64"] = (Get-RequiredEnv "HP_INTERNAL_MTLS_ISSUER_P12_B64")
+  $workerSecrets["HP_INTERNAL_MTLS_KEYSTORE_B64"] = (Get-RequiredEnv "HP_INTERNAL_MTLS_WORKER_P12_B64")
+
+  # A zone must carry only its OWN identity. Identical base64 across two zones is a
+  # paste error - refuse rather than cross-provision one zone's key onto another.
+  $ksVals = @(
+    $apiSecrets["HP_INTERNAL_MTLS_KEYSTORE_B64"],
+    $issuerSecrets["HP_INTERNAL_MTLS_KEYSTORE_B64"],
+    $workerSecrets["HP_INTERNAL_MTLS_KEYSTORE_B64"])
+  if (($ksVals | Select-Object -Unique).Count -ne 3) {
+    throw "REFUSING: two zones were given the same mTLS keystore. Each zone needs its OWN .p12 (api/issuer/worker). Aborting without setting anything."
+  }
+  Write-Host "==> -Mtls: staging internal mTLS keystore/truststore secrets per zone." -ForegroundColor Cyan
 }
 
 # --- Hard refusal: never let the license key anywhere near api or worker. ---

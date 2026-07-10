@@ -86,10 +86,19 @@ token = base64url(header) "." base64url(payload) "." base64url(signature)
 ## Keys
 
 - Public keys are base64 **X.509 SubjectPublicKeyInfo**; the private halves (issuer only) are base64
-  **PKCS#8**. Both are Ed25519.
+  **PKCS#8** (in-memory JDK path) or held **non-exportable inside a PKCS#11 HSM** (see below). Both
+  are Ed25519.
+- **Issuer-side key custody is invisible to this format.** Whether the issuer signs with an in-memory
+  JDK key (the interim default, P1-16.3) or a hardware HSM over PKCS#11 (the pre-scale target,
+  P1-16.8), the token bytes and this verification algorithm are **identical** — the signature is the
+  same raw Ed25519 signature over the same `base64url(header) || '.' || base64url(payload)` bytes.
+  The client neither knows nor cares which signer produced it. This is exactly why option (a) in
+  `HSM-MIGRATION.md` was chosen: moving to hardware custody changes nothing a verifier sees. (A move
+  to a cloud KMS would instead require an algorithm change — `alg: ES256` — and a client verifier
+  update; that is the wider option (b), not the plan.)
 - Rotation is additive: an offline device keeps verifying its cached tokens under the older `kid` it
   already trusts; it only needs an app update to trust **newly** rotated keys, which it encounters
-  only when back online. See `KEY-COMPROMISE-RUNBOOK.md`.
+  only when back online. See `KEY-COMPROMISE-RUNBOOK.md` and `HSM-MIGRATION.md`.
 
 ## Issuance idempotency (`POST /v1/licenses/issue`)
 

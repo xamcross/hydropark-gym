@@ -63,7 +63,7 @@ class RollingKeyReissuerCoverageTest {
 
     AppProperties props = LicensingTestKeys.propsWithFreshKey("hp-lic-active");
     keys = new TrustedKeySet(props);
-    signer = new LicenseSigner(keys, props);
+    signer = new LicenseSigner(SignerConfig.jdkSignerFrom(keys), props);
     reissuer = new RollingKeyReissuer(keys, signer, licenseRepo, auditRepo, template);
   }
 

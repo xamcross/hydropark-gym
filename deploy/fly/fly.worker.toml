@@ -33,6 +33,28 @@ kill_timeout = "10s"
   #   the only role with insert/update on settled_orders + grants).
   # This is the ONLY app in the fleet that may ever hold HP_STRIPE_WEBHOOK_SECRET.
   # NEVER set here: HP_LICENSE_PRIVATE_KEY / HP_LICENSE_PUBLIC_KEY.
+  #
+  # --- Internal mTLS (BACKEND-DESIGN §6.2, ticket P1-16.9) - OPT-IN, documented ---
+  # Default OFF (shared X-Internal-Token). To turn mTLS on for this app, set:
+  #   HP_INTERNAL_MTLS_ENABLED = "true"
+  #   HP_INTERNAL_MTLS_PORT = "8443"                      # dedicated mTLS connector
+  #   HP_INTERNAL_MTLS_KEYSTORE = "/certs/worker.p12"     # worker's SERVER cert
+  #   HP_INTERNAL_MTLS_TRUSTSTORE = "/certs/truststore.p12"
+  # and stage passwords + base64 cert secrets via bootstrap-secrets.ps1 -Mtls:
+  #   HP_INTERNAL_MTLS_KEYSTORE_PASSWORD, HP_INTERNAL_MTLS_TRUSTSTORE_PASSWORD,
+  #   HP_INTERNAL_MTLS_KEYSTORE_B64 (= base64 of worker.p12),
+  #   HP_INTERNAL_MTLS_TRUSTSTORE_B64 (= base64 of truststore.p12).
+  # [[files]] materializes the cert bytes onto the machine:
+  # [[files]]
+  #   guest_path = "/certs/worker.p12"
+  #   secret_name = "HP_INTERNAL_MTLS_KEYSTORE_B64"
+  # [[files]]
+  #   guest_path = "/certs/truststore.p12"
+  #   secret_name = "HP_INTERNAL_MTLS_TRUSTSTORE_B64"
+  # The worker never scales to zero and is reached over raw 6PN
+  # (hydropark-worker.internal), which addresses the always-up machine directly - so
+  # the mTLS connector on 8443 needs NO service block; the api just calls
+  # https://hydropark-worker.internal:8443/internal/... with its client cert.
 
 # The worker deliberately does NOT scale to zero, and has no service block.
 #

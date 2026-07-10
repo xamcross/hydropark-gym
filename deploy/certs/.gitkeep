@@ -1,0 +1,7 @@
+# Internal mTLS PKI output directory (ticket P1-16.9).
+#
+# deploy/scripts/generate-internal-certs.{ps1,sh} writes the private CA, per-zone
+# PKCS12 identity keystores (api.p12 / issuer.p12 / worker.p12) and truststore.p12
+# here. Everything except this .gitkeep is gitignored - the .key/.p12 files are
+# secrets and must never be committed. docker-compose.yml bind-mounts this dir
+# read-only into each container at /certs when mTLS is enabled.
