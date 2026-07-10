@@ -198,11 +198,17 @@ $envMap  = @{ "hp_api_user" = "MONGODB_URI_API"; "hp_worker_user" = "MONGODB_URI
 foreach ($user in @("hp_api_user","hp_worker_user","hp_issuer_user","hp_migrator_user")) {
   $pw = New-Password
   try { Invoke-Atlas DELETE "/api/atlas/v2/groups/$ProjectId/databaseUsers/admin/$user" $null | Out-Null } catch { }
+  # The role REFERENCE is scoped to `admin`, not to $DbName. Atlas custom roles are
+  # project-level objects; assigning one with databaseName=hydropark is rejected:
+  #   UNSUPPORTED_ROLE: "Custom role hp_api must scoped to admin database"
+  # The role's *resources* still target hydropark - that lives in the role definition
+  # above, not here.
   $body = @{
     databaseName = "admin"
+    groupId      = $ProjectId
     username     = $user
     password     = $pw
-    roles        = @(@{ databaseName = $DbName; roleName = $userMap[$user] })
+    roles        = @(@{ databaseName = "admin"; roleName = $userMap[$user] })
     scopes       = @()
   }
   Invoke-Atlas POST "/api/atlas/v2/groups/$ProjectId/databaseUsers" $body | Out-Null

@@ -18,13 +18,33 @@
 const d = db.getSiblingDB("hydropark");
 let fails = 0;
 
+// MongoDB error code 13 is `Unauthorized`. Key on the CODE, not the prose: a
+// self-managed mongod says "not authorized on hydropark to execute command",
+// while Atlas says "user is not allowed to do action [insert] on [...]". Matching
+// only the first phrasing made every genuine Atlas denial look like an unexpected
+// error - a test that reports FAIL when the system is behaving correctly is worse
+// than no test, because the instinct is to "fix" the thing that was already right.
+const UNAUTHORIZED = 13;
+const DUPLICATE_KEY = 11000;
+
 function attempt(fn) {
   try {
     fn();
     return "ALLOWED";
   } catch (e) {
+    const code = e.code || (e.cause && e.cause.code) || (e.writeError && e.writeError.code);
     const msg = String(e.message || e);
-    if (/not authorized|Unauthorized/i.test(msg)) return "DENIED";
+    if (code === UNAUTHORIZED || /not authorized|Unauthorized|not allowed to do action/i.test(msg)) {
+      return "DENIED";
+    }
+    // A duplicate-key error proves the write was AUTHORIZED: MongoDB evaluates
+    // authorization before it evaluates uniqueness. This matters because a zone
+    // that may insert often may not remove - hp_worker can write `grants` and has
+    // no `remove` - so a probe cannot always clean up after itself, and a second
+    // run would otherwise report the correct behaviour as a failure.
+    if (code === DUPLICATE_KEY || /E11000/.test(msg)) {
+      return "ALLOWED";
+    }
     return "ERROR:" + msg.slice(0, 60);
   }
 }
@@ -74,9 +94,15 @@ expect("dropIndex on webhook_events", "DENIED", attempt(() => d.webhook_events.d
 // Nor write the migration ledger.
 expect("insert schema_migrations", "DENIED", attempt(() => d.schema_migrations.insertOne({ _id: probeId })));
 
-// Clean up anything that did land.
+// Best-effort cleanup. Most of it will be DENIED, and that is the point: a zone
+// that may insert usually may not remove. Sweep the leftovers with an admin
+// identity afterwards - the command is printed below.
 [d.settled_orders, d.grants, d.licenses, d.license_audit, d.wallet_transactions, d.users, d.devices, d.device_slot_counters].forEach((c) => {
-  try { c.deleteOne({ _id: probeId }); } catch (e) { /* not authorized to clean = also fine */ }
+  try { c.deleteOne({ _id: probeId }); } catch (e) { /* not authorized to clean = expected */ }
 });
 
 print(`  -> ${fails === 0 ? "all expectations held" : fails + " EXPECTATION(S) VIOLATED"}`);
+print("");
+print("  Sweep probe residue with an admin identity:");
+print('    ["settled_orders","grants","licenses","license_audit","wallet_transactions","users","devices","device_slot_counters"]');
+print('      .forEach(c => db[c].deleteMany({_id: /^privcheck-/}));');
