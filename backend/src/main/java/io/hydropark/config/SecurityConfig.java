@@ -77,6 +77,12 @@ public class SecurityConfig {
                     // §4.2 - optional auth: anonymous gets the catalog, authed gets `owned` too.
                     .requestMatchers(HttpMethod.GET, "/v1/catalog/**")
                     .permitAll()
+                    // P1-19.3: the base model GGUF is a free, unauthenticated download (§8 calls
+                    // this a cost risk, not a security one - mitigated by CDN caching and rate
+                    // limits, never by gating). NOTE: no handler exists behind this path yet - the
+                    // artifact registry / CDN epic (P1-19) is not started, so this currently
+                    // permits a route that 404s. Left in place deliberately, and flagged here so it
+                    // is not mistaken for an accidentally-exposed endpoint.
                     .requestMatchers(HttpMethod.GET, "/v1/download/model/**")
                     .permitAll()
                     .anyRequest()

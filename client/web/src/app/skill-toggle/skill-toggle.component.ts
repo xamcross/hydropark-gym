@@ -3,7 +3,7 @@ import { IPC_PORT, IpcPort } from '../ipc/ipc.port';
 import { SessionService } from '../state/session.service';
 import { TelemetryService } from '../state/telemetry.service';
 
-const SKILL_ID = 'kitchen-timer-units' as const;
+const SKILL_ID = 'kitchen-timer' as const;
 
 /**
  * The H1 test surface (PHASE0-PLAN §3.4): one toggle that injects the

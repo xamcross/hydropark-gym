@@ -291,12 +291,12 @@ pub struct InferenceErrorEvent {
 // ---------------------------------------------------------------------------
 
 /// Phase-0 ships exactly two hardcoded skills (SPEC §26.4). Only
-/// `KitchenTimerUnits` is wired up by this client scaffold; `CookingAssistant`
+/// `KitchenTimer` is wired up by this client scaffold; `CookingAssistant`
 /// (the paid $5 SKU, P0-05.3/.5) is out of scope here — see client/README.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SkillId {
-    KitchenTimerUnits,
+    KitchenTimer,
     CookingAssistant,
 }
 

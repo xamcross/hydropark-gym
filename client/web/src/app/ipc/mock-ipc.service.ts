@@ -311,7 +311,7 @@ export class MockIpcService extends IpcPort {
   private async runInference(args: IpcCommandMap['inference_start']['args']): Promise<void> {
     const { session_id, user_message, skill_id } = args;
     this.cancelledSessions.delete(session_id);
-    const steps = this.scriptTurn(user_message, skill_id === 'kitchen-timer-units');
+    const steps = this.scriptTurn(user_message, skill_id === 'kitchen-timer');
     const start = performance.now();
     let seq = 0;
     let tokenCount = 0;

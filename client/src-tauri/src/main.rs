@@ -75,7 +75,7 @@ fn skill_enable(args: SkillEnableArgs) -> Result<SkillEnableResult, CmdError> {
     // Phase 0 has no real skill manifest/registry (SPEC §8.5's fixed,
     // audited tool catalog is hardcoded, not loaded) — this just confirms
     // the fixed panel/tool set for the one skill this client scaffold
-    // wires up, `kitchen-timer-units`. `cooking-assistant` (the paid SKU,
+    // wires up, `kitchen-timer`. `cooking-assistant` (the paid SKU,
     // P0-05.3/.5) is out of scope for this deliverable; enabling it here
     // would return the same shape but is not exercised by the Angular UI.
     Ok(SkillEnableResult {

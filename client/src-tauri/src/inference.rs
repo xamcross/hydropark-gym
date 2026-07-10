@@ -211,7 +211,7 @@ pub mod mock {
             cancel.clear(&session_id);
             let skill_enabled = matches!(
                 args.skill_id,
-                Some(SkillId::KitchenTimerUnits) | Some(SkillId::CookingAssistant)
+                Some(SkillId::KitchenTimer) | Some(SkillId::CookingAssistant)
             );
             let steps = script_turn(&args.user_message, skill_enabled);
             let start_time = std::time::Instant::now();

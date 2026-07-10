@@ -35,7 +35,7 @@ export class SessionService {
   readonly lastTokPerSec = signal<number | null>(null);
 
   readonly activeSkillId = computed<SkillId | null>(() =>
-    this.kitchenSkillEnabled() ? 'kitchen-timer-units' : null
+    this.kitchenSkillEnabled() ? 'kitchen-timer' : null
   );
 
   readonly timerList = computed(() =>

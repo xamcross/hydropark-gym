@@ -217,7 +217,7 @@ export interface InferenceErrorEvent {
 // ---------------------------------------------------------------------------
 
 /** Phase-0 ships exactly two hardcoded skills (SPEC §26.4). */
-export type SkillId = 'kitchen-timer-units' | 'cooking-assistant';
+export type SkillId = 'kitchen-timer' | 'cooking-assistant';
 
 export interface SkillEnableArgs {
   skill_id: SkillId;
