@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.hydropark.common.ApiException;
 import io.hydropark.common.ErrorCode;
 import io.hydropark.common.InternalErrors;
+import io.hydropark.common.InternalRetry;
 import io.hydropark.port.Ports.IssuedLicense;
 import io.hydropark.port.Ports.LicenseIssuerPort;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -44,17 +45,25 @@ public class RemoteLicenseIssuerClient implements LicenseIssuerPort {
 
   @Override
   public IssuedLicense issue(String userId, String skillId, String deviceId) {
+    // Retried on transport failure: the issuer scales to zero, and the request that wakes it is
+    // itself dropped. Safe because issuance is idempotent by unique index, not by convention -
+    // see InternalRetry.
     IssuedLicense issued =
-        internal
-            .post()
-            .uri(issuerBaseUrl + "/internal/licenses/issue")
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(new InternalIssueRequest(userId, skillId, deviceId))
-            .retrieve()
-            // The Issuer's refusals are domain answers, not transport faults. Without this, its
-            // deliberate `403 not_entitled` surfaces to the caller as `500 internal_error`.
-            .onStatus(HttpStatusCode::isError, (req, res) -> InternalErrors.rethrow(res, mapper, "issuer"))
-            .body(IssuedLicense.class);
+        InternalRetry.call(
+            "issuer",
+            () ->
+                internal
+                    .post()
+                    .uri(issuerBaseUrl + "/internal/licenses/issue")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new InternalIssueRequest(userId, skillId, deviceId))
+                    .retrieve()
+                    // The Issuer's refusals are domain answers, not transport faults. Without this,
+                    // its deliberate `403 not_entitled` surfaces to the caller as `500`.
+                    .onStatus(
+                        HttpStatusCode::isError,
+                        (req, res) -> InternalErrors.rethrow(res, mapper, "issuer"))
+                    .body(IssuedLicense.class));
 
     if (issued == null) {
       throw new ApiException(ErrorCode.INTERNAL_ERROR, "empty issuer response");

@@ -343,3 +343,57 @@ stripe listen --forward-to localhost:8080/v1/webhooks/mor
 ```
 
 Without it, `HP_PAYMENT_PROVIDER=fake` exercises the identical settlement path with no credentials.
+
+---
+
+## Cloud deploy notes (learned the hard way)
+
+**Atlas cannot be provisioned with `mongosh`.** `db.createRole` / `db.createUser` return
+`CMD_NOT_ALLOWED` even to `atlasAdmin`. Use `atlas-provision.ps1` (Atlas Admin API). `atlas-roles.js`
+remains the executable specification and is what you run against a self-managed mongod to verify the
+split with `privcheck.js`. When assigning a custom role to a user, the role reference is scoped to
+`admin`, not to the database its resources target.
+
+**Atlas Network Access must allow `0.0.0.0/0`** (or a paid dedicated egress IP / private endpoint).
+Fly's egress addresses are dynamic. A non-allowlisted source does not get a connection refusal - Atlas
+aborts the TLS handshake, and the driver reports
+`SSLException: (internal_error) Received fatal alert: internal_error`, which looks like a certificate
+problem and is not one.
+
+**Migrations run out-of-band, as `hp_migrator_user`.** There is no `[deploy] release_command`: it would
+run as `hp_api_user`, which cannot create an index. Run `migrate-cloud.ps1` before deploying an image
+that contains a new changeset.
+
+**Scale-to-zero, per zone:**
+
+| Zone | Suspends? | Why |
+|---|---|---|
+| `api` | yes | public traffic wakes it through the Fly proxy |
+| `issuer` | yes | reached at `hydropark-issuer.flycast:8080`, which routes through the proxy and wakes it |
+| `worker` | **no** | nothing calls it - it *polls* `webhook_events`. A suspended worker silently stops settling payments, and the symptom looks like Stripe not delivering. |
+
+`.internal` 6PN DNS addresses a machine directly and **cannot wake a suspended one** - verified: the
+same request over `.internal` leaves the machine suspended, over `.flycast` it starts. Allocate the
+issuer's private address once, and never a public one:
+
+```bash
+fly ips allocate-v6 --private -a hydropark-issuer
+fly ips list -a hydropark-issuer      # must show private ingress ONLY
+```
+
+**A cold wake takes 9-11 seconds and drops the request that triggers it.** The failure surfaces as
+`SocketException: Unexpected end of file from server` *while extracting the response body* - after
+`execution.execute()` returns - so a `ClientHttpRequestInterceptor` cannot see it. Retrying must wrap
+the whole call (`io.hydropark.common.InternalRetry`), and the internal client's connect timeout must
+exceed the resume time.
+
+**Fly creates two machines by default.** Pass `--ha=false`, or scale back with `fly scale count 1`.
+
+**Verify after every deploy:**
+
+```bash
+fly ips list -a hydropark-issuer    # private ingress only
+fly ips list -a hydropark-worker    # no IPs at all
+fly secrets list -a hydropark-api   # no HP_LICENSE_*, no HP_STRIPE_WEBHOOK_SECRET
+mongosh "<hp_api_user uri>" --eval "var ROLE='hp_api'" --file privcheck.js   # 15/15 PASS
+```

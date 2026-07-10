@@ -49,15 +49,22 @@ public class RemoteSettlementPort implements SettlementPort {
     InternalPayWalletRequest body =
         new InternalPayWalletRequest(userId, kind.wire(), targetId, region, idempotencyKey);
 
+    // Retried on transport failure only. Safe because the debit is keyed by
+    // wallet_transactions.idempotency_key (unique index): a replayed request cannot debit twice.
+    // The worker does not scale to zero, so this should be rare - but a machine restart during a
+    // deploy looks exactly like a cold wake to the caller.
     WalletPurchaseResponse resp =
-        internal
-            .post()
-            .uri(workerUrl + "/internal/settlement/pay-wallet")
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(body)
-            .retrieve()
-            .onStatus(HttpStatusCode::isError, (req, res) -> translateError(res))
-            .body(WalletPurchaseResponse.class);
+        io.hydropark.common.InternalRetry.call(
+            "settlement worker",
+            () ->
+                internal
+                    .post()
+                    .uri(workerUrl + "/internal/settlement/pay-wallet")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (req, res) -> translateError(res))
+                    .body(WalletPurchaseResponse.class));
 
     if (resp == null) {
       throw new ApiException(ErrorCode.INTERNAL_ERROR, "empty settlement response");

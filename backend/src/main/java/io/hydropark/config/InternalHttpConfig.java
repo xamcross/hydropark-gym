@@ -38,10 +38,18 @@ public class InternalHttpConfig {
   @Bean("internalRestClient")
   RestClient internalRestClient(
       RestClient.Builder builder, @Value("${hydropark.internal.token:}") String internalToken) {
-    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-    factory.setConnectTimeout(Duration.ofSeconds(3));
-    factory.setReadTimeout(Duration.ofSeconds(10));
 
+    // The issuer scales to zero. Waking a suspended Fly machine through the proxy takes ~9-11s
+    // (measured), and the connection that triggers the wake is itself dropped. A 3s connect timeout
+    // guaranteed that the first license request after any idle period failed.
+    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+    factory.setConnectTimeout(Duration.ofSeconds(15));
+    factory.setReadTimeout(Duration.ofSeconds(30));
+
+    // Retrying happens at the call site (io.hydropark.common.InternalRetry), NOT in a
+    // ClientHttpRequestInterceptor. A cold wake fails while the response body is being extracted -
+    // "SocketException: Unexpected end of file from server" - which is after execution.execute()
+    // has already returned, and therefore invisible to an interceptor.
     return builder
         .requestFactory(factory)
         .defaultHeader(INTERNAL_TOKEN_HEADER, internalToken)
