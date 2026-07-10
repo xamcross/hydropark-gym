@@ -75,8 +75,17 @@ if ($LASTEXITCODE -ne 0) {
 $seedEnabled = "false"
 if ($Seed) { $seedEnabled = "true" }
 
+# Report the identity we are ACTUALLY using, parsed from the URI - not the one we
+# wish we were using. Bootstrapping a brand-new Atlas cluster legitimately runs as
+# a temporary atlasAdmin, before hp_migrator_user exists.
+$actualUser = "(unknown)"
+if ($MigratorUri -match "://([^:]+):") { $actualUser = $Matches[1] }
+
 Write-Host ""
-Write-Host "Applying migrations as hp_migrator_user (seed=$seedEnabled)" -ForegroundColor Cyan
+Write-Host "Applying migrations as '$actualUser' (seed=$seedEnabled)" -ForegroundColor Cyan
+if ($actualUser -ne "hp_migrator_user") {
+  Write-Host "NOTE: not hp_migrator_user. Acceptable only for the first run against an empty cluster, before atlas-provision.ps1 has created the scoped identities." -ForegroundColor Yellow
+}
 Write-Host "Only pending changesets run; schema_migrations is authoritative."
 Write-Host ""
 

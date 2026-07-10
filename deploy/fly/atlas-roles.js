@@ -45,6 +45,23 @@
 //     nothing else depends on the old one once you update the Fly secret).
 // -----------------------------------------------------------------------
 
+// ===========================================================================
+// !! THIS SCRIPT DOES NOT WORK AGAINST MONGODB ATLAS. !!
+//
+// Atlas manages database users and custom roles through its control plane and
+// refuses both commands over the wire, even for a user holding `atlasAdmin`:
+//
+//     [BLOCKED] db.createRole  -> CMD_NOT_ALLOWED: createRole
+//     [BLOCKED] db.createUser  -> CMD_NOT_ALLOWED: createUser
+//
+// For Atlas, use `deploy/fly/atlas-provision.ps1`, which creates the identical
+// roles and users through the Atlas Administration API.
+//
+// This file remains the executable specification of the role split, and is what
+// you run against a self-managed mongod - including the local auth-enabled
+// container used to verify the split with `privcheck.js` before touching a real
+// cluster. Keep the two in step: atlas-provision.ps1 mirrors these definitions.
+// ===========================================================================
 const DB_NAME = "hydropark";
 const db = db.getSiblingDB(DB_NAME);
 
