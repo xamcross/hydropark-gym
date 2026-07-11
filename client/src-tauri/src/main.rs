@@ -12,6 +12,8 @@ mod orchestrator;
 mod shared_state;
 mod skills;
 mod telemetry;
+mod tool_catalog;
+mod tool_routing;
 mod tools;
 mod unlock;
 
