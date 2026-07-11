@@ -18,7 +18,10 @@ subdirectory — Angular 17+ nests it, and that is the path `tauri.conf.json`'s 
 
 ```bash
 # Prerequisites (Windows): Rust (rustup, MSVC host), Visual Studio Build Tools with the
-# C++ workload, the Windows SDK, and the WebView2 runtime (Windows 11 ships it).
+# C++ workload, the Windows SDK, the WebView2 runtime (Windows 11 ships it), plus CMake
+# and LLVM/libclang — the default build now embeds the real llama.cpp engine (bindgen
+# needs libclang; see docs/REAL-INFERENCE.md). For a toolchain-free build (mock engine,
+# no model), add `--no-default-features --features mock-inference`.
 
 cd web && npm install && npm run build      # the Tauri build embeds this output
 
@@ -61,9 +64,11 @@ unstyled — while every asset returns 200. The fix is `optimization.styles.inli
   Note `plugins.notification` must be **absent** from `tauri.conf.json` — the v2 plugin's config type
   is a unit, so even `"notification": {}` fails to deserialize and panics at startup.
 
-Until then, the UI runs against a **mock inference stream** (`web/src/app/ipc/mock-ipc.service.ts`),
-so the chat, widgets, and skill transform are all exercisable without a model. That is deliberate:
-the H1 hypothesis is about the *transform*, and the transform does not need a real model to be felt.
+The Angular UI picks its transport at runtime (`ipc/ipc.provider.ts`): inside the Tauri app it uses
+the real IPC bridge to the Rust core — now the **real** llama.cpp engine by default — while a plain
+browser (`ng serve`, no Tauri) falls back to a **mock inference stream**
+(`web/src/app/ipc/mock-ipc.service.ts`) so the chat, widgets, and skill transform stay exercisable
+without a model or a native build. The H1 transform does not need a real model to be felt.
 
 ## What is implemented
 

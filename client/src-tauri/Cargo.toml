@@ -47,7 +47,7 @@ sysinfo = "0.30"
 llama-cpp-2 = { version = "0.1.151", optional = true }
 
 [features]
-default = ["mock-inference"]
+default = ["real-inference"]
 
 # Serve the embedded frontend bundle instead of `build.devUrl`.
 #
@@ -60,14 +60,17 @@ default = ["mock-inference"]
 #   production : cargo build --release --features custom-protocol
 #   dev        : cargo run                    (devUrl + `npm --prefix ../web run start`)
 custom-protocol = ["tauri/custom-protocol"]
-# The mock engine (inference.rs) — scripted/deterministic token stream, no
-# model file, no native inference dependency. Default so the crate means
-# something (and is reviewable/testable) without the GGUF or a C++ toolchain.
-mock-inference = []
-# The real engine (inference.rs `real` module): embeds llama.cpp and loads
-# the Qwen2.5-3B GGUF in-process. CPU-only by default. Build with:
-#   cargo build --release --features real-inference
+# The real engine (inference.rs `mod real`): embeds llama.cpp and loads the
+# Qwen2.5-3B GGUF in-process. **Default** — the engine the app ships and runs.
+# CPU-only unless the `cuda` feature is added. A build needs the native
+# toolchain (MSVC + CMake + LLVM/libclang for bindgen); see
+# client/docs/REAL-INFERENCE.md.
 real-inference = ["dep:llama-cpp-2"]
+# The mock engine (inference.rs `mod mock`) — scripted/deterministic token
+# stream, no model file, no native dependency. The toolchain-free escape hatch
+# for review / CI / UI-dev without a GGUF:
+#   cargo build --no-default-features --features mock-inference
+mock-inference = []
 # Opt-in NVIDIA GPU offload. Requires the CUDA toolkit (nvcc) on PATH at
 # build time; without it the llama.cpp cmake build fails. A plain
 # `real-inference` build is CPU-only and silently ignores n_gpu_layers.

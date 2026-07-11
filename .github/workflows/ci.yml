@@ -166,6 +166,14 @@ jobs:
       - name: Build the Angular bundle the Tauri build embeds
         run: npm ci && npm run build
         working-directory: client/web
+      # real-inference is the default feature now, so the shipped build embeds llama.cpp; bindgen
+      # needs libclang. windows-latest ships LLVM + CMake; point bindgen at libclang (choco fallback).
+      # The GGUF is NOT needed to build (only to run), so no model is fetched here.
+      - name: Ensure libclang for bindgen (real-inference default)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files\LLVM\bin\libclang.dll')) { choco install llvm --no-progress -y }
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       # `--features custom-protocol` is NOT optional. Without it tauri-build emits cfg(dev) and the
       # release binary loads build.devUrl instead of the embedded frontend - it compiles, links, and
       # opens on "can't reach this page". See client/README.md.

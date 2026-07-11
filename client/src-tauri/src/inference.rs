@@ -83,9 +83,10 @@ pub(crate) fn classify_malformed(
 }
 
 /// Entry point used by `main.rs`'s `inference_start` command. Dispatches
-/// to whichever engine is compiled in. When both features are enabled (a
-/// plain `--features real-inference` keeps the default `mock-inference` on),
-/// the real engine wins.
+/// to whichever engine is compiled in. `real-inference` is the default (the
+/// engine the app ships and runs); build the toolchain-free mock with
+/// `--no-default-features --features mock-inference`. When both are on, the
+/// real engine wins.
 pub fn start(app: AppHandle, state: crate::tools::AppState, cancel: CancelRegistry, args: InferenceStartArgs) {
     #[cfg(all(feature = "mock-inference", not(feature = "real-inference")))]
     mock::run(app, state, cancel, args);
