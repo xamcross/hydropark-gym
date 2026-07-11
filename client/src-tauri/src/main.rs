@@ -10,6 +10,7 @@ mod inference;
 mod ipc;
 mod manifest;
 mod orchestrator;
+mod package_verify;
 mod shared_state;
 mod skill_manager;
 mod skills;

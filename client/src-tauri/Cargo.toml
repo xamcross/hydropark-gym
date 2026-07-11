@@ -37,6 +37,14 @@ chrono = { version = "0.4", features = ["serde", "clock"] }
 thiserror = "1"
 sysinfo = "0.30"
 
+# Skill-package signature verification (P1-03.3): RFC 8785 JCS canonicalization + Ed25519 verify,
+# cross-checked byte-for-byte against the backend golden vector
+# (contracts/testdata/package-signing-golden.json). All pure-Rust, so it builds under the
+# toolchain-free `mock-inference` feature too.
+ed25519-dalek = "2"
+base64 = "0.22"
+serde_jcs = "0.1"
+
 # Embedded llama.cpp binding (P0-02.1). Optional + gated behind the
 # `real-inference` feature so the default `mock-inference` build needs no
 # C/C++ toolchain, no GGUF, and no libclang. `llama-cpp-sys-2` builds
