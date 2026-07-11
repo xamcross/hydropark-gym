@@ -78,6 +78,14 @@
       <version>${bouncycastle.version}</version>
     </dependency>
 
+    <!-- JSON Schema (draft 2020-12) validation for the skill-certification gate (P1-20.1,
+         io.hydropark.certification). Validates skill manifests against contracts/skill-manifest.schema.json. -->
+    <dependency>
+      <groupId>com.networknt</groupId>
+      <artifactId>json-schema-validator</artifactId>
+      <version>1.5.6</version>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
