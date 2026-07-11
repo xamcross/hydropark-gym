@@ -40,6 +40,13 @@ pub struct SkillManifest {
     pub tools: Vec<ToolRef>,
     #[serde(default)]
     pub compatibility: Compatibility,
+    /// Slots this skill reads/writes in the shared-state store (SPEC §8.3.4).
+    /// Interpreted by the `shared_state` module.
+    #[serde(default)]
+    pub shared_state: Vec<SharedStateDecl>,
+    /// The certified/self-declared cost projection the capacity meter trusts (§8.3.5).
+    #[serde(default)]
+    pub cost_estimate: CostEstimate,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -88,6 +95,30 @@ impl Default for Compatibility {
     fn default() -> Self {
         Self { combine_priority: default_combine_priority(), conflicts_with: Vec::new() }
     }
+}
+
+/// A shared-state slot a skill declares (SPEC §8.3.4). `schema` is the closed type
+/// language ("scalar" | "list<item>" | "record"); the `shared_state` module
+/// interprets it. `access` is "read" | "write" | "read_write".
+#[derive(Debug, Clone, Deserialize)]
+pub struct SharedStateDecl {
+    pub slot: String,
+    #[serde(default)]
+    pub access: String,
+    #[serde(default)]
+    pub schema: String,
+}
+
+/// The certified (or interim self-declared) cost projection the capacity meter
+/// trusts (SPEC §8.3.5; the certified figure comes from P1-20.2).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CostEstimate {
+    #[serde(default)]
+    pub prompt_tokens: u32,
+    #[serde(default)]
+    pub tools: u32,
+    #[serde(default)]
+    pub panels: u32,
 }
 
 /// The composed agent produced by [`merge`].

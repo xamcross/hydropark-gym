@@ -5,9 +5,11 @@
 // responsibility split this file implements.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod capacity;
 mod inference;
 mod ipc;
 mod orchestrator;
+mod shared_state;
 mod skills;
 mod telemetry;
 mod tools;
