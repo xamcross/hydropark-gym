@@ -8,8 +8,10 @@
 mod capacity;
 mod inference;
 mod ipc;
+mod manifest;
 mod orchestrator;
 mod shared_state;
+mod skill_manager;
 mod skills;
 mod telemetry;
 mod tool_catalog;
