@@ -9,6 +9,7 @@ import io.hydropark.signing.JdkEd25519Signer;
 import io.hydropark.signing.Signer;
 import io.hydropark.signing.SigningKeyRef;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
@@ -19,10 +20,11 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Package sign → verify round-trip, tamper rejection, and unknown-kid rejection — the package-signing
- * counterpart to {@code licensing.LicenseCryptoTest}. Pure JUnit; a generated Ed25519 test keypair,
- * no Spring context, no Mongo. Proves the package key is exercised end-to-end entirely independently
- * of the license key.
+ * Package sign → verify round-trip, tamper rejection, unknown-kid rejection, and RFC 8785 (JCS)
+ * canonicalization behaviour — the package-signing counterpart to {@code licensing.LicenseCryptoTest}.
+ * Pure JUnit; a generated Ed25519 test keypair, no Spring context, no Mongo. Proves the package key is
+ * exercised end-to-end entirely independently of the license key, and that the canonical form the
+ * signature covers is the JCS one (keys sorted, signature fields stripped, numbers normalized).
  */
 class PackageSigningTest {
 
@@ -129,5 +131,37 @@ class PackageSigningTest {
         .isInstanceOf(PackageSignatureException.class)
         .satisfies(
             e -> assertThat(((PackageSignatureException) e).code()).isEqualTo("signature_missing"));
+  }
+
+  @Test
+  void canonicalizationSortsKeysAndStripsSignatureFields() {
+    // Pin the exact RFC 8785 (JCS) canonical bytes on a tiny object: keys lexicographically sorted,
+    // compact (no insignificant whitespace), and the two signature fields excluded from what is
+    // signed. This is the observable contract the Rust verifier must reproduce byte-for-byte.
+    ObjectNode m = MAPPER.createObjectNode();
+    m.put("b", 1);
+    m.put("a", 2);
+    m.put("signature", "ed25519:must-not-be-signed-over");
+    m.put("signing_key_id", "must-not-be-signed-over");
+
+    String canonical =
+        new String(ManifestCanonicalizer.canonicalBytes(m), StandardCharsets.UTF_8);
+
+    assertThat(canonical).isEqualTo("{\"a\":2,\"b\":1}");
+  }
+
+  @Test
+  void verifiesAcrossEquivalentNumberFormatting() throws Exception {
+    // The whole reason for the JCS switch: canonicalization is insensitive to scalar textual form.
+    // Sign a manifest whose requirements carry an INTEGER, then re-express that field as an
+    // equivalent DECIMAL. RFC 8785 normalizes both to the same number token, so the signature over
+    // the canonical bytes still verifies. The prior structural canonicalizer reproduced scalars
+    // verbatim and would have rejected this — the exact cross-language footgun this replaces.
+    Key k = freshKey("hp-pkg-test");
+    ObjectNode m = signed(k, manifest());
+
+    ((ObjectNode) m.get("requirements")).put("min_params_b", 3.0); // was integer 3
+
+    assertThat(verifierTrusting(k).verify(m)).isEqualTo("hp-pkg-test");
   }
 }
