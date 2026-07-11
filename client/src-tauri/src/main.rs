@@ -7,6 +7,7 @@
 
 mod inference;
 mod ipc;
+mod orchestrator;
 mod skills;
 mod telemetry;
 mod tools;
