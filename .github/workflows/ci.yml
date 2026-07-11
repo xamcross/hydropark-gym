@@ -107,6 +107,18 @@ jobs:
           openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/rsa_priv.pem" -outform DER -out "$TMP_DIR/rsa_priv.der" 2>/dev/null
           HP_JWT_PRIVATE_KEY="$(openssl base64 -A -in "$TMP_DIR/rsa_priv.der")"
 
+          # Ed25519 keypair for skill PACKAGE signing (HP_PACKAGE_SIGNING_PRIVATE_KEY /
+          # HP_PACKAGE_SIGNING_PUBLIC_KEY), PKCS#8 private / X.509 SPKI public, base64 - the exact
+          # shape deploy/scripts/generate-keys.sh emits and io.hydropark.packaging.PackageTrustedKeySet
+          # parses (plain base64; the ed25519:<base64> wire form is the manifest signature, not these
+          # env vars). A SEPARATE key class from the license key above (SPEC 13.8/8.8); never reuse one
+          # for the other. Ed25519 has no traditional PKCS#1/SEC1 form, so `pkcs8 -topk8` is correct.
+          openssl genpkey -algorithm ED25519 -out "$TMP_DIR/pkg_priv.pem" 2>/dev/null
+          openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/pkg_priv.pem" -outform DER -out "$TMP_DIR/pkg_priv.der" 2>/dev/null
+          openssl pkey -in "$TMP_DIR/pkg_priv.pem" -pubout -outform DER -out "$TMP_DIR/pkg_pub.der" 2>/dev/null
+          HP_PACKAGE_SIGNING_PRIVATE_KEY="$(openssl base64 -A -in "$TMP_DIR/pkg_priv.der")"
+          HP_PACKAGE_SIGNING_PUBLIC_KEY="$(openssl base64 -A -in "$TMP_DIR/pkg_pub.der")"
+
           rm -rf "$TMP_DIR"
 
           {
@@ -117,6 +129,10 @@ jobs:
             echo "HP_LICENSE_PUBLIC_KEY=$HP_LICENSE_PUBLIC_KEY"
             echo "HP_JWT_PRIVATE_KEY=$HP_JWT_PRIVATE_KEY"
             echo "HP_JWT_KEY_ID=hp-access-ci"
+            echo "HP_PACKAGE_SIGNING_ENABLED=true"
+            echo "HP_PACKAGE_SIGNING_KID=hp-pkg-ci"
+            echo "HP_PACKAGE_SIGNING_PRIVATE_KEY=$HP_PACKAGE_SIGNING_PRIVATE_KEY"
+            echo "HP_PACKAGE_SIGNING_PUBLIC_KEY=$HP_PACKAGE_SIGNING_PUBLIC_KEY"
             echo "HP_PAYMENT_PROVIDER=fake"
             echo "HP_SEED_ENABLED=true"
             echo "LOG_LEVEL=INFO"
