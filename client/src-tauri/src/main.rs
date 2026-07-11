@@ -7,19 +7,23 @@
 
 mod capacity;
 mod composition;
+mod grammar;
 mod inference;
 mod ipc;
+mod license_verify;
 mod manifest;
 mod orchestrator;
 mod package_verify;
 mod shared_state;
 mod skill_manager;
 mod skills;
+mod store;
 mod telemetry;
 mod templates;
 mod tool_catalog;
 mod tool_routing;
 mod tools;
+mod turn;
 mod unlock;
 
 use tauri::{AppHandle, Manager, State};

@@ -45,6 +45,17 @@ ed25519-dalek = "2"
 base64 = "0.22"
 serde_jcs = "0.1"
 
+# Offline license verification (P1-09.4/.5): compact JWS verified with the per-`kid` PINNED
+# algorithm - ES256 (ECDSA P-256) for new issuance, EdDSA for legacy keys - never the token
+# `alg` header (ADR-001). Pure-Rust (no C), so it builds under `mock-inference` too.
+p256 = { version = "0.13", features = ["ecdsa"] }
+sha2 = "0.10"
+
+# On-device store (P1-10.1/.4): local SQLite (offline; unrelated to the cloud Atlas store).
+# `bundled` compiles SQLite from vendored C via `cc` - the same MSVC toolchain the mock build
+# already needs for its linker.
+rusqlite = { version = "0.31", features = ["bundled"] }
+
 # Embedded llama.cpp binding (P0-02.1). Optional + gated behind the
 # `real-inference` feature so the default `mock-inference` build needs no
 # C/C++ toolchain, no GGUF, and no libclang. `llama-cpp-sys-2` builds
