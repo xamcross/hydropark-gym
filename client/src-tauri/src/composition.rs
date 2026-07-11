@@ -14,12 +14,13 @@
 //! Pure logic (no Tauri coupling) so it is unit-testable under the mock feature;
 //! the `compose_agent` Tauri command is a thin wrapper over [`compose_agent`].
 
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::capacity::{self, CapacityProjection, CapacityStatus};
 use crate::manifest::{self, ValidationIssue};
 use crate::orchestrator::{self, ComposedTool, MergeError, SkillManifest};
-use crate::tool_routing::{self, RoutingTable, ToolDecl};
+use crate::tool_routing::{self, RouteTarget, RoutingTable, ToolDecl};
 
 /// The fully composed agent produced from the set of enabled skills.
 #[derive(Debug)]
@@ -113,7 +114,10 @@ pub fn compose_agent(
         return Err(CompositionError::CapacityOverflow { projection });
     }
 
-    // 5. tool -> slot routing (P1-05.3), read from each manifest's `tools[]`.
+    // 5. tool -> slot routing (P1-05.3), read from each manifest's `tools[]`. NOTE: one route per
+    //    declaration (skills that share a tool each contribute a route); aligning routing to the
+    //    composed/namespaced call-names (§8.3.3) so it is keyed by `ComposedTool.call_name` is a
+    //    follow-up.
     let tool_decls: Vec<ToolDecl> = manifests
         .iter()
         .filter_map(|m| m.get("tools").and_then(Value::as_array))
@@ -130,6 +134,134 @@ pub fn compose_agent(
         routing,
         capacity: projection,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Serializable wire view — the shape the `compose_agent` Tauri command returns.
+// `ComposedAgent` holds cross-module types that aren't `Serialize`, so this
+// flattens it to a stable snake_case wire object the Angular UI consumes.
+// ---------------------------------------------------------------------------
+
+/// The base agent's voice — the preamble every composed persona opens with, and
+/// the leading voice when no `primary_eligible` skill leads (§8.3.1).
+pub const BASE_PREAMBLE: &str =
+    "You are Hydropark, a private assistant that runs fully on-device. You are offline and never \
+     send the conversation anywhere. Be helpful, concise, and honest.";
+
+#[derive(Debug, Serialize)]
+pub struct ComposedAgentView {
+    pub order: Vec<String>,
+    pub primary: Option<String>,
+    pub persona: String,
+    pub tools: Vec<ToolView>,
+    pub routing: Vec<RouteView>,
+    pub capacity: CapacityView,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ToolView {
+    pub call_name: String,
+    pub tool_ref: String,
+    pub contributors: Vec<String>,
+    pub namespaced: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RouteView {
+    pub tool_ref: String,
+    pub reads: Vec<String>,
+    pub writes: Vec<String>,
+    /// `"chat"` or `"widget:<name>"`.
+    pub target: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CapacityView {
+    pub ctx_window: u32,
+    pub reserve_tokens: u32,
+    pub skill_tokens: u32,
+    pub used_tokens: u32,
+    pub remaining: u32,
+    pub blocked: bool,
+    pub overflow: u32,
+}
+
+/// A structured composition failure the command returns to the UI.
+#[derive(Debug, Serialize)]
+pub struct ComposeErrorView {
+    /// Machine code: `invalid_manifest` | `malformed` | `conflict` | `capacity_overflow`.
+    pub kind: String,
+    pub message: String,
+}
+
+impl ComposedAgent {
+    pub fn to_view(&self) -> ComposedAgentView {
+        ComposedAgentView {
+            order: self.order.clone(),
+            primary: self.primary.clone(),
+            persona: self.persona.clone(),
+            tools: self
+                .tools
+                .iter()
+                .map(|t| ToolView {
+                    call_name: t.call_name.clone(),
+                    tool_ref: t.tool_ref.clone(),
+                    contributors: t.contributors.clone(),
+                    namespaced: t.namespaced,
+                })
+                .collect(),
+            routing: self
+                .routing
+                .routes
+                .iter()
+                .map(|(tref, route)| RouteView {
+                    tool_ref: tref.clone(),
+                    reads: route.reads.iter().map(|s| s.to_string()).collect(),
+                    writes: route.writes.iter().map(|s| s.to_string()).collect(),
+                    target: match &route.target {
+                        RouteTarget::Widget(w) => format!("widget:{w}"),
+                        RouteTarget::Chat => "chat".to_string(),
+                    },
+                })
+                .collect(),
+            capacity: CapacityView {
+                ctx_window: self.capacity.ctx_window,
+                reserve_tokens: self.capacity.reserve_tokens,
+                skill_tokens: self.capacity.skill_tokens,
+                used_tokens: self.capacity.used_tokens,
+                remaining: self.capacity.remaining,
+                blocked: matches!(self.capacity.status, CapacityStatus::Blocked { .. }),
+                overflow: match self.capacity.status {
+                    CapacityStatus::Blocked { overflow } => overflow,
+                    CapacityStatus::Ok => 0,
+                },
+            },
+        }
+    }
+}
+
+impl From<CompositionError> for ComposeErrorView {
+    fn from(e: CompositionError) -> Self {
+        let kind = match &e {
+            CompositionError::InvalidManifest { .. } => "invalid_manifest",
+            CompositionError::Malformed { .. } => "malformed",
+            CompositionError::Conflict { .. } => "conflict",
+            CompositionError::CapacityOverflow { .. } => "capacity_overflow",
+        };
+        ComposeErrorView { kind: kind.to_string(), message: e.to_string() }
+    }
+}
+
+/// Command-friendly wrapper: compose the enabled manifests into the wire view or
+/// a structured error, using [`BASE_PREAMBLE`] as the base voice.
+pub fn compose_agent_view(
+    manifests: &[Value],
+    primary_hint: Option<&str>,
+    n_ctx: u32,
+) -> Result<ComposedAgentView, ComposeErrorView> {
+    compose_agent(BASE_PREAMBLE, manifests, primary_hint, n_ctx)
+        .map(|a| a.to_view())
+        .map_err(ComposeErrorView::from)
 }
 
 #[cfg(test)]
@@ -191,5 +323,24 @@ mod tests {
         // 8 tokens cannot hold the reserve + either persona.
         let err = compose_agent("BASE", &[cooking_assistant()], None, 8).unwrap_err();
         assert!(matches!(err, CompositionError::CapacityOverflow { .. }));
+    }
+
+    #[test]
+    fn view_flattens_and_serializes_for_the_command() {
+        let view = compose_agent_view(&[kitchen_timer(), cooking_assistant()], None, 4096).unwrap();
+        assert_eq!(view.primary.as_deref(), Some("cooking-assistant"));
+        assert_eq!(view.tools.len(), 3);
+        assert!(!view.capacity.blocked);
+        // Routing has one entry per skill tool DECLARATION (6 = 2 skills x 3 tools); aligning it to
+        // the composed/namespaced call-names (§8.3.3) is the documented follow-up in compose_agent.
+        assert_eq!(view.routing.len(), 6);
+        let json = serde_json::to_string(&view).expect("view serializes");
+        assert!(json.contains("cooking-assistant"));
+        // IP: the composed persona is the assembled prompt (intended), but no raw
+        // manifest system_prompt key leaks into the wire object.
+        assert!(!json.contains("\"system_prompt\""));
+
+        let err = compose_agent_view(&[cooking_assistant()], None, 8).unwrap_err();
+        assert_eq!(err.kind, "capacity_overflow");
     }
 }

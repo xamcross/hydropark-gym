@@ -207,6 +207,19 @@ fn log_hardware_profile() {
     );
 }
 
+/// Compose the enabled skills' manifests into an agent (validate -> merge ->
+/// capacity gate -> tool routing). The webview calls this when the enabled-skill
+/// set changes; it returns the composed persona/tools/routing/capacity or a
+/// structured composition error. Pure (no app state) — see `composition.rs`.
+#[tauri::command]
+fn compose_agent(
+    manifests: Vec<serde_json::Value>,
+    primary_hint: Option<String>,
+    n_ctx: Option<u32>,
+) -> Result<composition::ComposedAgentView, composition::ComposeErrorView> {
+    composition::compose_agent_view(&manifests, primary_hint.as_deref(), n_ctx.unwrap_or(4096))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -227,6 +240,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             tool_call,
+            compose_agent,
             inference_start,
             inference_cancel,
             skill_enable,
