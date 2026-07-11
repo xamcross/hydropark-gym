@@ -35,7 +35,8 @@ public class CertificationService {
             new SchemaValidationCheck(manifestSchema),
             new ReferentialIntegrityCheck(),
             new BudgetLimitsCheck(),
-            new NonTokenStylingLintCheck());
+            new NonTokenStylingLintCheck(),
+            new LocalizationCompletenessCheck());
   }
 
   public CertificationReport certify(JsonNode manifest) {

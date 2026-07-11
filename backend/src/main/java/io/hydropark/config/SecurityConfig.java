@@ -85,6 +85,12 @@ public class SecurityConfig {
                     // is not mistaken for an accidentally-exposed endpoint.
                     .requestMatchers(HttpMethod.GET, "/v1/download/model/**")
                     .permitAll()
+                    // P1-20 registry submission (POST /v1/registry/**): certify-only, no side
+                    // effects, but an internal/admin op — require a valid access token. Tighten to an
+                    // admin authority (or relocate under /internal/**, InternalAuthFilter-gated) once
+                    // publishing writes exist behind it.
+                    .requestMatchers(HttpMethod.POST, "/v1/registry/**")
+                    .authenticated()
                     .anyRequest()
                     .authenticated())
         .addFilterBefore(internalAuthFilter, UsernamePasswordAuthenticationFilter.class)
