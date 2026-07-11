@@ -1,0 +1,169 @@
+<section class="detail" aria-label="Skill detail">
+  <button type="button" class="back" (click)="onBack()">
+    <span aria-hidden="true">‹</span> Back to catalog
+  </button>
+
+  @switch (phase()) {
+    @case ('loading') {
+      <div class="state" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading skill…</span>
+      </div>
+    }
+
+    @case ('error') {
+      <div class="state state-error" role="alert">
+        <p class="state-title">Couldn't load this skill.</p>
+        <p class="state-msg">{{ errorMsg() }}</p>
+        <button type="button" class="state-action" (click)="load(skillId())">Try again</button>
+      </div>
+    }
+
+    @case ('ready') {
+      @if (detail(); as d) {
+        <!-- ── Header ─────────────────────────────────────────────────────── -->
+        <header class="head">
+          <span class="head-icon" aria-hidden="true">{{ d.icon ?? '🧩' }}</span>
+          <div class="head-body">
+            <h1 class="head-name">{{ d.name }}</h1>
+            @if (d.pitch) {
+              <p class="head-pitch">{{ d.pitch }}</p>
+            }
+            <div class="head-badges">
+              <span class="badge price" [class.is-free]="d.is_free">{{ priceLabel() }}</span>
+              @if (d.category) {
+                <span class="badge">{{ d.category }}</span>
+              }
+              <span class="badge size">{{ sizeLabel() }}</span>
+              @if (d.current_version) {
+                <span class="badge">v{{ d.current_version.version }}</span>
+              }
+              @if (canRun()) {
+                <span class="badge runs ok"><span aria-hidden="true">✓</span> Runs on your PC</span>
+              } @else {
+                <span class="badge runs needs"><span aria-hidden="true">▲</span> Needs a bigger model</span>
+              }
+            </div>
+          </div>
+
+          <!-- Ownership state machine (§11.3). -->
+          @if (ownState(); as st) {
+            <app-ownership-button
+              class="head-own"
+              [state]="st"
+              [price]="d.price"
+              [isFree]="d.is_free"
+              (action)="onAction($event)"
+            ></app-ownership-button>
+          }
+        </header>
+
+        <!-- ── Description ────────────────────────────────────────────────── -->
+        @if (d.description) {
+          <section class="block">
+            <h2 class="block-title">About</h2>
+            <p class="prose">{{ d.description }}</p>
+          </section>
+        }
+
+        <!-- ── Screenshots strip (placeholder tiles) ──────────────────────── -->
+        @if (d.media?.length) {
+          <section class="block">
+            <h2 class="block-title">Screenshots</h2>
+            <div class="shots" role="list" aria-label="Screenshots">
+              @for (m of d.media!; track m.alt) {
+                <figure class="shot" role="listitem">
+                  @if (m.uri) {
+                    <img class="shot-img" [src]="m.uri" [alt]="m.alt" />
+                  } @else {
+                    <div class="shot-ph" aria-hidden="true"><span>▦</span></div>
+                  }
+                  <figcaption class="shot-cap">{{ m.alt }}</figcaption>
+                </figure>
+              }
+            </div>
+          </section>
+        }
+
+        <!-- ── Panels & tools ─────────────────────────────────────────────── -->
+        @if (d.panels?.length || d.tools?.length) {
+          <section class="block cols">
+            @if (d.panels?.length) {
+              <div class="col">
+                <h2 class="block-title">Panels it adds</h2>
+                <ul class="tags">
+                  @for (p of d.panels!; track p) {
+                    <li class="tag">{{ p }}</li>
+                  }
+                </ul>
+              </div>
+            }
+            @if (d.tools?.length) {
+              <div class="col">
+                <h2 class="block-title">Tools</h2>
+                <ul class="tags">
+                  @for (t of d.tools!; track t) {
+                    <li class="tag mono">{{ t }}</li>
+                  }
+                </ul>
+              </div>
+            }
+          </section>
+        }
+
+        <!-- ── Sample prompts ─────────────────────────────────────────────── -->
+        @if (d.sample_prompts?.length) {
+          <section class="block">
+            <h2 class="block-title">Try asking</h2>
+            <ul class="prompts">
+              @for (q of d.sample_prompts!; track q) {
+                <li class="prompt">“{{ q }}”</li>
+              }
+            </ul>
+          </section>
+        }
+
+        <!-- ── Compressed teaser prompt (IP-SAFE: compressed_prompt ONLY) ──── -->
+        @if (d.compressed_prompt) {
+          <section class="block">
+            <h2 class="block-title">How it steers the agent</h2>
+            <p class="prose-note">
+              A compressed preview of the skill's guidance — not the full instructions, which stay
+              on the skill and never leave it.
+            </p>
+            <pre class="teaser">{{ d.compressed_prompt }}</pre>
+          </section>
+        }
+
+        <!-- ── Requirements ───────────────────────────────────────────────── -->
+        @if (d.requirements) {
+          <section class="block">
+            <h2 class="block-title">Requirements</h2>
+            <dl class="reqs">
+              <div class="req">
+                <dt>Model tier</dt>
+                <dd>{{ d.requirements.min_model_tier ?? 'any' }}</dd>
+              </div>
+              <div class="req">
+                <dt>Min app version</dt>
+                <dd>{{ d.requirements.min_app_version ?? 'any' }}</dd>
+              </div>
+              <div class="req">
+                <dt>Download size</dt>
+                <dd>{{ sizeLabel() }}</dd>
+              </div>
+            </dl>
+          </section>
+        }
+
+        <!-- ── Changelog ──────────────────────────────────────────────────── -->
+        @if (d.changelog) {
+          <section class="block">
+            <h2 class="block-title">Changelog</h2>
+            <pre class="changelog">{{ d.changelog }}</pre>
+          </section>
+        }
+      }
+    }
+  }
+</section>

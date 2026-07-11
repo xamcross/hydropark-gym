@@ -1,0 +1,117 @@
+<section class="catalog" aria-label="Skill marketplace">
+  <!-- ── Controls: search + filters ─────────────────────────────────────── -->
+  <div class="controls">
+    <div class="search">
+      <label class="search-label" for="catalog-search">Search skills</label>
+      <input
+        id="catalog-search"
+        class="search-input"
+        type="search"
+        placeholder="Search skills…"
+        [value]="search()"
+        (input)="onSearch($any($event.target).value)"
+        autocomplete="off"
+      />
+    </div>
+
+    <div class="filters">
+      <!-- Free / Owned / All (single-select → radiogroup semantics). -->
+      <div class="seg" role="radiogroup" aria-label="Ownership filter">
+        @for (opt of ownershipOptions; track opt.value) {
+          <button
+            type="button"
+            class="seg-btn"
+            role="radio"
+            [class.on]="ownership() === opt.value"
+            [attr.aria-checked]="ownership() === opt.value"
+            (click)="setOwnership(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        }
+      </div>
+
+      <!-- Runs on your PC. -->
+      <label class="check">
+        <input
+          type="checkbox"
+          [checked]="runsOnThisPc()"
+          (change)="toggleRunsOnThisPc($any($event.target).checked)"
+        />
+        <span>Runs on your PC</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- ── Category chip row ──────────────────────────────────────────────── -->
+  @if (categories().length) {
+    <div class="chips" role="group" aria-label="Categories">
+      <button
+        type="button"
+        class="chip"
+        [class.on]="category() === null"
+        [attr.aria-pressed]="category() === null"
+        (click)="selectCategory(null)"
+      >
+        All categories
+      </button>
+      @for (cat of categories(); track cat) {
+        <button
+          type="button"
+          class="chip"
+          [class.on]="category() === cat"
+          [attr.aria-pressed]="category() === cat"
+          (click)="selectCategory(cat)"
+        >
+          {{ cat }}
+        </button>
+      }
+    </div>
+  }
+
+  <!-- ── Results ────────────────────────────────────────────────────────── -->
+  @switch (phase()) {
+    @case ('loading') {
+      <div class="state" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading skills…</span>
+      </div>
+    }
+
+    @case ('error') {
+      <div class="state state-error" role="alert">
+        <p class="state-title">Couldn't load the catalog.</p>
+        <p class="state-msg">{{ errorMsg() }}</p>
+        <button type="button" class="state-action" (click)="reload()">Try again</button>
+      </div>
+    }
+
+    @case ('empty') {
+      <div class="state" role="status" aria-live="polite">
+        <p class="state-title">No skills match.</p>
+        @if (filtersActive()) {
+          <p class="state-msg">Try widening your search or filters.</p>
+          <button type="button" class="state-action" (click)="clearFilters()">Clear filters</button>
+        } @else {
+          <p class="state-msg">The catalog is empty right now.</p>
+        }
+      </div>
+    }
+
+    @case ('ready') {
+      <div class="grid" aria-label="Skills">
+        @for (item of items(); track item.id) {
+          <app-skill-card
+            [item]="item"
+            [deviceTier]="deviceTier()"
+            (activate)="onCardActivate($event)"
+          ></app-skill-card>
+        }
+      </div>
+
+      @if (nextCursor()) {
+        <button type="button" class="load-more" (click)="reload()">Load more</button>
+      }
+    }
+  }
+</section>
