@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capacity;
+mod composition;
 mod inference;
 mod ipc;
 mod manifest;
