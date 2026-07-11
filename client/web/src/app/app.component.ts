@@ -11,6 +11,7 @@ import { TelemetryService } from './state/telemetry.service';
 import { TimerSyncService } from './state/timer-sync.service';
 import { IPC_PORT, IpcPort } from './ipc/ipc.port';
 import { MockIpcService } from './ipc/mock-ipc.service';
+import { ThemeService } from './shared/theme.service';
 
 @Component({
   selector: 'app-root',
@@ -24,16 +25,23 @@ export class AppComponent implements OnInit {
   readonly skillEnabled = computed(() => this.session.kitchenSkillEnabled());
   /** True when running against the in-browser mock (no Tauri shell) — gates the dev-only telemetry download affordance. */
   readonly isMock: boolean;
+  /** Rendered theme (resolves the OS default when the user has made no explicit choice). */
+  readonly theme = computed(() => this.themeSvc.preference() ?? this.themeSvc.resolved());
 
   constructor(
     @Inject(IPC_PORT) private readonly ipc: IpcPort,
     private readonly session: SessionService,
     private readonly telemetry: TelemetryService,
+    private readonly themeSvc: ThemeService,
     // Injected solely to activate its constructor side effects (timer event
     // subscriptions) at app start — see timer-sync.service.ts.
     private readonly timerSync: TimerSyncService
   ) {
     this.isMock = ipc instanceof MockIpcService;
+  }
+
+  toggleTheme(): void {
+    this.themeSvc.toggle();
   }
 
   async ngOnInit(): Promise<void> {

@@ -5,11 +5,23 @@
       <span class="brand-name">Hydropark</span>
       <span class="brand-tag">Phase 0 prototype</span>
     </div>
-    @if (isMock) {
-      <button type="button" class="dev-btn" (click)="downloadLog()" title="Dev-only: download the in-memory JSONL session log (P0-06.1)">
-        ⬇ session log
+    <div class="topbar-actions">
+      <button
+        type="button"
+        class="theme-btn"
+        (click)="toggleTheme()"
+        [attr.aria-label]="'Switch to ' + (theme() === 'dark' ? 'light' : 'dark') + ' theme'"
+        [title]="'Switch to ' + (theme() === 'dark' ? 'light' : 'dark') + ' theme'"
+      >
+        <span aria-hidden="true">{{ theme() === 'dark' ? '☀' : '☾' }}</span>
+        <span>{{ theme() === 'dark' ? 'Light' : 'Dark' }}</span>
       </button>
-    }
+      @if (isMock) {
+        <button type="button" class="dev-btn" (click)="downloadLog()" title="Dev-only: download the in-memory JSONL session log (P0-06.1)">
+          ⬇ session log
+        </button>
+      }
+    </div>
   </header>
 
   <app-skill-toggle></app-skill-toggle>

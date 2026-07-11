@@ -1,0 +1,245 @@
+/* =============================================================================
+   HYDROPARK — DESIGN-TOKEN SYSTEM  (P1-01.3 tokens · P1-01.4 theming)
+   -----------------------------------------------------------------------------
+   The single, constrained token vocabulary every widget references BY NAME
+   (contracts/widgets/_widget-contract.md §7 — "no literal hex/px in widget CSS").
+   Four token groups: COLOR · SPACING · TYPE · RADIUS  (+ motion, shared globally).
+
+   Brand seed: landing-gym — "the agent gym". Cold graphite (iron), chalk, one
+   sulphur-yellow, and rust. The semantic triad the brand encodes:
+       chalk  = fine       sulphur = careful       rust = no
+   The seed palette is a DARK aesthetic, so it is adopted verbatim as the DARK
+   theme and a WCAG-AA LIGHT theme is DERIVED from it below.
+
+   THEMING (§8 accessibility contract — AA verified PER THEME):
+     - :root                    → LIGHT semantic set  (also the no-JS default)
+     - :root[data-theme="dark"] → DARK semantic set   (explicit opt-in)
+     - @media (prefers-color-scheme: dark) on :root:not([data-theme="light"])
+                                → DARK is the DEFAULT SIGNAL from the OS
+   A token that passes on dark may fail on light and vice-versa, so text and
+   fill roles are split (e.g. `--sulphur` reads AA on iron but fails on chalk —
+   light uses `--sulphur-ink`, the documented precedent). Verdicts are NEVER
+   encoded by hue alone (WCAG 1.4.1): every `--tone-*` colour is paired in the
+   widget with text and/or an icon (see timer-stack "Done" flag).
+   ============================================================================= */
+
+/* ---- 1. Brand constants (theme-invariant identity + primitives) ------------ */
+:root {
+  /* graphite / iron */
+  --iron:      #15181A;
+  --iron-2:    #1B1F22;
+  --iron-3:    #232A2E;
+  --steel:     #39424A;
+  --steel-2:   #4B565E;
+
+  /* chalk */
+  --chalk:     #E9EBE4;
+  --chalk-2:   #98A09B;
+  --chalk-3:   #6D7671;
+
+  /* sulphur — the one accent. `-ink` is the AA-on-light variant. */
+  --sulphur:       #F0C21B;
+  --sulphur-bright:#FFD535;
+  --sulphur-dim:   #A8870E;
+  --sulphur-ink:   #7A6100;   /* AA (5.0:1) on the chalk slab */
+
+  /* rust — "no". `-ink` reads AA on iron; `-deep` reads AA on chalk. */
+  --rust:      #C4491F;
+  --rust-ink:  #E8734A;       /* AA (5.9:1) as text on iron */
+  --rust-deep: #A63A18;       /* AA (5.5:1) as text on paper */
+
+  /* derived light-theme papers (chalk family lightened for surfaces) */
+  --paper:     #ECEDE7;
+  --paper-2:   #F6F7F2;
+  --paper-3:   #DFE1D9;
+  --paper-line:#C9CCC4;
+
+  /* ---- TYPE (family / size / weight / line-height) ----
+     Offline app: these three families are wired to LOCAL @font-face bundles in
+     styles/fonts.css and degrade to the system stack until the binaries land. */
+  --font-display: "Archivo", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-body:    "Chivo", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono:    "Martian Mono", "DM Mono", ui-monospace, "Cascadia Code", monospace;
+  --font-sans:    var(--font-body);   /* back-compat alias (legacy token name) */
+
+  --text-2xs:  0.6875rem;  /* 11px — micro labels */
+  --text-xs:   0.75rem;    /* 12px */
+  --text-sm:   0.8125rem;  /* 13px */
+  --text-base: 0.9375rem;  /* 15px — body default */
+  --text-md:   1rem;       /* 16px */
+  --text-lg:   1.25rem;    /* 20px — timer readout */
+  --text-xl:   1.75rem;    /* 28px — display */
+
+  --font-weight-regular:  400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+  --font-weight-black:    900;
+
+  --leading-tight:   1.1;
+  --leading-snug:    1.3;
+  --leading-normal:  1.45;
+  --leading-relaxed: 1.6;
+
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;
+  --tracking-wider:  0.14em;
+
+  /* ---- SPACING (4px base scale) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ---- RADIUS (industrial / tight) ---- */
+  --radius-sm:   3px;
+  --radius-md:   6px;
+  --radius-lg:   10px;
+  --radius-pill: 999px;
+
+  /* ---- MOTION (shared; reduce-motion collapses these below) ---- */
+  --ease:            cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-out:        cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast:  120ms var(--ease);
+  --transition-panel: 220ms var(--ease-out);
+  --transition-slow:  360ms var(--ease-out);
+}
+
+/* ---- 2. LIGHT theme (derived, WCAG-AA) — also the default token set --------
+   Contrast ratios targeted (all vs their background, AA text ≥ 4.5:1):
+     text          iron  #15181A on paper #ECEDE7 ............. 15.1:1  (AAA)
+     text-muted    #4A524D          on paper ................... 7.3:1  (AAA)
+     primary btn   iron text on sulphur fill ................... 10.5:1 (AAA)
+     careful text  --sulphur-ink #7A6100 on paper ............. 5.0:1  (AA)  ← sulphur itself fails here
+     danger text   --rust-deep  #A63A18  on paper ............. 5.5:1  (AA)
+     fine  text    --steel      #39424A  on paper ............. 8.7:1  (AAA) */
+:root {
+  color-scheme: light;
+
+  --color-bg:               var(--paper);
+  --color-surface:          var(--paper-2);
+  --color-surface-alt:      var(--paper-3);
+  --color-border:           var(--paper-line);
+  --color-text:             var(--iron);
+  --color-text-muted:       #4A524D;
+
+  --color-primary:          var(--sulphur);        /* action FILL; pairs w/ iron text */
+  --color-primary-strong:   var(--sulphur-dim);    /* hover / pressed */
+  --color-primary-contrast: var(--iron);           /* text/icon ON sulphur */
+
+  --color-accent:           var(--steel);          /* "fine" tone, as TEXT/marker on light */
+  --color-on-accent:        var(--paper-2);         /* text/icon ON an accent fill */
+
+  --color-danger:           var(--rust-deep);      /* danger TEXT on light */
+  --color-danger-fill:      var(--rust);           /* danger chip/marker FILL */
+  --color-on-danger:        #FFFFFF;               /* text ON a danger fill (4.9:1 on rust) */
+
+  /* semantic triad — fill (≥3:1 non-text), text (≥4.5:1), tint (wash behind text) */
+  --tone-fine-fill:    var(--steel);
+  --tone-fine-text:    var(--iron);
+  --tone-fine-tint:    rgba(57, 66, 74, 0.10);
+  --tone-careful-fill: var(--sulphur-ink);         /* sulphur fails AA on light → ink */
+  --tone-careful-text: var(--sulphur-ink);
+  --tone-careful-tint: rgba(240, 194, 27, 0.20);
+  --tone-danger-fill:  var(--rust);
+  --tone-danger-text:  var(--rust-deep);
+  --tone-danger-tint:  rgba(196, 73, 31, 0.12);
+
+  --focus-ring: var(--sulphur-ink);                /* sulphur is invisible on light → ink (5:1) */
+  --shadow-1: 0 1px 2px rgba(21, 24, 26, 0.14);
+}
+
+/* ---- 3. DARK theme (the landing-gym seed, verbatim) ------------------------
+   Contrast ratios (all vs iron bg #15181A):
+     text        chalk    #E9EBE4 ...... 14.8:1 (AAA)
+     text-muted  chalk-2  #98A09B ......  6.7:1 (AA)
+     primary btn iron text on sulphur .. 10.5:1 (AAA)
+     careful     sulphur  #F0C21B ...... 10.5:1 (AAA)
+     danger text rust-ink #E8734A ......  5.9:1 (AA)
+   Written once here (explicit opt-in) and again in §4 (OS default). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg:               var(--iron);
+  --color-surface:          var(--iron-2);
+  --color-surface-alt:      var(--iron-3);
+  --color-border:           #2C343A;
+  --color-text:             var(--chalk);
+  --color-text-muted:       var(--chalk-2);
+
+  --color-primary:          var(--sulphur);
+  --color-primary-strong:   var(--sulphur-bright);
+  --color-primary-contrast: var(--iron);
+
+  --color-accent:           var(--chalk);          /* "fine" tone is bright neutral on dark */
+  --color-on-accent:        var(--iron);
+
+  --color-danger:           var(--rust-ink);       /* danger TEXT on dark */
+  --color-danger-fill:      var(--rust);
+  --color-on-danger:        #FFFFFF;
+
+  --tone-fine-fill:    var(--chalk);
+  --tone-fine-text:    var(--chalk);
+  --tone-fine-tint:    rgba(233, 235, 228, 0.10);
+  --tone-careful-fill: var(--sulphur);
+  --tone-careful-text: var(--sulphur);
+  --tone-careful-tint: rgba(240, 194, 27, 0.12);
+  --tone-danger-fill:  var(--rust);
+  --tone-danger-text:  var(--rust-ink);
+  --tone-danger-tint:  rgba(196, 73, 31, 0.14);
+
+  --focus-ring: var(--sulphur);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* ---- 4. OS preference is the DEFAULT SIGNAL (no explicit choice yet) --------
+   Applies the DARK set whenever the OS asks for dark AND the user has not
+   explicitly forced light. Duplicated (rather than shared) so an explicit
+   data-theme always wins deterministically. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --color-bg:               var(--iron);
+    --color-surface:          var(--iron-2);
+    --color-surface-alt:      var(--iron-3);
+    --color-border:           #2C343A;
+    --color-text:             var(--chalk);
+    --color-text-muted:       var(--chalk-2);
+
+    --color-primary:          var(--sulphur);
+    --color-primary-strong:   var(--sulphur-bright);
+    --color-primary-contrast: var(--iron);
+
+    --color-accent:           var(--chalk);
+    --color-on-accent:        var(--iron);
+
+    --color-danger:           var(--rust-ink);
+    --color-danger-fill:      var(--rust);
+    --color-on-danger:        #FFFFFF;
+
+    --tone-fine-fill:    var(--chalk);
+    --tone-fine-text:    var(--chalk);
+    --tone-fine-tint:    rgba(233, 235, 228, 0.10);
+    --tone-careful-fill: var(--sulphur);
+    --tone-careful-text: var(--sulphur);
+    --tone-careful-tint: rgba(240, 194, 27, 0.12);
+    --tone-danger-fill:  var(--rust);
+    --tone-danger-text:  var(--rust-ink);
+    --tone-danger-tint:  rgba(196, 73, 31, 0.14);
+
+    --focus-ring: var(--sulphur);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ---- 5. Reduce-motion — collapse every motion token (P0-05.2 / §8.6) ------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast:  0.01ms;
+    --transition-panel: 0.01ms;
+    --transition-slow:  0.01ms;
+  }
+}
