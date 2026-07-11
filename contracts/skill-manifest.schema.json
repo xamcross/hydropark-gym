@@ -1,0 +1,696 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.hydropark.app/skill-manifest.schema.json",
+  "title": "Hydropark Skill Manifest",
+  "description": "Phase-1 PRODUCTION contract for a Hydropark skill manifest. Promotes SPECIFICATION.md §8.2 from an illustrative example to a validated contract that both the desktop client (install/load) and the certification pipeline (P1-20) enforce. A skill is a signed, declarative `prompt + tools + UI pack` (§8.1) — it ships NO model weights and NO executable code. THE MANIFEST IS THE AUTHORING ARTIFACT: it carries the FULL `persona.system_prompt` (the paid IP), which is packaged verbatim into the signed `.hpskill` (§8.8). The Catalog API deliberately serves only `persona.compressed_prompt` before purchase and NEVER the full prompt (BACKEND-DESIGN §3.2 / §4.2, fix SF8). Fields marked `shorthand` have a documented canonical expansion the client normalizes on load (§9.2); see contracts/README.md. Structural budgets here (maxItems / maxLength) are the first line of the §8.5 resource budget; token-accurate limits and the certified `cost_estimate` are produced by the behavioral eval suite (P1-20.1 / P1-20.2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "version",
+    "category",
+    "min_app_version",
+    "requirements",
+    "pricing",
+    "persona"
+  ],
+  "properties": {
+    "manifest_version": {
+      "description": "Version of the manifest FORMAT (this schema), independent of the skill's own `version`. Lets the loader route future manifest shapes. Omitted → treated as \"1.0\".",
+      "type": "string",
+      "enum": ["1.0"],
+      "default": "1.0"
+    },
+    "id": {
+      "description": "Stable, globally-unique skill slug (kebab-case). This is the SPEC skill id and the `skills.id` primary key server-side (BACKEND-DESIGN §3.2). Immutable across versions; a new id is a new product.",
+      "$ref": "#/$defs/skillId"
+    },
+    "name": {
+      "description": "Human-readable display name shown in the marketplace and the composed agent (e.g. \"Cooking Assistant\").",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "summary": {
+      "description": "Optional one-line marketplace pitch (§11.1). Longer, localized descriptions live in the `resources.strings` tables, not here.",
+      "type": "string",
+      "maxLength": 140
+    },
+    "version": {
+      "description": "The skill's own semantic version (§8.6). Breaking changes MUST bump major; templates pin version constraints against this (§8.6, §10).",
+      "$ref": "#/$defs/semver"
+    },
+    "status": {
+      "description": "Lifecycle state (§8.6). `published` = sellable/installable; `deprecated` = owned-but-hidden from new purchase; `withdrawn` = no longer offered (already-owned offline copies keep working unless a safety hard-block applies, §13.7).",
+      "type": "string",
+      "enum": ["published", "deprecated", "withdrawn"],
+      "default": "published"
+    },
+    "category": {
+      "description": "Marketplace category. Constrained to the curated first-party taxonomy (§3 / §27.1 everyday-domain beachhead). Arbitrary categories are rejected so the catalog stays coherent.",
+      "type": "string",
+      "enum": [
+        "Home & Lifestyle",
+        "Cooking",
+        "Travel",
+        "Home & DIY",
+        "Nutrition",
+        "Budgeting",
+        "Study & Reading",
+        "Productivity",
+        "Other"
+      ]
+    },
+    "min_app_version": {
+      "description": "Minimum app (desktop shell) version required to install/enable (§8.6 compatibility gating). The app refuses to enable a skill whose `min_app_version` exceeds it.",
+      "$ref": "#/$defs/semver"
+    },
+    "requirements": {
+      "description": "Hardware / model gates evaluated at install and enable (§8.6). Distinct from the runtime capacity meter (§8.3.5).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_model_tier"],
+      "properties": {
+        "min_model_tier": {
+          "description": "Minimum base-model tier (§8.6). `small` = the reference ~3B model (Qwen2.5-3B); `mid` = an optional larger model (Phase 2). On minimum hardware a `mid` skill shows a \"needs a bigger model\" badge and never silently degrades.",
+          "type": "string",
+          "enum": ["small", "mid"]
+        },
+        "min_params_b": {
+          "description": "Advisory minimum model size in billions of parameters (SPEC §8.2 example uses 3).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "min_ram_gb": {
+          "description": "Advisory minimum system RAM in GB for a usable experience (§7.3 tiers).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        }
+      }
+    },
+    "pricing": {
+      "description": "Base pricing declaration. This is the AUTHOR-DECLARED reference price only; the authoritative, regional (PPP) and tax-inclusive price is derived server-side per (target, region) at checkout (§26.3, BACKEND-DESIGN §3.2 `regional_prices`). SHORTHAND: `{\"free\": true}` (no price) or `{\"free\": false, \"price_usd\": 5}`. CANONICAL: `{\"free\": false, \"price\": {\"amount_minor\": 500, \"currency\": \"USD\"}}` (integer minor units, never floats — BACKEND-DESIGN §3). A paid skill MUST carry exactly one of `price_usd` / `price`; a free skill MUST carry neither.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["free"],
+      "properties": {
+        "free": {
+          "description": "True for the onboarding free skills (§26.4); false for a paid $5 (regionalized) skill.",
+          "type": "boolean"
+        },
+        "price_usd": {
+          "description": "SHORTHAND price in whole/decimal US dollars (SPEC §8.2 uses `5`). Normalized to `{amount_minor: round(price_usd*100), currency: \"USD\"}`.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "price": {
+          "description": "CANONICAL base price in ISO-4217 minor units.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amount_minor", "currency"],
+          "properties": {
+            "amount_minor": {
+              "description": "Integer minor units (e.g. 500 = $5.00). Never a float.",
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "currency": {
+              "description": "ISO-4217 code of the reference/base price (regional currencies are resolved server-side).",
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "free": { "const": true } }, "required": ["free"] },
+          "then": {
+            "not": { "anyOf": [ { "required": ["price_usd"] }, { "required": ["price"] } ] }
+          }
+        },
+        {
+          "if": { "properties": { "free": { "const": false } }, "required": ["free"] },
+          "then": {
+            "oneOf": [ { "required": ["price_usd"] }, { "required": ["price"] } ]
+          }
+        }
+      ]
+    },
+    "persona": {
+      "description": "The prompt fragment that steers the base model (§8.1 #1, §8.3.1).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system_prompt", "compressed_prompt"],
+      "properties": {
+        "role": {
+          "description": "Whether this skill may lead the agent's voice (§8.3.1). `primary_eligible` may be chosen as primary and contribute its FULL `system_prompt`; `secondary_only` never leads and contributes only its `compressed_prompt`. SHORTHAND: omitted → `primary_eligible`.",
+          "type": "string",
+          "enum": ["primary_eligible", "secondary_only"],
+          "default": "primary_eligible"
+        },
+        "system_prompt": {
+          "description": "The FULL persona/system prompt — the paid intellectual property. Present here because the manifest is the authoring artifact and is packaged verbatim into the signed `.hpskill` (§8.8). IT IS NEVER SERVED PRE-PURCHASE: the Catalog API exposes only `compressed_prompt` (BACKEND-DESIGN §3.2 stores `compressed_prompt`, not `system_prompt`; §4.2 fix SF8), and preview runs never feed it live user input (BACKEND-DESIGN §4.2 N1). Used verbatim as the lead voice only when this skill is primary (§8.3.1). Certification enforces the token budget (§8.5, P1-20.1); the `maxLength` here is a coarse structural guard, not the token limit.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000
+        },
+        "compressed_prompt": {
+          "description": "A 1–2 line capability snippet (§8.3.1). This is the ONLY persona text served to unentitled clients (catalog listing/detail, BACKEND-DESIGN §4.2) AND the text every SECONDARY skill contributes to a composed agent (§8.3.2 \"You also have these specialties:\" block). Must summarize capability without reproducing the paid prompt.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "few_shot": {
+          "description": "Optional few-shot examples steering the model (§8.1 #1). Counted against the prompt-token budget (§8.5).",
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "content"],
+            "properties": {
+              "role": { "type": "string", "enum": ["user", "assistant"] },
+              "content": { "type": "string", "minLength": 1, "maxLength": 4000 }
+            }
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "description": "The tool CATEGORIES this skill uses, surfaced to the user at install as a plain-language summary (§8.5, §11 \"This skill can: set timers, convert units, manage a list\"). Constrained to first-party tool categories. NO network / filesystem / system capabilities exist for skills in v1 (§8.5) — the closed enum is the enforcement: any such value fails validation. Should be consistent with the `tools` list (certification cross-checks; P1-20.1).",
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "tools": {
+      "description": "Declarative references to first-party tools the model may call (§8.1 #2). Skills NEVER ship tool implementations — `ref` must name a tool in the fixed, audited catalog (§8.5); the implementation lives in the app's Tool Runtime (P1-05.1). Requesting a new tool means proposing a reviewed, versioned catalog addition, not shipping code.",
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/tool" }
+    },
+    "shared_state": {
+      "description": "Named shared-state slots this skill reads/writes so combined skills can share data (§8.1 #4, §8.3.4). The per-agent shared store hosts these; widgets bind to them via `binds_state` and tools read/write them via `reads_state`/`writes_state`. Two skills declaring the same slot must be structurally compatible after optional-field widening or the combination is blocked (§8.3.4, P1-04.5).",
+      "type": "array",
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/sharedStateSlot" }
+    },
+    "ui": {
+      "description": "The declarative UI pack (§8.1 #3): panels built ONLY from the fixed widget library (§9). Skills never ship HTML/JS/CSS (§9.1).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "panels": {
+          "description": "Panels to render, each a widget declaration (§9.2). Manifest panels may use SHORTHAND (inline type-specific props, omitted region/priority/emits/min_widget_version); the app normalizes to the canonical widget contract on load (§9.2).",
+          "type": "array",
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/panel" }
+        }
+      },
+      "required": ["panels"]
+    },
+    "resources": {
+      "description": "Optional bundled resources (§8.1 #6). v1 skills are prompt-only (no RAG). The ONLY skill-supplied visuals are vetted, sanitized SVG icons and localized string tables (§9.1); no code, no remote content, no inline styles.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "description": "Primary skill icon — a package-relative sanitized SVG path (must also appear in `assets`).",
+          "$ref": "#/$defs/svgAssetPath"
+        },
+        "assets": {
+          "description": "Package-relative asset paths. SANITIZED SVG ONLY (§9.1): the pattern forbids remote URLs and non-.svg files; certification (P1-03.4 / P1-20.1) additionally strips scripts, event handlers, external references and inline styles.",
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 12,
+          "items": { "$ref": "#/$defs/svgAssetPath" }
+        },
+        "strings": {
+          "description": "Declared locale codes for which a localized string table ships (§8.7). Certification verifies completeness (P1-20.3); a missing locale falls back to `localization.default_locale`.",
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 40,
+          "items": { "$ref": "#/$defs/localeCode" }
+        }
+      }
+    },
+    "localization": {
+      "description": "Localization & units contract (§8.7).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_locale": {
+          "description": "Fallback locale when a declared/requested locale is missing (§8.7). SHOULD be present in `resources.strings` (certification cross-checks; P1-20.3).",
+          "$ref": "#/$defs/localeCode"
+        },
+        "unit_system_default": {
+          "description": "Default measurement system (§8.7). `auto` follows OS/region. SHORTHAND: omitted → `auto`. Unit-bearing tools/widgets re-render all quantities on change, in chat and panels and shared-state.",
+          "type": "string",
+          "enum": ["US", "Metric", "auto"],
+          "default": "auto"
+        }
+      }
+    },
+    "compatibility": {
+      "description": "Composition metadata (§8.3).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "conflicts_with": {
+          "description": "Skill ids that cannot be enabled alongside this one (§8.3.6). The UI blocks the combination and explains why (e.g. two skills that both demand primary voice for safety-critical output).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/skillId" }
+        },
+        "combine_priority": {
+          "description": "Deterministic merge weight (§8.3.2). Higher wins: default primary is the highest-priority `primary_eligible` skill; merge order is primary → `combine_priority` desc → `id` asc, governing prompt assembly, tool-list order, panel stacking, and writer-of-record arbitration (§8.3.4). SHORTHAND: omitted → 50.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 50
+        }
+      }
+    },
+    "cost_estimate": {
+      "description": "SELF-DECLARED resource cost, feeding the capacity meter (§8.3.5). NOTE: the capacity meter trusts the CERTIFICATION-MEASURED figure from the behavioral eval suite (P1-20.2), not this self-declared value alone (§8.3.5); this field is the author's estimate and a certification input, and is budget-checked (P1-20.1).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt_tokens": {
+          "description": "Estimated tokens contributed by this skill's prompt (full if primary, compressed if secondary) + tool schemas + few-shot.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "tools": { "description": "Number of declared tools.", "type": "integer", "minimum": 0 },
+        "panels": { "description": "Number of declared panels.", "type": "integer", "minimum": 0 }
+      }
+    },
+    "signature": {
+      "description": "Detached package signature over the `.hpskill` archive (§8.8). Ed25519 (skill-package key class, distinct from the license-signing key). POPULATED BY THE BACKEND REGISTRY AT PACKAGING TIME — NOT authored by the skill author; absent in a source/authoring manifest. The app verifies it offline via the embedded public key before install and rejects tampered/unsigned packages.",
+      "type": "string",
+      "pattern": "^ed25519:[A-Za-z0-9+/=_-]+$"
+    },
+    "signing_key_id": {
+      "description": "Identifier of the package-signing key that produced `signature` (BACKEND-DESIGN §3.2 `skill_versions.signing_key_id`). Registry-populated.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "$defs": {
+    "semver": {
+      "description": "Semantic version `MAJOR.MINOR.PATCH` with optional pre-release/build metadata.",
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "skillId": {
+      "description": "Kebab-case slug: lowercase alphanumerics separated by single hyphens.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 2,
+      "maxLength": 64
+    },
+    "slotName": {
+      "description": "Shared-state slot / list id: snake_case identifier.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "minLength": 1,
+      "maxLength": 48
+    },
+    "widgetId": {
+      "description": "Panel/widget id, unique within the agent (§9.2). snake_case identifier.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "minLength": 1,
+      "maxLength": 48
+    },
+    "localeCode": {
+      "description": "BCP-47-style locale: a two-letter language code with an optional region (e.g. `en`, `uk`, `en-US`).",
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+    },
+    "widgetVersion": {
+      "description": "Widget-library version constraint the panel requires (§9.8), e.g. `1.0`.",
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$"
+    },
+    "svgAssetPath": {
+      "description": "Package-relative sanitized-SVG path. Forbids remote URLs (no `://`), path traversal, and any non-.svg extension (§9.1).",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\\.svg$",
+      "maxLength": 128
+    },
+    "toolRef": {
+      "description": "A reference into the FIXED, first-party, audited tool catalog (§8.1 / §8.5). This closed enum IS the safety backbone: skills cannot name a tool outside it, and adding a tool means a reviewed, versioned catalog change (P1-05.1) — not shipping code.",
+      "type": "string",
+      "enum": ["start_timer", "convert_units", "list_manage", "calculate", "date_math"]
+    },
+    "capability": {
+      "description": "A first-party tool CATEGORY (§8.5). Deliberately excludes network/filesystem/system — no such capability exists for v1 skills.",
+      "type": "string",
+      "enum": ["timers", "unit_conversion", "list_management", "calculation", "date_math"]
+    },
+    "widgetType": {
+      "description": "A widget type from the v1 core widget library (§9.4). `chart`/`sparkline`/`map` are deferred to Phase 2 and are intentionally absent.",
+      "type": "string",
+      "enum": [
+        "chat",
+        "timer_stack",
+        "editable_list",
+        "segmented_toggle",
+        "switch",
+        "key_value_panel",
+        "slider",
+        "stepper",
+        "table",
+        "quick_actions",
+        "media_note",
+        "tabs",
+        "progress",
+        "date_time_picker"
+      ]
+    },
+    "slotSchema": {
+      "description": "A shared-state slot type in the CLOSED type language (§8.3.4): `scalar<string|number|bool|enum(A|B|...)>`, `list<T>`, or `record<{field: T, ...}>`. `list<item>` is SHORTHAND for a list of the app-defined `item` record `{ id: string, name: string, qty?: number, unit?: string, checked?: bool }`, where `id` is a stable, app-assigned entry id (set on insert) that makes cross-skill append/patch merges commutative and deterministic. The pattern accepts the closed forms and rejects arbitrary type strings.",
+      "type": "string",
+      "pattern": "^(?:scalar<(?:string|number|bool|enum\\([^()<>]+\\))>|list<(?:item|string|number|bool|record<\\{[^{}]*\\}>)>|record<\\{[^{}]*\\}>)$"
+    },
+    "emitEntry": {
+      "description": "A widget event (§9.2 / §9.3 #4). SHORTHAND: a bare event name string → normalized to `{name, to_chat: <widget-type default>}`. CANONICAL: `{name, to_chat}` to override the type default. A `to_chat` event posts a system line into the transcript; posting does NOT auto-run inference (§9.3 #4).",
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 48 },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 48 },
+            "to_chat": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "tool": {
+      "description": "A single tool reference with optional per-tool config and explicit state routing (§9.3). `writes_state`/`reads_state` name the slots the tool touches — this explicit declaration, not name-guessing, is the binding. A tool that returns a result but declares no `writes_state` routes it to `updates_widget`, or to chat by default (§9.3).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/toolRef" },
+        "config": {
+          "description": "Optional tool-specific configuration. Constrained per `ref` for the well-known tools (see conditional subschemas).",
+          "type": "object"
+        },
+        "reads_state": {
+          "description": "Slots this tool reads as input (§9.3).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/slotName" }
+        },
+        "writes_state": {
+          "description": "Slots this tool writes; every widget with `binds_state` on such a slot re-renders on write (§9.3).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/slotName" }
+        },
+        "updates_widget": {
+          "description": "Fallback routing target for a tool result that declares no `writes_state` (§9.3); if absent, the result routes to chat.",
+          "$ref": "#/$defs/widgetId"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ref": { "const": "convert_units" } }, "required": ["ref"] },
+          "then": {
+            "properties": {
+              "config": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "domains": {
+                    "description": "Unit domains this instance handles (mirrors the Tool Runtime `UnitDomain`).",
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": { "type": "string", "enum": ["mass", "volume", "temperature"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "ref": { "const": "list_manage" } }, "required": ["ref"] },
+          "then": {
+            "properties": {
+              "config": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "list_id": {
+                    "description": "The shared-state list slot this list-management instance operates on.",
+                    "$ref": "#/$defs/slotName"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "sharedStateSlot": {
+      "description": "A shared-state slot declaration (§8.3.4).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot", "access", "schema"],
+      "properties": {
+        "slot": {
+          "description": "Slot name; the routing key across skills (§9.3).",
+          "$ref": "#/$defs/slotName"
+        },
+        "access": {
+          "description": "`read` = this skill only reads the slot; `read_write` = it may be the writer-of-record. A slot has exactly one writer-of-record: the highest-priority `read_write` declarer (§8.3.4). Non-writers append/patch (list/record) or cannot set (scalar).",
+          "type": "string",
+          "enum": ["read", "read_write"]
+        },
+        "schema": {
+          "description": "Slot type in the closed type language (§8.3.4).",
+          "$ref": "#/$defs/slotSchema"
+        }
+      }
+    },
+    "panel": {
+      "description": "A widget/panel declaration (§9.2). One canonical widget contract; the manifest may write SHORTHAND — type-specific props inline (e.g. `checkable: true`) instead of under `props`, and `region`/`priority`/`emits`/`min_widget_version` omitted for per-widget-type defaults (§9.2). Unknown top-level keys and inline props that do not belong to the declared widget type are rejected (`unevaluatedProperties: false`).",
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "description": "Widget type; must exist in the app's widget library (§9.2 / §9.4).",
+          "$ref": "#/$defs/widgetType"
+        },
+        "id": {
+          "description": "Panel id, unique within the agent (§9.2). Collisions across skills dedupe when type+id+binding match (§8.3.3).",
+          "$ref": "#/$defs/widgetId"
+        },
+        "title": {
+          "description": "Panel heading (localizable via `resources.strings`).",
+          "type": "string",
+          "maxLength": 80
+        },
+        "region": {
+          "description": "Layout region (§9.5). SHORTHAND: omitted → the widget type's default region.",
+          "type": "string",
+          "enum": ["side", "bottom", "inline"]
+        },
+        "priority": {
+          "description": "Placement priority within a region (§9.5). SHORTHAND: omitted → declared/inherited default.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "props": {
+          "description": "CANONICAL typed props bag for the widget type (§9.2). Shorthand inline props normalize into this object on load.",
+          "type": "object"
+        },
+        "binds_state": {
+          "description": "Two-way binding to a shared-state slot (§8.3.4 / §9.3 #1). Two-way ONLY if the owning skill is the slot's writer-of-record; otherwise the app binds it read-only (renders live, edit affordances disabled with a tooltip naming the owner). MUST reference a slot the agent declares (certification cross-checks).",
+          "$ref": "#/$defs/slotName"
+        },
+        "binds_tool": {
+          "description": "User actions on this widget invoke this tool deterministically — the UI-first path, no model round-trip (§8.4 / §9.3 #2). MUST reference a tool the skill declares.",
+          "$ref": "#/$defs/toolRef"
+        },
+        "emits": {
+          "description": "Events this widget emits (§9.2 / §9.3 #4). SHORTHAND: omitted → the widget type's default event set; a bare string → `{name, to_chat: <type default>}`.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/emitEntry" }
+        },
+        "min_widget_version": {
+          "description": "Minimum widget-library version this panel needs (§9.8). SHORTHAND: omitted → `1.0`. An unknown/too-new widget renders a graceful placeholder, never a crash.",
+          "$ref": "#/$defs/widgetVersion"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "timer_stack" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "multi": {
+                "description": "SHORTHAND: allow many concurrent named timers (§9.4). Normalizes to `props.multi`.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "editable_list" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "checkable": {
+                "description": "SHORTHAND: items can be checked off (§9.4). Normalizes to `props.checkable`.",
+                "type": "boolean"
+              },
+              "reorderable": {
+                "description": "SHORTHAND: items can be reordered. Normalizes to `props.reorderable`.",
+                "type": "boolean"
+              },
+              "max_items": {
+                "description": "SHORTHAND: cap on item count. Normalizes to `props.max_items`.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "enum": ["segmented_toggle", "switch"] } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "options": {
+                "description": "SHORTHAND: the mutually-exclusive option labels (e.g. `[\"US\", \"Metric\"]`). Normalizes to `props.options`.",
+                "type": "array",
+                "minItems": 2,
+                "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+              },
+              "default": {
+                "description": "SHORTHAND: initially-selected option (must be one of `options`). Normalizes to `props.default`.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "enum": ["slider", "stepper"] } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "min": { "description": "SHORTHAND numeric minimum. Normalizes to `props.min`.", "type": "number" },
+              "max": { "description": "SHORTHAND numeric maximum. Normalizes to `props.max`.", "type": "number" },
+              "step": { "description": "SHORTHAND increment. Normalizes to `props.step`.", "type": "number", "exclusiveMinimum": 0 },
+              "default": { "description": "SHORTHAND initial value. Normalizes to `props.default`.", "type": "number" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "table" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "columns": {
+                "description": "SHORTHAND column headers. Normalizes to `props.columns`.",
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1, "maxLength": 60 }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "quick_actions" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "actions": {
+                "description": "SHORTHAND action buttons; each triggers a declared tool or inserts a prompt (§9.4). Normalizes to `props.actions`.",
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 12,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["label"],
+                  "properties": {
+                    "label": { "type": "string", "minLength": 1, "maxLength": 40 },
+                    "tool": { "$ref": "#/$defs/toolRef" },
+                    "prompt": { "type": "string", "minLength": 1, "maxLength": 400 }
+                  },
+                  "oneOf": [ { "required": ["tool"] }, { "required": ["prompt"] } ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "progress" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "mode": {
+                "description": "SHORTHAND determinate vs indeterminate (§9.4). Normalizes to `props.mode`.",
+                "type": "string",
+                "enum": ["determinate", "indeterminate"]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "date_time_picker" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "mode": {
+                "description": "SHORTHAND date/time/datetime (§9.4). Normalizes to `props.mode`.",
+                "type": "string",
+                "enum": ["date", "time", "datetime"]
+              },
+              "min": { "description": "SHORTHAND earliest selectable ISO date/time. Normalizes to `props.min`.", "type": "string" },
+              "max": { "description": "SHORTHAND latest selectable ISO date/time. Normalizes to `props.max`.", "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "media_note" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "image": {
+                "description": "SHORTHAND reference to a sanitized-SVG asset for the card (§9.1/§9.4). Normalizes to `props.image`.",
+                "$ref": "#/$defs/svgAssetPath"
+              },
+              "body": {
+                "description": "SHORTHAND card text (localizable). Normalizes to `props.body`.",
+                "type": "string",
+                "maxLength": 2000
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "tabs" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "tab_ids": {
+                "description": "SHORTHAND ids of the panels grouped into this tabbed container (§9.4/§9.5). Normalizes to `props.tab_ids`.",
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/$defs/widgetId" }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

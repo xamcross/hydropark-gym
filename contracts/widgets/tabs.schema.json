@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/tabs.schema.json",
+  "title": "Hydropark Widget — tabs (v1)",
+  "description": "A first-party CONTAINER widget (SPEC 9.4): it groups related child panels into a compact tabbed container, exposing one tab at a time and tracking an active-tab selection. `allOf`-extends the base contract (_widget-base.schema.json): pins `type` to the `tabs` const, closes `props` with additionalProperties:false, and reuses the base $defs (slotName, eventDecl, style variants, a11y meta). Only the fields the base already allows are refined here — the base's own additionalProperties:false is what keeps the envelope closed, so this file never introduces a new top-level property (e.g. there is no widget-level `consumes` field; consumed bus signals are documented in $defs/eventContract). CHILD SLOTS: each tab owns an ordered set of CONTENT slots — layout placements that host other widget instances by id (props.tabs[].panels). These are LAYOUT content slots, NOT shared-state slots; the term 'slot' in SPEC 8.3.4 (binds_state/reads_state) always means a shared-state slot, and this widget's active-tab binding is the only shared-state slot it touches. Unknown/too-new `type` still degrades to a placeholder at render (SPEC 9.8) — validity of the envelope is never gated on the type being installed.",
+  "type": "object",
+  "allOf": [
+    { "$ref": "_widget-base.schema.json" }
+  ],
+  "required": ["type", "id", "props"],
+  "properties": {
+    "type": {
+      "const": "tabs",
+      "description": "Pinned to the v1 library type (base $defs/knownWidgetTypeV1). The renderer uses this to select the tabs component; if the installed library lacks it, the base's placeholder path (SPEC 9.8) applies instead of a validation failure."
+    },
+    "region": {
+      "$ref": "_widget-base.schema.json#/$defs/region",
+      "default": "side",
+      "description": "Type-default dock region is `side` — tabs most often groups the side panels a skill contributes; a skill may still author `bottom` (or `inline` for a card-local tab set). Below the minimum window width the whole container follows its host region into the bottom drawer (SPEC 9.5). Note SPEC 9.5's separate 'overflow collapses into tabs' behavior is the LAYOUT ENGINE synthesizing a tabs container from overflowing panels; that synthesized instance obeys this same schema."
+    },
+    "priority": {
+      "default": 40,
+      "description": "Type-default placement priority within a region (base range 0–1000, higher first). Containers sit slightly below primary panels by default so a bespoke top panel wins placement; overridable per instance."
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tabs"],
+      "description": "Typed, immutable-per-instance configuration for the tabbed container. Closed set (additionalProperties:false) per the conformance checklist (contract §12.1).",
+      "properties": {
+        "tabs": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 20,
+          "description": "Ordered tab definitions (rendered left→right, or top→bottom when orientation=vertical). At least 2 — a single-tab container is a degenerate authoring error (certification warns/rejects). Each tab groups one or more CHILD PANELS by widget id (see tabDef.panels). CERTIFICATION (cross-artifact, P1-04.5) checks: (a) tab `id`s are unique within this widget; (b) `default_tab` names one of them; (c) if `binds_state` is present, the bound slot is `scalar<enum(...)>` whose member set EQUALS the set of tab ids (see $defs/acceptsSlotKind); (d) every widget id in any `panels` array exists within the agent and is claimed by at most one tab.",
+          "items": { "$ref": "#/$defs/tabDef" }
+        },
+        "default_tab": {
+          "$ref": "#/$defs/tabId",
+          "description": "Which tab is active before any user interaction or slot value. MUST match one of `tabs[].id` (certification check). Omitted → the first tab in `tabs`. When `binds_state` is present and its slot already holds a value, the SLOT value wins over this default (the slot is the source of truth for the active tab)."
+        },
+        "orientation": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"],
+          "default": "horizontal",
+          "description": "Tab-strip orientation. Drives `aria-orientation` on the tablist and which arrow keys move between tabs (Left/Right for horizontal, Up/Down for vertical — see $defs/a11yContract). Purely structural; the visual result is token-driven, no raw styling."
+        },
+        "overflow": {
+          "type": "string",
+          "enum": ["scroll", "menu"],
+          "default": "scroll",
+          "description": "How the tab strip handles more tabs than fit: `scroll` keeps a single scrollable row/column (with keyboard-reachable scroll affordances); `menu` collapses overflowing tabs into an accessible overflow menu button. Both preserve full keyboard operability and never hide a tab from the roving-tabindex order."
+        },
+        "activation": {
+          "type": "string",
+          "enum": ["automatic", "manual"],
+          "default": "automatic",
+          "description": "WAI-ARIA tabs activation mode. `automatic`: moving focus with arrow keys also activates (shows) that tab. `manual`: arrows move focus only; Enter/Space activates. Default `automatic` matches the common pattern and is appropriate because switching tabs is cheap view-state; a skill hosting expensive-to-mount panels may choose `manual`."
+        },
+        "lazy": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, an inactive tab's child panels are not mounted in the webview until first shown. Lazy mounting affects the WEBVIEW projection ONLY — it does not stop or discard a child's core-owned runtime state: a `timer_stack` in a background tab keeps counting in the Rust core and fires its OS notification on finish regardless of which tab is showing (SPEC 9.7 / IPC-CONTRACT responsibility split). Once mounted, a tab's panels are kept alive across switches so in-flight edits and scroll position survive."
+        }
+      }
+    },
+    "binds_state": {
+      "$ref": "_widget-base.schema.json#/$defs/slotName",
+      "description": "OPTIONAL. The single shared-state slot that mirrors the ACTIVE TAB. Accepts kind `scalar<enum(...)>` whose member set equals the tab-id set ($defs/acceptsSlotKind). Two-way per SPEC 9.3 #1: switching tabs writes this slot IFF the owning skill is the slot's writer-of-record; any tool/model write to the slot re-selects the tab and re-renders. If OMITTED, the active tab is purely local, session-scoped view-state (the common case) — driven only by user interaction and `default_tab`, invisible to other skills. Binding it lets the model steer which tab is visible (by writing the slot) or lets the selection persist per agent/template (SPEC 9.9). Effective read/write mode is resolved at merge, never authored (see $defs/readonlyBehavior)."
+    },
+    "reads_state": {
+      "description": "OPTIONAL additional shared-state slots observed READ-ONLY (base semantics). An update to any listed slot re-renders the container — e.g. a slot that governs whether a tab's panels have data to show, so an emptied slot flips the tab's badge/empty affordance. Does not change the active tab; only `binds_state` does that."
+    },
+    "binds_tool": {
+      "description": "OPTIONAL. tabs needs no tool to switch tabs — selection is pure view-state written to `binds_state` (or held locally). A skill may still bind a tool if it wants a tab change to deterministically trigger a fetch/prepare action (SPEC 9.3 #2, UI-first path); the tool then routes its result by its own `writes_state`/`updates_widget` (contract §4)."
+    },
+    "emits": {
+      "default": [ { "name": "tab_changed", "to_chat": false } ],
+      "description": "Default event set is a single `tab_changed` event (base $defs/eventDecl). `to_chat` defaults to FALSE: changing a tab is view navigation, not a transcript-worthy occurrence, so it must not spam the conversation record. A skill may override `to_chat` per event, or declare additional snake_case events; certification rejects duplicate names. See $defs/eventContract for the full emitted/consumed picture."
+    },
+    "a11y": {
+      "$ref": "_widget-base.schema.json#/$defs/a11yMeta",
+      "description": "Skill-supplied accessible-name/description overrides only. The mechanical a11y contract (tablist/tab/tabpanel roles, roving-tabindex keyboard model, focus order, per-theme AA, no hue-only selection, out-of-band badge announcements) is guaranteed by the widget-library implementation and enforced by X-A11Y — NOT waivable here. The widget-type default `live_region` is `polite`: tab-attention badges raised out-of-band (from consumed child events, $defs/eventContract) are announced politely, while user-initiated tab activation needs no announcement."
+    }
+  },
+  "$defs": {
+    "tabId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "minLength": 1,
+      "maxLength": 48,
+      "description": "Snake_case identifier for a tab, unique within this widget. When `binds_state` is present these ids are exactly the enum member set of the bound `scalar<enum(...)>` slot, so the slot value ↔ active tab mapping is 1:1."
+    },
+    "iconRef": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 48,
+      "description": "Name of a VETTED first-party icon (sanitized SVG from the app's icon set, SPEC 9.1). Skills reference an icon by name only — never inline SVG/markup and never a remote URL. An icon is decorative here: a tab is ALWAYS labelled by `label` text, so the icon is never the sole carrier of meaning (WCAG 1.4.1) and is marked aria-hidden by the implementation."
+    },
+    "tabDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "panels"],
+      "description": "One tab: a text label, optional icon, and the ordered set of CHILD PANELS (content slots) grouped under it.",
+      "properties": {
+        "id": { "$ref": "#/$defs/tabId" },
+        "label": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Visible, REQUIRED tab text (localizable, SPEC 8.7) — also the tab's accessible name. Required so a tab is never icon-only (keyboard/SR users and WCAG 1.4.1)."
+        },
+        "icon": {
+          "$ref": "#/$defs/iconRef",
+          "description": "Optional decorative leading icon; paired with `label`, never a replacement for it."
+        },
+        "panels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "_widget-base.schema.json#/$defs/widgetId" },
+          "description": "Ordered widget ids of the CHILD PANELS this tab hosts (the tab's content slots). These are other widget instances in the agent adopted into this tab; a given panel id belongs to at most one tab (cross-artifact certification, P1-04.5). Rendering a panel here overrides its own `region` placement — the container owns its slot. A tab with all-empty child panels surfaces the container's empty affordance for that tab (see $defs/lifecycle)."
+        },
+        "notifies": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, when a child panel in this tab fires a bus event while the tab is NOT the active one, the tab shows an ATTENTION BADGE (e.g. a background `timer_stack` finishing). The badge is a count/dot ALWAYS paired with an accessible label and announced via the polite live region — never color-only (WCAG 1.4.1). The badge clears when the tab becomes active. See $defs/eventContract (consumed signals)."
+        }
+      }
+    },
+    "acceptsSlotKind": {
+      "description": "DOCUMENTATION (non-validating). `binds_state` accepts a `scalar` slot of `enum` primitive: kind `scalar<enum(<tab ids>)>`. The enum's REQUIRED member set MUST equal the set of `props.tabs[].id` — every tab id is a selectable value and every enum value is a real tab. Because the concrete slot's kind lives in the manifest's `shared_state` (SPEC 8.3.4), this fit is a cross-artifact certification check (P1-04.5), not an in-envelope constraint (contract §9). Slot↔slot compatibility across skills follows the base's structural-equality-after-widening rule for scalar enums (same required member set).",
+      "const": "scalar"
+    },
+    "eventContract": {
+      "type": "null",
+      "description": "DOCUMENTATION (non-validating) of the tabs bus contract. EMITS: `tab_changed` (default `to_chat:false`) whenever the active tab changes — by user click/keyboard, by `default_tab` on first render, or by a write to the bound `active-tab` slot (direction 3). A skill may add custom emits. CONSUMES (there is no `consumes` field — the base envelope is closed; these are runtime bus subscriptions the implementation makes): (1) writes to `binds_state` re-select the active tab and re-render (SPEC 9.3 #1/#3); (2) writes to any `reads_state` slot re-render the container (may change per-tab empty/badge state); (3) events fired by CHILD PANELS grouped in an inactive tab whose `notifies` is true raise that tab's attention badge and announce it via the polite live region. Per SPEC 9.3 #4, none of this auto-runs inference — the model only responds on the user's next turn."
+    },
+    "runtimeState": {
+      "type": "null",
+      "description": "DOCUMENTATION (non-validating) of the typed RUNTIME state the core/renderer maintain (NOT authored in the manifest; produced by user input, the bound slot, and the bus). Projection shape: { active_tab: <tab id>, readonly: boolean, writer?: <skillId|name>, tabs: { <tab id>: { status: 'loading'|'ready'|'empty'|'error', badge?: { count?: number, present: boolean } } } }. `active_tab` mirrors the bound slot when `binds_state` is set, else it is local session-scoped view-state (SPEC 9.9). `readonly`/`writer` are populated by the merge layer per $defs/readonlyBehavior."
+    },
+    "lifecycle": {
+      "type": "null",
+      "description": "DOCUMENTATION (non-validating) of the mandatory visual states (contract §6), with type-default copy overridable via the base `states` field (never suppressible). LOADING: the container is resolving its tab set / a lazily-mounted active tab's panels are in flight → show a tab-strip skeleton and an in-panel progress affordance, never a blank container ('Loading…'). EMPTY: a shown tab's child panels are all bound-but-dataless → a plain, non-alarming line inside that tab ('Nothing here yet.') while the tab strip stays usable. ERROR: the active tab's content failed to load, or a runtime binding fault (e.g. bound-slot value with no matching tab) → a human message plus a recovery affordance ('Couldn't open this tab. Try again.'), surfaced not swallowed (SPEC 8.4). READ-ONLY: see $defs/readonlyBehavior. PLACEHOLDER: inherited from the base — an unknown/too-new `tabs` type renders the first-party placeholder (SPEC 9.8), terminal, no children mounted. Per-tab status is tracked independently so one failing tab does not blank its siblings."
+    },
+    "readonlyBehavior": {
+      "type": "null",
+      "description": "DOCUMENTATION (non-validating) of §5 applied to tabs. The active-tab selection is 'editing' the bound slot. If this skill is NOT the slot's writer-of-record, the binding resolves READ-ONLY at merge: (1) RENDER LIVE — the container reflects every write to the slot in real time, switching to whatever tab the writer selects; (2) DISABLE the selection affordance — tab controls become non-interactive for CHANGING the active tab (aria-disabled on the tablist's activation), so the user cannot steer a selection another skill owns; child panels inside the active tab remain interactive under their OWN read/write resolution; (3) NAME THE OWNER — expose an accessible 'Managed by {writer}' description on the tab strip. Most skills leave `binds_state` unbound (local view-state), so read-only tabs is an edge case; it is specified for completeness and consistency with the one-writer-of-record rule (SPEC 8.3.4)."
+    },
+    "a11yContract": {
+      "type": "null",
+      "description": "DOCUMENTATION (non-validating) of the hard a11y bar (contract §8), met in BOTH themes on EVERY state, enforced by X-A11Y — not waivable by a skill. ROLES: the tab strip is role=tablist with aria-orientation matching `orientation`; each tab control is role=tab with aria-selected, an `id`, and aria-controls → its panel; each tab's content container is role=tabpanel with aria-labelledby → its tab and tabindex=0. When `overflow=menu`, the overflow control is a labelled menu button exposing the hidden tabs. KEYBOARD (roving tabindex — active tab tabindex=0, others -1): Left/Right (horizontal) or Up/Down (vertical) move between tabs (with Home/End to first/last); activation follows `props.activation` (automatic = move-activates; manual = Enter/Space activates). Tab/Shift+Tab moves focus OUT of the tablist into the active tabpanel's content and onward — the tablist is a single tab stop. FOCUS ORDER: tab strip → active tabpanel content → next panel; visible focus ring on the focused tab (token-driven). SELECTED-TAB SIGNAL is never hue-only (WCAG 1.4.1): aria-selected plus a non-color indicator (selected underline/weight) plus the label. BADGES (`notifies`) carry a count/text and are announced via aria-live=polite (base a11y default), so a finished background timer is perceivable without watching the panel (SPEC 9.7). Per-theme WCAG-AA contrast on labels, selected indicator, focus ring, and badge. Scalable text: the strip wraps/scrolls under zoom without loss. Reduce-motion: the tab/indicator transition collapses under the OS setting via motion tokens (SPEC 9.6)."
+    },
+    "styling": {
+      "type": "null",
+      "description": "DOCUMENTATION (non-validating) of the styling surface (contract §7). Skills style tabs ONLY through the base `style` variant vocabulary — no CSS, no raw tokens, no inline styles: `tone`/`emphasis` color the selected-tab indicator and active label; `density` selects comfortable vs compact tab-strip spacing; `align` positions the tab strip (start|center|end). Each maps first-party to design tokens per theme, AA-safe, and `tone` is always paired with the selected/label signal (never color-only). Beneath the variant API the tabs implementation may reference ONLY the constrained token namespaces (base $defs/designTokenNamespace: --color-*, --space-*, --radius-*, --font-*/--text-*, --transition-*/--motion-*, --shadow-*, --z-*); any literal hex/px/rem/keyword fails the non-token-styling lint (P1-20.1)."
+    }
+  }
+}

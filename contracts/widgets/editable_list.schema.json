@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/editable_list.schema.json",
+  "title": "Hydropark Widget — editable_list (P1-06.4)",
+  "description": "Per-widget contract for the `editable_list` widget (SPEC 9.4: 'add/remove/reorder/check items — ingredients, packing list, to-dos'). It `allOf`-extends `_widget-base.schema.json` (P1-06.1): the base owns the canonical envelope (id/title/region/priority/binds_*/emits/states/a11y/style and their $defs), while THIS file pins `type` to the const `editable_list`, closes `props` (additionalProperties:false), restricts `emits` to this widget's event catalogue, and documents the typed runtime state, the slot kind it binds, its lifecycle/read-only behaviour, and its accessibility contract. The renderer, the orchestrator's binding/merge layer, and the certification pipeline all validate an editable_list panel against base ∧ this file. A skill authors the SHORTHAND projection (props inline, region/priority/emits/min_widget_version omitted); the app normalizes to canonical (defaults documented here) before validating. PURPOSE: a live, user- and agent-editable checklist bound two-way to a `list<item>` shared-state slot whose entry `id`s are app-assigned (SPEC 8.3.4), so the agent can populate it via the list tool (`list_manage`) and a peer skill can read the exact same list.",
+  "$comment": "binds_state accepts a `list<item>` slot (kind `list_item`, see $defs/acceptsSlotKind). That widget↔slot fit is a cross-artifact certification check (P1-04.5) — the concrete slot kind lives in the manifest's shared_state, not in this envelope — so it is documented here, not schema-enforced. Default region `side`, default priority `60`, default event set in $defs/eventCatalogue, default min_widget_version `1.0` (v1 library, SPEC 9.4).",
+  "type": "object",
+  "allOf": [
+    { "$ref": "https://hydropark.app/schemas/widgets/_widget-base.schema.json" }
+  ],
+  "properties": {
+    "type": {
+      "const": "editable_list",
+      "description": "Pinned to the `editable_list` member of knownWidgetTypeV1 (base $defs). Satisfies the base's widgetTypeName pattern; an unknown/too-new value never reaches this schema — it degrades to a placeholder at render (SPEC 9.8)."
+    },
+    "region": {
+      "default": "side",
+      "description": "Type-default dock region for editable_list is `side` (SPEC 9.5; matches the Cooking `ingredients` panel). Below the minimum window width the layout engine (P1-06.5) moves it to the bottom drawer. Base $defs/region still constrains the value via allOf."
+    },
+    "priority": {
+      "default": 60,
+      "description": "Type-default placement priority within a region. Overrides the base generic default (50); matches the SPEC/Cooking `ingredients` panel (60). Base still constrains the integer range 0–1000 via allOf."
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed, immutable-per-instance configuration for editable_list (base leaves `props` open; this closes it — conformance checklist item 1). Every field is optional; omission takes the documented default. None of these author runtime DATA — items come only from the bound slot, tools, and user input ($defs/runtimeState).",
+      "properties": {
+        "checkable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render a per-row checkbox bound to the item's optional `checked` field (base $defs/itemRecord). When true, checking/unchecking a row invokes `binds_tool` (op `check`/`uncheck`) and fires `item_checked`/`item_unchecked`; checking the last unchecked row additionally fires `list_completed`. When false, `checked` is ignored and no checkbox renders. (SPEC 9.2 example sets this true for ingredients.)"
+        },
+        "reorderable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the user to reorder rows — pointer drag AND keyboard (Alt+ArrowUp/ArrowDown on the focused row, see $defs/a11yContract). A reorder invokes `binds_tool` (op `reorder`) so the new order persists in the slot, and fires `items_reordered`. When false, order is fixed to the slot's order (agent-controlled). Ignored when the widget is read-only ($defs/lifecycle)."
+        },
+        "addable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the add-item affordance (labelled text input + Add button). A submit invokes `binds_tool` (op `add`, `{ name }` only — the entry `id` is app-assigned on insert, never supplied by the widget, SPEC 8.3.4) and fires `item_added`. Set false for an agent/tool-populated-only list (users cannot add)."
+        },
+        "removable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a per-row remove control. Removing invokes `binds_tool` (op `remove`, `{ id }`) and fires `item_removed`. Set false for an agent-managed list users may check but not delete from."
+        },
+        "confirm_remove": {
+          "type": "boolean",
+          "default": false,
+          "description": "Gate a USER remove behind an inline, keyboard-operable confirm step (guards destructive taps; Escape cancels). Agent/tool removes via `binds_tool` are never gated. No effect when `removable` is false."
+        },
+        "show_quantity": {
+          "type": "boolean",
+          "default": true,
+          "description": "When an item carries the optional `qty`/`unit` fields (base $defs/itemRecord), render them alongside the name. Quantities re-render in place on a US↔Metric unit-system change (SPEC 8.7) — the widget reflects the converted value, it never rewrites the slot. Display-only: editing qty/unit inline is out of scope for the v1 editable_list (use a `table` for editable columns). Items without qty are unaffected."
+        },
+        "max_items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 200,
+          "description": "Soft cap on entry count. At the cap the add affordance is disabled with an explanatory hint (never a silent no-op); tool/agent adds beyond the cap return a structured error surfaced in the `error` state (SPEC 8.4 pt 4), not a silent drop. (SPEC 9.2 example uses 100 for ingredients.)"
+        },
+        "placeholder": {
+          "$ref": "https://hydropark.app/schemas/widgets/_widget-base.schema.json#/$defs/localizableString",
+          "description": "Add-input placeholder text (e.g. 'Add an ingredient…'). Localizable (literal or @-key). Advisory only — it is never the input's sole accessible label; the input always has a real programmatic label ($defs/a11yContract)."
+        }
+      }
+    },
+    "binds_state": {
+      "description": "The `list<item>` shared-state slot this widget renders and (iff its owning skill is the slot's writer-of-record) edits. Accepts slot KIND `list_item` only ($defs/acceptsSlotKind); binding a scalar/record slot is a certification error (P1-04.5). Entry `id`s are app-assigned on insert, which is what makes cross-skill append/patch merges commutative (SPEC 8.3.4). If the owning skill is NOT the writer-of-record, this binds READ-ONLY ($defs/lifecycle 'read-only'); the read/write mode is resolved at merge time, never authored here (base §5)."
+    },
+    "reads_state": {
+      "description": "Rarely used by editable_list — it is normally the primary VIEW of its own `binds_state` slot. Any additional slot listed here is observed read-only; an update to it re-renders the widget (base §4). Kept available for parity with the base envelope."
+    },
+    "binds_tool": {
+      "description": "The tool a user action invokes deterministically (the UI-first path, no model round-trip — SPEC 8.4 pt 1). For editable_list this is the list-management tool (catalogue ref `list_manage`, or a namespaced variant like `cooking.list_manage` after collision resolution). Every add/remove/check/uncheck/reorder/clear affordance maps to one of that tool's ops ($defs/toolContract). The reliability backstop for a 3B model: the list stays fully usable even if the model never calls a tool."
+    },
+    "emits": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/editableListEventDecl" },
+      "uniqueItems": true,
+      "default": [
+        { "name": "item_added", "to_chat": false },
+        { "name": "item_removed", "to_chat": false },
+        { "name": "item_checked", "to_chat": false },
+        { "name": "item_unchecked", "to_chat": false },
+        { "name": "items_reordered", "to_chat": false },
+        { "name": "list_completed", "to_chat": true },
+        { "name": "list_cleared", "to_chat": false }
+      ],
+      "description": "Events this instance surfaces on the agent bus. Restricted to the editable_list catalogue ($defs/eventCatalogue) — an unknown event name fails validation (certification also rejects duplicate names, base §3). Omit to take the default set above (the full catalogue, each with its default `to_chat`). Only `list_completed` posts to chat by default ('✓ All items checked'); the high-frequency row events default `to_chat:false` so a checklist never floods the transcript. A skill authoring `emits` replaces the set and may override `to_chat` per event. Posting an event NEVER auto-runs inference (SPEC 9.3 #4)."
+    },
+    "a11y": {
+      "description": "Skill-supplied accessible-name/description overrides only. The MECHANICAL a11y contract ($defs/a11yContract) — roles, keyboard, focus order, per-theme AA, no-hue-only meaning, live regions — is owned by the widget-library implementation and enforced by the X-A11Y gate; it is not the skill's to author or waive. Type-default `live_region` for editable_list is `polite` (agent/tool population and reorder are out-of-band updates that must announce); a skill may raise it via base a11y.live_region."
+    }
+  },
+  "$defs": {
+    "acceptsSlotKind": {
+      "$ref": "https://hydropark.app/schemas/widgets/_widget-base.schema.json#/$defs/acceptsSlotKind",
+      "const": "list_item",
+      "$comment": "Documented (not envelope-enforced) constraint: editable_list.binds_state must resolve to a `list<item>` slot. Pinned to the base vocabulary's `list_item` member so the widget↔slot certification check (P1-04.5) has one source of truth."
+    },
+    "editableListEventDecl": {
+      "description": "An emitted event in canonical (object) or shorthand (bare-name) form — same shape as base $defs/eventDecl, but the event NAME is restricted to the editable_list catalogue ($defs/eventCatalogue). Combined with the base's generic eventDecl via allOf, so both the base pattern and this enum hold.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "item_added",
+            "item_removed",
+            "item_checked",
+            "item_unchecked",
+            "items_reordered",
+            "list_completed",
+            "list_cleared"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "enum": [
+                "item_added",
+                "item_removed",
+                "item_checked",
+                "item_unchecked",
+                "items_reordered",
+                "list_completed",
+                "list_cleared"
+              ]
+            },
+            "to_chat": {
+              "type": "boolean",
+              "description": "Overrides the event's default `to_chat` ($defs/eventCatalogue). true posts a system line into the transcript when the event fires; it never auto-runs inference (SPEC 9.3 #4)."
+            }
+          }
+        }
+      ]
+    },
+    "eventCatalogue": {
+      "type": "null",
+      "$comment": "Documentation node (no instance validates against it). The complete editable_list event vocabulary with fire conditions and default `to_chat`. `emits` is restricted to these names by $defs/editableListEventDecl. — item_added (to_chat:false): a user or tool added an entry. — item_removed (to_chat:false): an entry was removed. — item_checked (to_chat:false): a checkable row was checked (SPEC 9.2's named example; high-frequency, so off-chat by default). — item_unchecked (to_chat:false): a checkable row was unchecked. — items_reordered (to_chat:false): the entry order changed (only when `reorderable`). — list_completed (to_chat:TRUE): every checkable entry is now checked and the list is non-empty — a genuine milestone ('✓ All items checked'), the one chat-worthy default. Fires only when `checkable`; re-fires if the list returns to fully-checked after an edit. — list_cleared (to_chat:false): all entries were removed at once (tool op `set_all` with an empty list, or clear affordance).",
+      "description": "See $comment: the editable_list event catalogue and per-event to_chat defaults."
+    },
+    "toolContract": {
+      "type": "null",
+      "$comment": "Documentation node. The `binds_tool` a user action invokes is the list-management tool (catalogue ref `list_manage`, config e.g. { list_id }). editable_list affordances map deterministically to its ops: add → { op:'add', item:{ name } } (id assigned by the app on insert, never by the widget); remove → { op:'remove', item:{ id } }; check/uncheck → { op:'check'|'uncheck', item:{ id } }; reorder → { op:'reorder', item:{ id }, to_index }; clear/bulk-set → { op:'set_all', items:[…] } (the agent populates a recipe this way, SPEC 8.3.4 / cooking persona). The tool declares writes_state:[<this slot>] so its result re-renders every widget bound to the slot (SPEC 9.3 #3). A non-writer skill's tool may still append/patch the slot (adds and per-entry field updates that don't delete others' entries, commutative by entry id — base §5); only the writer-of-record may bulk-replace/remove.",
+      "description": "See $comment: how editable_list affordances map to the bound list-management tool's ops."
+    },
+    "runtimeState": {
+      "type": "object",
+      "$comment": "Documentation of the TYPED RUNTIME STATE the renderer receives — a PROJECTION, never authored in the manifest and never written by the model (SPEC 9.2 / base §2). Runtime state is produced by the bound slot, tools, and user input; it is session-scoped unless the skill opts into per-agent/template persistence (SPEC 9.9). Shown as a schema for precision only.",
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "enum": ["loading", "ready", "empty", "error", "readonly", "placeholder"],
+          "description": "Lifecycle state ($defs/lifecycle). `empty`/`ready(populated)` are both reachable from `ready`; `readonly` and `placeholder` are terminal-ish per the base state machine (§6)."
+        },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "https://hydropark.app/schemas/widgets/_widget-base.schema.json#/$defs/itemRecord" },
+          "description": "The live projection of the bound `list<item>` slot, in slot order. Each entry carries its app-assigned `id` (stable across re-renders and used as the render key so focus survives updates) and `name`, plus optional `qty`/`unit`/`checked`. Never mutated in place by the widget — edits go through `binds_tool`/the slot."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "true iff the owning skill is not the slot's writer-of-record. Resolved at merge, delivered as state (base §5). true ⇒ all edit affordances disabled."
+        },
+        "writer": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "skill_id": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "description": "When `readonly`, the writer-of-record whose name is surfaced in the 'Managed by {name}' accessible description/tooltip (base §5). null when this skill is the writer."
+        },
+        "error": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "message": { "type": "string" },
+            "recoverable": { "type": "boolean" }
+          },
+          "description": "Structured tool-execution error surfaced in the `error` state with a recovery affordance (SPEC 8.4 pt 4). Never silently swallowed."
+        },
+        "capacity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "max_items": { "type": "integer", "minimum": 1 }
+          },
+          "description": "Live count vs. the `max_items` cap; at capacity the add affordance is disabled with a hint."
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "null",
+      "$comment": "Documentation node: editable_list's mandatory lifecycle states (base §6). The widget TYPE ships default copy so skills never author it; a skill may override only the localizable STRINGS via base `states` (loading/empty/error), never suppress a state. — loading: data/tool in flight → a skeleton/progress affordance in place of rows (never a blank panel). Default copy: 'Loading list…'. — empty: bound OK, zero entries → a plain, non-alarming line, distinct from error. Default copy: 'No items yet.' (SPEC 9.2 example: 'No ingredients yet.'). — error: add/remove/reorder or population failed → human message + retry/dismiss. Default copy: 'Couldn't update the list — try again.'. — read-only ($defs, base §5): not the writer-of-record → renders live, EVERY edit affordance (add input, checkboxes, remove, reorder handles) disabled via `disabled`/`aria-disabled`, and a 'Managed by {writer}' accessible description/tooltip names the owner. Not overridable by the skill. — placeholder (base §11): only if editable_list is unknown/too-new for the installed library → first-party 'This panel needs a newer version of the app' card; terminal, no data render.",
+      "description": "See $comment: loading / empty / error / read-only / placeholder states and default copy for editable_list."
+    },
+    "a11yContract": {
+      "type": "null",
+      "$comment": "Documentation node: the MECHANICAL accessibility contract the widget-library implementation MUST satisfy for editable_list, in BOTH light and dark themes, on EVERY lifecycle state — enforced by the X-A11Y gate (axe + keyboard-nav + SR-label audit), not waivable by a skill (base §8). ROLES/NAMES: the panel is a labelled container (accessible name = a11y.label ?? title); rows render as a list (ul[role=list] / li) whose accessible name reflects the entry name; a checkable row uses a native checkbox (role=checkbox, checked state programmatic) named by the item; the remove control is a button named 'Remove {name}'; the reorder handle is a button named 'Reorder {name}' with an aria-describedby hint for the keyboard gesture; the add affordance is a real <input> with a programmatic <label> ('placeholder' is never the sole label) plus an 'Add' submit button. KEYBOARD (full operability, visible focus): Tab reaches the add input → Add button → the list as a SINGLE tab stop; within the list a roving tabindex moves row focus with ArrowUp/ArrowDown (Home/End to ends); Space/Enter toggles the focused row's checkbox; the remove button activates with Enter/Space (and, if confirm_remove, a keyboard-operable confirm, Escape to cancel); reorder is Alt+ArrowUp/ArrowDown on the focused row (Escape cancels an in-progress drag); Enter in the add input submits. FOCUS ORDER & PRESERVATION: header → add input → add button → rows; focus is keyed to the stable entry `id` so it survives slot re-renders — after a remove, focus moves to the adjacent row; after an add, to the new row (or back to the cleared input). LIVE REGIONS: the list is aria-live=polite by default so agent/tool population, checks, and reorders announce out-of-band; `list_completed` announces politely; the error state uses role=alert (assertive). CONTRAST: all text (name, muted qty/unit, placeholder, disabled/checked rows) meets WCAG-AA per theme via design tokens — verified on light AND dark (a token passing dark can fail light, cf. --sulphur-ink, P1-01.4). NON-COLOUR MEANING (WCAG 1.4.1): checked state is carried by the checkbox state + text affordance (e.g. strikethrough/'checked'), never colour alone; `style.tone` (e.g. danger on a remove) is always paired with an icon/label; the read-only state is conveyed by disabled semantics + the 'Managed by …' text, not hue. STYLING: zero literal CSS — only the design-token vocabulary (base $defs/designTokenNamespace) and the closed `style` variant set; passes the non-token-styling lint (P1-20.1). SCALABLE TEXT / REDUCE-MOTION: rows and the add form remain usable when text is zoomed; enter/exit and reorder animations collapse under the OS reduce-motion setting (motion tokens, SPEC 9.6).",
+      "description": "See $comment: the editable_list keyboard / ARIA-roles / focus-order / per-theme-AA / no-hue-only-meaning / live-region / reduce-motion contract enforced by X-A11Y in both themes on every state."
+    }
+  }
+}

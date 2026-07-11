@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/chat.schema.json",
+  "title": "Hydropark Widget — chat (streaming transcript)",
+  "description": "The always-present chat widget (SPEC 9.4 'chat — always present'): the central streaming transcript the panel dock wraps (SPEC 9.5). It renders the live conversation — streamed assistant tokens, user turns, and system lines — and hosts the composer. `allOf`-extends _widget-base.schema.json: pins `type` to the const `chat`, pins `id` to the well-known const `chat` (there is exactly ONE chat per agent, so tools may target it deterministically via `updates_widget: \"chat\"`), closes `props`, and disallows the envelope fields that are meaningless for chat (`region`/`priority`/`binds_state`/`reads_state`/`binds_tool`/`style`). chat is the transcript SINK for the bus's `to_chat` system lines and the SOURCE of the user's turn event; it never calls the model directly and never auto-runs inference (SPEC 9.3 point 4). `chat` is a member of $defs/knownWidgetTypeV1 in the base, so a v1 renderer always has it installed (never a placeholder).",
+  "type": "object",
+  "allOf": [
+    { "$ref": "./_widget-base.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "chat",
+          "description": "Pinned. Chat is a v1 first-party widget ($defs/knownWidgetTypeV1)."
+        },
+        "id": {
+          "const": "chat",
+          "description": "Pinned to the well-known id `chat`. There is exactly ONE chat per agent (SPEC 9.4 'always present'), so tools may route results to it deterministically with `updates_widget: \"chat\"` (SPEC 9.3 #3), and merge dedups it by type+id (SPEC 8.3.3). A skill never re-declares chat; the app shell instantiates it."
+        },
+        "title": {
+          "$ref": "./_widget-base.schema.json#/$defs/localizableString",
+          "description": "Optional. Chat has no visible panel-chrome heading (it is the center, not a docked panel); `title` supplies the accessible name only. Type-default accessible name is 'Chat' (see $defs/a11yContract)."
+        },
+        "props": {
+          "$ref": "#/$defs/chatProps"
+        },
+        "region": false,
+        "priority": false,
+        "binds_state": false,
+        "reads_state": false,
+        "binds_tool": false,
+        "style": false
+      },
+      "$comment": "Fields set to `false` are DISALLOWED for chat (a present value fails validation). Rationale per field is in $defs/bindingModel and $defs/placementModel. Base already applies `additionalProperties:false`, so the envelope stays closed; this branch only tightens."
+    }
+  ],
+  "$defs": {
+    "chatProps": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed, per-instance configuration for chat. All fields optional — chat renders correctly with an empty `props`. chat is app-instantiated (not skill-authored), so this surface is deliberately small; it exists so the renderer and certification validate against one closed shape.",
+      "properties": {
+        "placeholder": {
+          "$ref": "./_widget-base.schema.json#/$defs/localizableString",
+          "description": "Composer placeholder text. Type default: 'Ask the agent…' (localizable). Never the accessible label — the composer's <textarea> always carries a real label (see $defs/a11yContract)."
+        },
+        "send_on_enter": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, Enter submits and Shift+Enter inserts a newline (mirrors the Phase-0 keydown handler). When false, submit is by the Send button / Ctrl+Enter only. Both modes remain fully keyboard operable (SPEC 9.10)."
+        },
+        "show_token_rate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the decode-speed covariate (tok/s) beneath the composer. A READ-ONLY diagnostic covariate that NEVER gates a feature (P0-02.3 precedent); rendered as decorative, aria-hidden text so it is not announced as transcript content."
+        },
+        "max_input_chars": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000,
+          "description": "Optional hard cap on composer input length. Omitted → no app-imposed cap (the model's context window is enforced downstream, not here). When set, the widget shows a live remaining-count and blocks submit past the cap with a non-alarming inline hint (an `empty`/validation affordance, not the `error` state)."
+        }
+      }
+    },
+
+    "placementModel": {
+      "$comment": "NON-NORMATIVE (documentation). Why chat disallows `region` and `priority`: chat is the CENTER the responsive dock wraps (SPEC 9.5 'a responsive panel dock wraps the central chat'), not a panel placed into `side`/`bottom`/`inline`. It is singular and always present, so it is never region/priority-ordered and never deduplicated against a peer. The shell fixes its position; there is nothing for a skill or normalization to place. Both fields are therefore DISALLOWED rather than defaulted.",
+      "type": "null"
+    },
+
+    "bindingModel": {
+      "$comment": "NON-NORMATIVE (documentation). chat binds NO shared-state slot and NO tool. Its data source is the CORE conversation store (the session transcript, owned by Rust and delivered as runtime state over IPC — see IPC-CONTRACT.md / session.service.ts), NOT a skill's `shared_state` slot. Consequently: (1) `binds_state`/`reads_state` are DISALLOWED — chat is not a slot view; (2) `binds_tool` is DISALLOWED — submitting a turn is the orchestrator's turn loop, not a fixed-catalog tool (SPEC 8.1); chat signals it by EMITTING an event (see $defs/eventContract). Because chat binds no slot, the writer-of-record / read-only-bound path (base contract §5, §6 'read-only' state) DOES NOT APPLY to chat: it can never enter the read-only-bound state and never renders a 'Managed by {skill}' owner tooltip. The composer's own disabled condition (no model loaded / a turn in flight) is a distinct runtime `input_state` (see $defs/runtimeState), not the §5 read-only state. `style` is likewise DISALLOWED: chat is app-owned and renders in the base theme; per-role message styling is fixed first-party and is not a skill-facing variant.",
+      "type": "null"
+    },
+
+    "acceptsSlotKind": {
+      "$comment": "NONE. chat accepts no `binds_state` slot kind (contrast: editable_list → list_item, segmented_toggle → scalar(enum)). There is no widget↔slot fit check for chat because chat is not slot-bound (see $defs/bindingModel).",
+      "type": "null"
+    },
+
+    "eventContract": {
+      "$comment": "NON-NORMATIVE (documentation) of chat's DEFAULT `emits` set and each event's `to_chat` default. Normalization fills this set when `emits` is omitted (base 'emits' description). Certification rejects duplicate event names within the widget. These are CONTROL/turn signals to the orchestrator; the widget only emits them — it never calls the model itself (SPEC 9.3 'Model ↔ UI bridge'). Both default to_chat:false because the transcript ALREADY reflects the user's message (a user-role entry written by the core turn loop) and the streamed assistant tokens; chat does not post redundant SYSTEM lines for its own events. The `to_chat` system-line mechanism is what chat CONSUMES (see $defs/consumesContract), not what its own events produce.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message_submitted": {
+          "const": { "name": "message_submitted", "to_chat": false },
+          "description": "Fired when the user submits composer text (Send, or Enter per `send_on_enter`). The orchestrator's turn loop appends the user-role message to the conversation store and begins a user turn — the ONE legitimate inference trigger (a deliberate user turn). Emitting the event does NOT itself run inference; the widget is declarative and never invokes the model (SPEC 9.3 #2/#4). Carries the submitted text as payload. to_chat:false (the user-role line is written by the core turn loop, not as a system line)."
+        },
+        "generation_stopped": {
+          "const": { "name": "generation_stopped", "to_chat": false },
+          "description": "Fired when the user cancels an in-flight streaming reply (the Stop affordance shown only while `streaming` is true). The orchestrator cancels the active decode. to_chat:false by default (no transcript line); a skill/app may override to post a '(stopped)' system line."
+        }
+      }
+    },
+
+    "consumesContract": {
+      "$comment": "NON-NORMATIVE (documentation) of chat's INBOUND bus contract — the behavior that defines chat. chat subscribes to the agent's one event bus and renders EVERY event with `to_chat:true` (from ANY widget — e.g. timer_stack's finished timer '⏱ Pasta timer finished') as a SYSTEM line (role: system) in the transcript (SPEC 9.3 #4). CRITICAL INVARIANT (SPEC 9.3 point 4): rendering a `to_chat` system line NEVER auto-runs inference — it appends to the transcript and, if time-critical, the emitting widget fires the OS notification (SPEC 9.7); the model responds only when the USER sends the next turn. A finished timer on a backgrounded app must NOT wake the model. chat is a passive sink here: it displays the line and (via role=log, aria-live=polite) announces it; it takes no model action.",
+      "type": "null"
+    },
+
+    "runtimeState": {
+      "$comment": "NON-NORMATIVE (documentation) of the typed RUNTIME STATE chat renders. Runtime state is NOT authored in the manifest (base contract §2) — it is the projection the webview receives from the core conversation store over IPC (mirrors client/web/src/app/state/session.service.ts) and passes through the base §6 lifecycle state machine. Session-scoped by default (SPEC 9.9). Recorded here as a schema so the renderer and IPC layer share one shape.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messages", "phase", "input_state"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/chatMessage" },
+          "description": "The ordered transcript: user, assistant, and system lines."
+        },
+        "streaming": {
+          "type": "boolean",
+          "description": "True while the tail assistant message is still receiving tokens; drives the blinking cursor affordance (aria-hidden) and reveals the Stop control (see generation_stopped)."
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["loading", "ready", "empty", "populated", "error"],
+          "description": "Base §6 lifecycle phase. `loading` = session/model warming; `empty` = bound, zero messages; `populated` = has messages; `error` = a turn failed (with retry). chat's `type` is always installed, so it never reaches `placeholder`."
+        },
+        "input_state": {
+          "type": "string",
+          "enum": ["ready", "disabled", "streaming"],
+          "description": "Composer state (distinct from base §5 read-only-bound, which does not apply to chat — see $defs/bindingModel). `disabled` = no model loaded / not ready; `streaming` = a reply is in flight (composer stays usable to queue, or is soft-disabled per app policy, with the Stop control available)."
+        },
+        "error": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "description": "Structured turn/execution error surfaced in the `error` state (never silently swallowed — base contract §6 / SPEC 8.4 point 4); carries the human message + recovery affordance copy."
+        }
+      }
+    },
+
+    "chatMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "text"],
+      "description": "One transcript entry (mirrors session.service.ts ChatMessage).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable per-message id; the render list key."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant", "system"],
+          "description": "`user` = the person; `assistant` = the model's streamed reply; `system` = a `to_chat` line posted by a widget (see $defs/consumesContract) or an app notice. Roles are distinguished by layout + a text label ('You' / 'Agent' / a system marker), NEVER by color alone (WCAG 1.4.1)."
+        },
+        "text": {
+          "type": "string",
+          "description": "Message body; may contain inline quantity tokens the renderer expands live against the unit system (Phase-0 precedent). Rendered as plain text — the model never emits UI code or markup that executes (SPEC 9.3 'Model ↔ UI bridge')."
+        },
+        "streaming": {
+          "type": "boolean",
+          "description": "True only on the tail assistant message while tokens are still arriving."
+        }
+      }
+    },
+
+    "lifecycleCopyDefaults": {
+      "$comment": "NON-NORMATIVE (documentation) of chat's TYPE-DEFAULT copy for the mandatory loading/empty/error states (base contract §6). A skill/app may override only these strings via the envelope `states` field (inherited from base), never suppress a state. Recorded as a const so the widget-library implementation and certification share one source.",
+      "const": {
+        "loading": { "label": "Getting ready…", "hint": "Loading the model and your conversation." },
+        "empty": { "label": "No messages yet.", "hint": "Say hello to start the conversation." },
+        "error": { "label": "Couldn't get a reply.", "hint": "Something went wrong generating a response. Try sending again." }
+      }
+    },
+
+    "a11yContract": {
+      "$comment": "NON-NORMATIVE (documentation) of chat's MECHANICAL accessibility contract — guaranteed by the first-party widget-library implementation and enforced by the X-A11Y gate (base contract §8; not skill-waivable). A skill may override only the accessible name/description and live-region politeness via the envelope `a11y` field. Must hold in BOTH themes on EVERY §6 state.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roles": {
+          "const": {
+            "transcript": "log",
+            "message_user": "listitem-or-group with a visible 'You' label",
+            "message_assistant": "listitem-or-group with a visible 'Agent' label",
+            "message_system": "status/note line carrying an icon + text (never hue-only)",
+            "composer": "form containing a labeled multiline textbox (role=textbox)",
+            "send": "button",
+            "stop": "button, present only while streaming, with an explicit accessible name ('Stop generating')"
+          },
+          "description": "ARIA roles. The transcript is a `log`; the composer is a labeled form; controls are real buttons."
+        },
+        "live_region": {
+          "const": "polite",
+          "description": "Type-default aria-live for the transcript log. `polite` so streamed tokens and incoming `to_chat` system lines are announced without interrupting the user mid-action; escalate per app policy only for genuinely urgent notices. Overridable via envelope `a11y.live_region`. (The finished-timer ALARM itself is announced by timer_stack + the OS notification, SPEC 9.7 — chat's log announces the resulting system line politely.)"
+        },
+        "keyboard": {
+          "const": [
+            "Composer textbox is focusable; Enter submits and Shift+Enter newlines when send_on_enter=true (Ctrl+Enter submits otherwise) — mirrors the Phase-0 keydown handler.",
+            "Send and Stop are keyboard-operable buttons with visible focus.",
+            "The transcript scroll region is keyboard-scrollable and focusable so screen-reader users can review history.",
+            "No keyboard trap; Escape returns focus from any transient affordance to the composer."
+          ],
+          "description": "Full keyboard operability (SPEC 9.10 / base §8.3)."
+        },
+        "focus_order": {
+          "const": ["transcript (review)", "composer textbox", "Send button", "Stop button (while streaming)"],
+          "description": "Sensible, stable focus order; visible focus on every stop. After submit, focus returns to the composer so the user can keep typing."
+        },
+        "non_text_affordances": {
+          "const": {
+            "streaming_cursor": "decorative, aria-hidden (not announced)",
+            "token_rate": "decorative, aria-hidden (a covariate, not transcript content)",
+            "system_line": "icon + text label — status is never conveyed by color alone (WCAG 1.4.1)"
+          },
+          "description": "No hue-only meaning; decorative affordances are hidden from assistive tech."
+        },
+        "contrast_and_scaling": {
+          "const": "All text (user/assistant/system bubbles, composer, hints) meets WCAG-AA contrast verified PER THEME (a token passing on dark may fail on light — base §8.1). Layout remains usable when text is scaled up (X-A11Y.3); transitions collapse under OS reduce-motion (SPEC 9.6).",
+          "description": "Per-theme AA + scalable text + reduce-motion."
+        }
+      }
+    }
+  }
+}

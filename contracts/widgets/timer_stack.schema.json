@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/timer_stack.schema.json",
+  "title": "Hydropark Widget — timer_stack",
+  "description": "Per-widget contract for `timer_stack` (SPEC 9.4: 'one or many named countdown timers; start/pause/reset; alarm on finish (§9.7)'). It `allOf`-extends the base widget contract (_widget-base.schema.json): pins `type` to the const `timer_stack`, closes `props` with additionalProperties:false, sets this type's default region/priority/event-set, and documents its typed runtime state, the shared-state slot kind it binds, the events it emits/consumes on the bus, its loading/empty/error/read-only/placeholder behavior, and its accessibility contract. Only the SHORTHAND props may be inlined in a manifest; the app normalizes to this CANONICAL form before validating (SPEC 9.2). This schema validates the widget ENVELOPE only — runtime timer state (the per-second countdown) is owned by the Rust core and rendered as a projection (base §2, IPC-CONTRACT), never authored here.",
+  "allOf": [
+    {
+      "$ref": "_widget-base.schema.json"
+    }
+  ],
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "timer_stack",
+      "description": "Pinned to the v1 library type name (base $defs/knownWidgetTypeV1). An older app that lacks this type still validates the envelope and renders a placeholder (SPEC 9.8) — the const only tightens instances a NEWER app knows how to draw."
+    },
+    "region": {
+      "$ref": "_widget-base.schema.json#/$defs/region",
+      "default": "side",
+      "description": "Default dock region for timer_stack is `side` (timers sit alongside chat, visible while the user works). Below the minimum window width the layout engine moves it to the bottom drawer (SPEC 9.5). Overridable per instance."
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 70,
+      "description": "Default placement priority for timer_stack is 70 — above general reference panels (a running countdown is high-salience) but below a skill's primary editor. Overridable per instance (SPEC 9.5)."
+    },
+    "binds_state": {
+      "$ref": "_widget-base.schema.json#/$defs/slotName",
+      "$comment": "acceptsSlotKind = list (of record). See $defs/timerSlotType for the exact normalized slotType this widget requires. The concrete slot's kind lives in the skill's shared_state, so widget↔slot fit is a cross-artifact certification check (base §9, P1-04.5), not enforced in this envelope.",
+      "description": "Two-way binding to the timer shared-state slot: a `list<record<{ id, label, duration_sec, running, remaining_sec?, deadline_ms? }>>` (see $defs/timerSlotType). The widget renders the slot's live value; its add/pause/resume/reset affordances write back IFF the owning skill is the slot's writer-of-record, otherwise it binds READ-ONLY (base §5, see $defs/readOnlyBehavior). Per-second countdown is NOT stored in the slot (that would churn the bus every tick and could wake the model on a backgrounded app — SPEC 9.3 #4); the core derives live `remaining_sec` from `deadline_ms`/`remaining_sec` at render time (see $defs/timerRuntime)."
+    },
+    "reads_state": {
+      "type": "array",
+      "items": {
+        "$ref": "_widget-base.schema.json#/$defs/slotName"
+      },
+      "uniqueItems": true,
+      "description": "Extra slots observed read-only for display beyond `binds_state`. Rarely used by timer_stack; kept open (inherited from base) for e.g. a skill that dims/relabels timers based on a `mode` scalar it does not own. An update to any listed slot re-renders the widget (base §4)."
+    },
+    "binds_tool": {
+      "$ref": "_widget-base.schema.json#/$defs/toolRefName",
+      "$comment": "The bound tool MUST declare writes_state:[<the timer slot>] on its tool ref (P1-05.3) so its result routes back to this widget's binds_state slot (base §4 routing, direction 3). The widget itself never declares writes_state — that is a tool-side property.",
+      "description": "Tool the ADD-timer affordance invokes deterministically via the UI-first path — no model round-trip (base §3 direction 2). Canonically `start_timer` (label + duration_sec → the core creates a timer, assigns a stable id, and writes the timer slot). NOTE: pause / resume / reset are first-party widget-LIFECYCLE controls the widget performs directly against the core countdown; they are deliberately NOT model tools (there is no product reason for the agent to pause a user's timer — see IPC-CONTRACT) and therefore need no `binds_tool`."
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Authored, immutable-per-instance configuration for timer_stack. All fields optional; each has a type-default the widget-library implementation applies. Styling is NOT configured here — it lives in the closed `style` variant set (base §7).",
+      "properties": {
+        "max_timers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 8,
+          "description": "Maximum number of concurrent named countdowns. The add affordance disables (aria-disabled) once this cap is reached; the empty/populated states are unaffected."
+        },
+        "allow_add": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the widget shows an add-timer affordance (and add form). When false, timers are populated only by the model/tool writing the slot; the widget is display+control-only."
+        },
+        "allow_pause": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether each timer card exposes a pause/resume control. When false, timers run to completion once started."
+        },
+        "allow_reset": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether each timer card exposes a reset control (restores `remaining_sec` to `duration_sec`, paused)."
+        },
+        "default_duration_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400,
+          "default": 300,
+          "description": "Prefill value (seconds) for the add form's duration field. 300 = 5 minutes."
+        },
+        "presets": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/timerPreset"
+          },
+          "description": "Optional one-tap quick-start presets (e.g. 'Soft-boiled egg 6:00'). Each renders as a quick-add control that invokes `binds_tool` with the preset's label + duration. Empty/omitted → free-form add only."
+        },
+        "show_progress": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether each timer card renders a determinate progress track (remaining/duration). The numeric MM:SS readout is always shown regardless (progress is a redundant, non-sole signal — base §8.2)."
+        },
+        "time_format": {
+          "type": "string",
+          "enum": ["auto", "mm_ss", "hh_mm_ss"],
+          "default": "auto",
+          "description": "Countdown readout format. `auto` = MM:SS below one hour, H:MM:SS at or above one hour."
+        },
+        "notify_on_finish": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether a timer reaching zero fires an OS-level notification + sound (SPEC 9.7), independent of whether the panel is collapsed/backgrounded. Degrades to an in-app alert if notification permission is denied. This governs the `timer_finished` event's time-critical delivery; it never auto-runs inference (SPEC 9.3 #4)."
+        },
+        "alarm_sound": {
+          "type": "string",
+          "enum": ["chime", "bell", "digital", "none"],
+          "default": "chime",
+          "description": "Named built-in alarm sound played on finish (a symbolic identifier resolved first-party to a bundled asset — never a raw file path/URL, per SPEC 9.1 'no remote content'). `none` = notification without sound. Ignored when `notify_on_finish` is false."
+        }
+      }
+    },
+    "emits": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "_widget-base.schema.json#/$defs/eventDecl"
+      },
+      "default": [
+        { "name": "timer_finished", "to_chat": true }
+      ],
+      "description": "Events timer_stack posts to the agent's bus (base §3). Omitted → the default set above (just `timer_finished`, posted to chat). A skill may add lifecycle events from $defs/knownEvents; each bare name uses that event's type-default `to_chat` (documented there). Certification rejects duplicate names and names outside the recognized vocabulary for this type (kept as a documented certification rule, not a schema enum, to preserve the base's forward-compatibility posture)."
+    }
+  },
+  "examples": [
+    {
+      "type": "timer_stack",
+      "id": "kitchen_timers",
+      "title": "Timers",
+      "region": "side",
+      "priority": 70,
+      "props": {
+        "max_timers": 8,
+        "allow_add": true,
+        "presets": [
+          { "label": "Soft-boiled egg", "duration_sec": 360 },
+          { "label": "Al dente pasta", "duration_sec": 600 }
+        ],
+        "notify_on_finish": true,
+        "alarm_sound": "chime"
+      },
+      "binds_state": "timers",
+      "binds_tool": "start_timer",
+      "emits": [
+        { "name": "timer_finished", "to_chat": true }
+      ],
+      "style": { "density": "comfortable" },
+      "min_widget_version": "1.0"
+    }
+  ],
+  "$defs": {
+    "timerPreset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "duration_sec"],
+      "description": "A one-tap quick-start entry for the add affordance.",
+      "properties": {
+        "label": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Display name for the preset and the timer it starts (e.g. 'Soft-boiled egg')."
+        },
+        "duration_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400,
+          "description": "Preset countdown length in whole seconds."
+        }
+      }
+    },
+    "timerSlotType": {
+      "$comment": "acceptsSlotKind = list (of record). DOCUMENTATION node (not applied to the envelope): the normalized slotType (base $defs/slotType) that a slot bound via binds_state MUST have. Enforced as a cross-artifact certification check against the skill's shared_state (P1-04.5), because the concrete slot kind lives there, not in the widget object.",
+      "description": "The shared-state slot kind timer_stack binds: a list of timer records. Like the app's `item` record, each entry's `id` is a STABLE, APP-ASSIGNED entry id set on insert (never chosen by a caller on add), which makes cross-skill append/patch merges commutative and deterministic (base §5, §9). Required fields are id/label/duration_sec/running; a peer skill may widen with extra OPTIONAL fields and stay compatible (base §10). The live per-second `remaining_sec` is DERIVED at render from `deadline_ms` (while running) or the stored `remaining_sec` (while paused) — the slot is not rewritten every tick.",
+      "const": {
+        "kind": "list",
+        "of": {
+          "kind": "record",
+          "fields": {
+            "id": { "kind": "scalar", "scalar": "string" },
+            "label": { "kind": "scalar", "scalar": "string" },
+            "duration_sec": { "kind": "scalar", "scalar": "number" },
+            "running": { "kind": "scalar", "scalar": "bool" },
+            "remaining_sec": { "kind": "scalar", "scalar": "number" },
+            "deadline_ms": { "kind": "scalar", "scalar": "number" }
+          },
+          "required_fields": ["id", "label", "duration_sec", "running"]
+        }
+      }
+    },
+    "timerRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "duration_sec", "remaining_sec", "running", "finished"],
+      "description": "DOCUMENTATION node: one timer as PROJECTED to the webview (base §2). This is runtime state OWNED BY THE RUST CORE (so a timer survives the webview not looking) and produced by tools/slots/lifecycle controls — it is NEVER authored in a manifest. The renderer draws this projection; the core recomputes `remaining_sec` from the wall clock and pushes updates. Mirrors the Phase-0 TimerViewState plus an explicit `finished` flag.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable app-assigned timer id (matches the slot entry id)."
+        },
+        "label": { "type": "string" },
+        "duration_sec": { "type": "integer", "minimum": 1 },
+        "remaining_sec": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Live seconds remaining; 0 when finished."
+        },
+        "running": {
+          "type": "boolean",
+          "description": "Counting down vs paused. Distinguished in the UI by icon + control label, never by color alone (base §8.2)."
+        },
+        "finished": {
+          "type": "boolean",
+          "description": "Reached zero. Rendered with a 'Finished' label + icon (not hue-only) and, on transition, the `timer_finished` event/OS notification fires."
+        },
+        "started_at_ms": {
+          "type": "integer",
+          "description": "Epoch millis the core assigned at start; source of truth for timing."
+        }
+      }
+    },
+    "runtimeState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timers", "readonly", "lifecycle"],
+      "description": "DOCUMENTATION node: the full runtime projection the timer_stack renderer consumes (not authored). Delivered by the core/orchestrator over IPC; drives the lifecycle state machine in base §6.",
+      "properties": {
+        "timers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/timerRuntime" }
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "True when the owning skill is NOT the timer slot's writer-of-record. Resolved at merge (base §5), delivered here — never self-granted in a manifest."
+        },
+        "writer": {
+          "type": "string",
+          "description": "Writer-of-record skill id/name; present iff readonly, used for the 'Managed by {writer}' affordance."
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": ["loading", "ready", "empty", "populated", "error", "read_only", "placeholder"],
+          "description": "Current state in base §6's machine."
+        },
+        "notifications_granted": {
+          "type": "boolean",
+          "description": "Whether OS-notification permission was granted; when false, finish degrades to an in-app alert (SPEC 9.7)."
+        }
+      }
+    },
+    "knownEvents": {
+      "$comment": "DOCUMENTATION node: the recognized event vocabulary for timer_stack and each event's type-default `to_chat`. A bare-string emit uses this default; the object form overrides it (base $defs/eventDecl). Certification rejects emitted names outside this set for this widget type.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timer_finished": {
+          "type": "object",
+          "description": "A timer reached zero. Time-critical: posts a system line ('⏱ {label} finished') when to_chat, and — if notify_on_finish — fires the OS notification + sound (SPEC 9.7), regardless of panel/app foreground. Posting NEVER auto-runs inference (SPEC 9.3 #4). Announced via the assertive live region for screen readers.",
+          "properties": {
+            "default_to_chat": { "const": true },
+            "time_critical": { "const": true }
+          }
+        },
+        "timer_started": {
+          "type": "object",
+          "description": "A timer was started via the widget (UI-first add) or a tool write. Not time-critical.",
+          "properties": {
+            "default_to_chat": { "const": false },
+            "time_critical": { "const": false }
+          }
+        },
+        "timer_paused": {
+          "type": "object",
+          "properties": {
+            "default_to_chat": { "const": false },
+            "time_critical": { "const": false }
+          }
+        },
+        "timer_resumed": {
+          "type": "object",
+          "properties": {
+            "default_to_chat": { "const": false },
+            "time_critical": { "const": false }
+          }
+        },
+        "timer_reset": {
+          "type": "object",
+          "properties": {
+            "default_to_chat": { "const": false },
+            "time_critical": { "const": false }
+          }
+        }
+      }
+    },
+    "consumesOnBus": {
+      "$comment": "DOCUMENTATION node: what timer_stack CONSUMES from the bus (base §3 direction 3). It does not subscribe to other widgets' emitted events — bus events post to the transcript, they do not drive widgets.",
+      "type": "null",
+      "description": "timer_stack re-renders on: (1) any tool result whose `writes_state` names its `binds_state` (or any `reads_state`) slot — e.g. `start_timer` appending a timer, or the model writing the timer slot from a recipe; (2) a tool result whose `updates_widget` targets this widget's `id`; (3) core-pushed runtime updates to $defs/timerRuntime (the per-second tick and the finished transition), which update the projection WITHOUT touching the shared-state slot. Routing is keyed on slot NAME, never guessed from field names (base §4)."
+    },
+    "defaultStateCopy": {
+      "$comment": "DOCUMENTATION node: the type-default copy for the mandatory loading/empty/error states (base §6). A skill may override only these strings via the envelope `states` field (base $defs/stateCopyOverrides); it can never suppress a state. Localizable.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "loading": {
+          "const": { "label": "Starting timers…" }
+        },
+        "empty": {
+          "const": { "label": "No timers yet.", "hint": "Add one to start a countdown." }
+        },
+        "error": {
+          "const": { "label": "Couldn't start that timer.", "hint": "Check the name and duration, then try again." }
+        }
+      }
+    },
+    "readOnlyBehavior": {
+      "$comment": "DOCUMENTATION node: read-only-bound behavior when the owning skill is NOT the timer slot's writer-of-record (base §5). Resolved at merge, delivered via $defs/runtimeState.readonly/writer.",
+      "type": "null",
+      "description": "When bound read-only, timer_stack MUST: (1) render LIVE — reflect every slot update and per-second tick in real time (a first-class view, not a stale copy); (2) DISABLE all edit affordances — add, pause/resume, reset, and preset controls become non-interactive both visually and via aria-disabled/disabled; and (3) NAME THE OWNER — expose an accessible 'Managed by {writer}' tooltip/description on the disabled affordances so the user knows where control lives. The finished OS notification (SPEC 9.7) still fires — surfacing a finished timer is a view concern, not an edit."
+    },
+    "a11yContract": {
+      "$comment": "DOCUMENTATION node: the mechanical accessibility contract the FIRST-PARTY widget-library implementation guarantees and the X-A11Y gate enforces in BOTH themes, on every state in base §6 (base §8). A skill may override accessible name/description/live_region via the envelope `a11y` field; it may NOT waive any of the below. Widget-type default live_region = 'assertive' (a finished timer must announce).",
+      "type": "null",
+      "description": "KEYBOARD: every affordance is reachable and operable by keyboard with visible focus (focus ring drawn from a --color-*/--shadow-* focus token, meeting AA against both themes). Focus order = add affordance (and its form fields) → each timer card in list order, and within a card: pause/resume → reset. Enter/Space activate buttons; the add form submits on Enter and closes on Escape; number/duration input is spinnable and typeable. Focus is ANCHORED to the timer `id` so a per-second tick or slot re-render never steals or drops focus; on add, focus moves to the new timer card. ROLES/NAMES: the stack is a labeled list (role=list / listitem, or a labeled group) named by `title`; each timer card is a group whose accessible name combines label + remaining time; the countdown readout uses role=timer with aria-valuemin=0 / aria-valuemax=duration / aria-valuenow=remaining and an aria-valuetext of the human 'MM:SS remaining'; the progress track (when shown) is presentational/redundant to that readout; each control has an explicit name ('Pause {label}', 'Resume {label}', 'Reset {label}', 'Add timer'). LIVE REGIONS: the per-second countdown is aria-live='off' (never announced — it would flood the screen reader); ONLY the finished transition announces, via an assertive live region (role=alert/status) reading '{label} finished', matching the OS notification. PER-THEME AA: all text, the finished/caution tone, and the progress fill meet WCAG-AA contrast verified independently in light AND dark (a token passing on dark may fail on light — cf. --sulphur-ink, P1-01.4). NO HUE-ONLY MEANING (WCAG 1.4.1): running vs paused vs finished is ALWAYS carried by an icon and/or text (a control label, a 'Finished' badge), never by color alone; style.tone is a redundant accent, never the sole signal. SCALABLE TEXT & REDUCE-MOTION: cards remain usable when text is zoomed (base §8.5); any finish flash / enter-exit motion collapses under the OS reduce-motion setting via the motion tokens (base §8.6, SPEC 9.6)."
+    }
+  }
+}

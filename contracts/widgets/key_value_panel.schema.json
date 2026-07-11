@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/key_value_panel.schema.json",
+  "title": "Hydropark Widget — key_value_panel (v1)",
+  "description": "A labeled key/value readout (SPEC 9.4: 'labeled fields, e.g. nutrition facts'). It renders an ordered set of label→value rows with TYPED values (number/percent/duration/enum/…), formatted and localized first-party. It is a DISPLAY widget: read-only-friendly by design — it never edits its bound slot from user input, so it renders live in all cases and the writer-of-record distinction (SPEC 8.3.4 / §5 of the widget contract) affects only how provenance is surfaced, never whether controls are disabled (there are none to disable). Its data comes from a `record<…>` slot it binds (binds_state), from slots it observes read-only (reads_state) that a tool derives values from, or from a tool result routed to its id (updates_widget). Extends _widget-base.schema.json: pins `type`, tightens `props` (additionalProperties:false), constrains its event vocabulary, and documents its typed runtime state, binding, state-machine, and a11y contracts in $defs. Envelope fields (id/title/region/priority/min_widget_version/binds_state/reads_state/binds_tool/states/a11y/style) are inherited unchanged from the base.",
+  "allOf": [
+    { "$ref": "_widget-base.schema.json" }
+  ],
+  "properties": {
+    "type": {
+      "const": "key_value_panel",
+      "description": "Pinned to the v1 library type (_widget-base.schema.json#/$defs/knownWidgetTypeV1). Unknown/too-new types placeholder at render; a pinned known type validates and renders (SPEC 9.8)."
+    },
+    "region": {
+      "$ref": "_widget-base.schema.json#/$defs/region",
+      "default": "side",
+      "description": "Type-default region is `side` — a nutrition/summary readout docks beside chat next to the list it summarizes (cf. the macros example, widget contract §13). Normalization fills this when the manifest omits it."
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 40,
+      "description": "Type-default priority 40 — a derived readout sits BELOW the primary editable content it summarizes (editable_list defaults ~60) within the same region (SPEC 9.5)."
+    },
+    "emits": {
+      "type": "array",
+      "uniqueItems": true,
+      "default": [],
+      "description": "This widget's CLOSED event vocabulary (see $defs/eventContract). Default event set is EMPTY — a pure readout posts nothing to the bus. The two optional events only fire when the panel is made interactive by a `binds_tool` (rows become activatable). Both default to_chat:false: a copied value or an activated row is not transcript-worthy. Certification rejects duplicate event names (widget contract §3).",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": ["field_activated", "value_copied"]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "enum": ["field_activated", "value_copied"] },
+              "to_chat": { "type": "boolean" }
+            }
+          }
+        ]
+      }
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed, immutable-per-instance configuration for the readout. ALL fields optional: with no props the panel auto-renders every field of the bound `record` slot, using the humanized field name as the label and inferring the value type. `props.fields` is the explicit, ordered, fully-typed projection used when a skill wants control over labels, ordering, units, precision, and per-row emphasis.",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "description": "Ordered projection of the bound record into labeled rows. Row order == focus/read order. When omitted (or empty), the panel AUTO-renders all record fields in the record's declared field order. `key` must name a field of the bound `record` slot (or a key present on the tool result routed via updates_widget); a key with no value renders per `on_missing` / the row's `hide_when_empty`.",
+          "items": { "$ref": "#/$defs/fieldSpec" }
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 1,
+          "description": "How many label/value pairs sit side-by-side before wrapping (a responsive grid, SPEC 9.5). 1 = a single stacked column of rows (label left / value right). Collapses to 1 column below the layout engine's minimum width."
+        },
+        "value_align": {
+          "type": "string",
+          "enum": ["start", "center", "end"],
+          "default": "end",
+          "description": "Alignment of the VALUE within its cell (numeric readouts read best `end`-aligned). Distinct from the whole-widget `style.align` (base $defs/styleVariants), which aligns panel/label content. Purely layout — not a color/size token."
+        },
+        "on_missing": {
+          "type": "string",
+          "enum": ["dash", "hide"],
+          "default": "dash",
+          "description": "Global policy for a field whose value is absent/null: `dash` renders a visible neutral placeholder ('—', a TEXT signal — never color-only, WCAG 1.4.1); `hide` omits the row. A row's own `hide_when_empty:true` forces `hide` for that field regardless of this default."
+        },
+        "selectable_values": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether value text can be selected/copied by the user (keyboard and pointer). true keeps a readout genuinely useful (copy a calorie count) without making rows interactive controls."
+        },
+        "caption": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Optional small footnote beneath the rows (e.g. 'Per serving', 'Estimated'). Localizable; carries provenance/qualifier text, never load-bearing state."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "fieldSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "description": "One labeled, typed row of the readout.",
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The record field (of the bound `record` slot) or tool-result key this row reads. Routing is keyed on the slot name (base); this key selects the field WITHIN that record."
+        },
+        "label": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Row label (the `dt`). Defaults to a humanized form of `key` ('protein_g' → 'Protein'). Always present in the accessible name — this is why per-row `tone` is never hue-only (WCAG 1.4.1)."
+        },
+        "value_type": {
+          "$ref": "#/$defs/valueType",
+          "description": "How the raw value is formatted/announced. Defaults to `text`."
+        },
+        "unit": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Display suffix for numeric value_types ('g', 'kcal', 'ml', '°C'). A DATA-level unit label (localizable), not a US↔Metric conversion (nutrition units are absolute); unit conversion is a tool's job (SPEC 8.4), not this widget's."
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6,
+          "description": "Fractional-digit count for `number`/`percent`/`currency`/`bytes`. Omitted → the type's sensible default (integers 0, percent 0, currency 2)."
+        },
+        "currency_code": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "description": "ISO 4217 code used only when value_type == `currency` (e.g. 'USD', 'EUR'). Drives locale-correct currency formatting."
+        },
+        "enum_labels": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "_widget-base.schema.json#/$defs/localizableString" },
+          "description": "Display labels for `enum` value_type members (raw slot value → localizable text). Used only when value_type == `enum`; a member absent from the map falls back to its raw value. Ensures enum status is conveyed as TEXT, never color alone."
+        },
+        "bool_labels": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Text for `bool` value_type ('Yes'/'No', 'On'/'Off', 'Contains'/'Free'). Defaults to localized Yes/No. Text signal, not a colored dot alone.",
+          "properties": {
+            "true": { "$ref": "_widget-base.schema.json#/$defs/localizableString" },
+            "false": { "$ref": "_widget-base.schema.json#/$defs/localizableString" }
+          }
+        },
+        "tone": {
+          "$ref": "_widget-base.schema.json#/$defs/styleVariants/properties/tone",
+          "description": "Per-row semantic tone (e.g. `caution` for 'Allergen'). Maps per-theme to AA-safe token pairs and is ALWAYS paired with the row label/value text (and optional icon) — never the sole carrier of meaning (WCAG 1.4.1, widget contract §8.2)."
+        },
+        "emphasis": {
+          "$ref": "_widget-base.schema.json#/$defs/styleVariants/properties/emphasis",
+          "description": "Per-row emphasis (e.g. `strong` to highlight a total row). Type/weight tokens only — no raw sizes."
+        },
+        "hide_when_empty": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, this specific row is omitted if its value is absent (overrides `props.on_missing:dash` for this field). Useful for optional record fields widened away by a peer skill (base $defs/slotCompatibilityRule)."
+        }
+      }
+    },
+    "valueType": {
+      "type": "string",
+      "enum": [
+        "text",
+        "number",
+        "integer",
+        "percent",
+        "currency",
+        "duration",
+        "bytes",
+        "datetime",
+        "date",
+        "time",
+        "bool",
+        "enum"
+      ],
+      "description": "Closed vocabulary of typed value renderings the widget-library implements. `duration` = seconds → '1 h 20 m'; `bytes` = 1536 → '1.5 KB'; `datetime`/`date`/`time` = locale-formatted from an ISO-8601 raw; `percent` = 0.5 → '50%'; `bool`/`enum` use bool_labels/enum_labels. Formatting is first-party and locale-aware (SPEC 8.7) — a skill supplies raw typed data via slots/tools, never a pre-formatted string."
+    },
+    "acceptsSlotKind": {
+      "$comment": "binds_state fit — a documented cross-artifact certification constraint (P1-04.5), NOT an in-envelope one; the concrete slot kind lives in the manifest's shared_state.",
+      "const": "record",
+      "description": "key_value_panel binds a `record<…>` slot (base $defs/slotType, kind:record): each declared/auto field maps to a record field. Binding a non-record slot is a certification error (widget contract §9). reads_state slots (observed read-only to trigger re-render) may be any kind — e.g. a tool reads a `list<item>` `ingredients` slot and writes a `record` `nutrition` slot this panel binds."
+    },
+    "bindingContract": {
+      "$comment": "Documentation node (non-validating). The four binding directions (SPEC 9.3) as this widget uses them.",
+      "type": "null",
+      "description": "SOURCES (any of): (a) binds_state → a `record<…>` slot rendered live (primary); (b) reads_state[] → additional slots observed read-only, so a tool that derives values from them (e.g. macros from `ingredients`) re-renders this panel on every change (SPEC 9.3, 'routing keyed on slot name'); (c) updates_widget → a tool with no writes_state routes its record result to this widget's id (base widget contract §4.2). A panel may declare none of a/b and still be fed via (c). WRITES: none — this is a display widget, so it declares no two-way editing even when binds_state points at a slot it owns; values change only when a tool/model writes the slot or targets the id (direction 3). ACTION: optional `binds_tool` (direction 2) makes rows activatable for a deterministic UI-first tool call (e.g. tap 'Calories' → explain), emitting `field_activated`; with no binds_tool the rows are non-interactive."
+    },
+    "readOnlyBoundBehavior": {
+      "$comment": "Documentation node (non-validating). §5 of the widget contract specialized for a display-only widget.",
+      "type": "null",
+      "description": "Because key_value_panel has NO edit affordances, the writer-of-record resolution (SPEC 8.3.4) never disables controls here — it renders live in every case. The resolution still matters for PROVENANCE: when the bound `record` slot is owned by another skill, the renderer receives runtimeState.readonly=true with the writer's id/name and exposes it as an accessible description of the form 'Values from {writer}', so the user knows which skill produces the numbers. The read-only decision is resolved at MERGE time and delivered as runtime state (base widget contract §5); a skill never authors it and a display widget can never write a slot it does not own."
+    },
+    "eventContract": {
+      "$comment": "Documentation node (non-validating). Mirrors the closed set constrained on `properties.emits`.",
+      "type": "null",
+      "description": "EMITS (default set empty; both fire only when `binds_tool` is set): `field_activated` {row key} — a user activated an interactive row (keyboard Enter/Space or click); default to_chat:false; this is the direction-2 UI-first trigger for the bound tool. `value_copied` {row key} — a value was copied to the clipboard; default to_chat:false; telemetry/undo only. CONSUMES (not authored as emits — this is bus routing, SPEC 9.3 #3): a write to binds_state, to any reads_state slot, or an updates_widget targeting this id re-renders the panel and, per a11yContract, announces changed values via aria-live=polite. Posting an event NEVER auto-runs inference (SPEC 9.3 #4)."
+    },
+    "runtimeState": {
+      "$comment": "Documentation node (non-validating). The TYPED runtime-state projection the core (Rust) hands the webview per IPC-CONTRACT — NOT authored in the manifest; produced by tools, slots, and user input (widget contract §2). Session-scoped by default (SPEC 9.9).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifecycle": {
+          "type": "string",
+          "enum": ["loading", "ready", "empty", "error", "readonly", "placeholder"],
+          "description": "Position in the mandatory state machine (widget contract §6). `ready` splits into empty/populated by whether any renderable value is present."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "True when bound to a `record` slot this skill does not own; drives the provenance description (see readOnlyBoundBehavior). Does not gate interactivity (there is none to gate)."
+        },
+        "writer": {
+          "type": ["string", "null"],
+          "description": "Owning skill id/name when readonly, else null. Surfaced as 'Values from {writer}'."
+        },
+        "source_slot": {
+          "type": ["string", "null"],
+          "description": "The bound slot name, or null when fed solely via updates_widget."
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/typedValue" },
+          "description": "Resolved per-key typed values (record field key → typedValue), assembled from binds_state/reads_state/tool result."
+        },
+        "updated_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 timestamp of the last value change; drives the aria-live announcement dedup (announce only real changes)."
+        },
+        "error": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "message": { "type": "string" },
+            "retryable": { "type": "boolean" }
+          },
+          "description": "Structured tool/derivation failure, surfaced in the error state with a recovery affordance — never silently swallowed (SPEC 8.4 #4)."
+        }
+      }
+    },
+    "typedValue": {
+      "$comment": "Documentation node (non-validating). One resolved value inside runtimeState.values.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "$ref": "#/$defs/valueType" },
+        "raw": {
+          "type": ["number", "string", "boolean", "null"],
+          "description": "The un-formatted value straight from the slot/tool (number for numeric types, ISO-8601 string for date/time, enum member string, boolean). null == absent."
+        },
+        "display": {
+          "type": ["string", "null"],
+          "description": "First-party formatted, localized, unit-suffixed string shown to the user; null when absent and on_missing:hide."
+        },
+        "present": {
+          "type": "boolean",
+          "description": "False when the source value is absent — drives on_missing / hide_when_empty and prevents announcing a spurious change."
+        }
+      }
+    },
+    "stateDefaults": {
+      "$comment": "Documentation node (non-validating). Type-default copy for the mandatory states (widget contract §6); a skill overrides only the STRINGS via the envelope `states` field, never the behavior.",
+      "type": "null",
+      "description": "loading → { label: 'Calculating…' } with an indeterminate progress affordance (never a blank panel). empty → { label: 'No values yet.' } (bound successfully, record empty or all fields absent — plain, non-alarming, distinct from error). error → { label: 'Couldn't load these values.', hint: retry affordance }. placeholder (unknown/too-new type, SPEC 9.8) → the first-party 'This panel needs a newer version of the app' card; terminal, no data render."
+    },
+    "a11yContract": {
+      "$comment": "Documentation node (non-validating). The MECHANICAL a11y this widget-type's implementation guarantees and the X-A11Y gate enforces in BOTH themes on EVERY state (widget contract §8). A skill may override accessible name/description/live_region via the envelope `a11y`; it can never waive any item below.",
+      "type": "null",
+      "description": "ROLES: the panel is a landmark `group`/`region` named by `title` (or a11y.label); rows use description-list semantics — each row a `term` (label) + `definition` (value) association (native <dl><dt><dd>), so screen readers announce 'label, value'. FOCUS ORDER: matches declared/auto field order, then `caption`. KEYBOARD: non-interactive rows are NOT tab stops (no empty stops) but are in reading order and, when selectable_values, text-selectable/copyable via keyboard; when `binds_tool` is set each activatable row is a focusable control (button semantics) operable by Enter/Space with a visible focus ring (focus token). LIVE REGION: default aria-live=`polite` (base a11yMeta.live_region default) — out-of-band value updates (recomputed macros) are announced politely, not assertively (nutrition is not time-critical, unlike a timer); overridable via a11y.live_region. PER-THEME AA: every label/value/unit/caption string and any meaningful non-text meets WCAG-AA contrast verified INDEPENDENTLY in light and dark (a token passing on dark may fail on light, cf. --sulphur-ink, P1-01.4). NO HUE-ONLY MEANING (WCAG 1.4.1): per-row `tone` is always paired with the row label/value text (± icon); a missing value shows the '—' TEXT placeholder, not a colored blank; enum/bool status is text via enum_labels/bool_labels. SCALABLE TEXT/ZOOM: the columns grid reflows and rows wrap when text is scaled up (widget contract §8.5). REDUCE-MOTION: value-change highlight/enter transitions collapse under the OS reduce-motion setting (motion tokens, SPEC 9.6). STYLING: drawn ONLY from the design-token vocabulary (base $defs/designTokenNamespace) exposed to skills solely through the closed `style` variant set — zero literal hex/px/rem (non-token-styling lint, P1-20.1)."
+    }
+  }
+}

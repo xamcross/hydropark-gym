@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/slider_stepper.schema.json",
+  "title": "Hydropark Widget — slider / stepper (numeric scalar input)",
+  "description": "The `slider` / `stepper` widget (SPEC 9.4, P1-06.4). One contract, two first-party PRESENTATIONS of the same numeric-scalar input — a continuous `slider` (track + thumb) and a discrete `stepper` (value field with −/＋ buttons) — mirroring how `segmented_toggle` / `switch` share one library entry. The manifest selects the presentation via `type`; both are members of `_widget-base.schema.json#/$defs/knownWidgetTypeV1`. Purpose: capture a bounded number (servings, portions, temperature, grams) with `min`/`max`/`step` and bind it two-way to a `scalar<number>` shared-state slot (SPEC 8.3.4). This schema `allOf`-extends the base envelope, pins `type`, closes `props` (additionalProperties:false), tightens `emits` to this widget's event set, and — in the non-normative `x-hydropark-widget` block — records the facets JSON Schema cannot validate against the manifest alone: default region/priority/event set, the accepted slot kind, the typed runtime state, the loading/empty/error/read-only behavior, and the mechanical a11y contract enforced by the X-A11Y gate (SPEC 9.10, contract §8).",
+  "type": "object",
+  "allOf": [
+    { "$ref": "_widget-base.schema.json" },
+    {
+      "properties": {
+        "type": {
+          "description": "Pinned to one of the two presentations of this widget, both drawn from knownWidgetTypeV1. `slider` renders a continuous track (role=slider); `stepper` renders a value field with decrement/increment buttons (role=spinbutton). An older library that lacks the chosen type degrades to the placeholder, never a validation failure (SPEC 9.8).",
+          "type": "string",
+          "enum": ["slider", "stepper"]
+        },
+        "binds_state": {
+          "$ref": "_widget-base.schema.json#/$defs/slotName",
+          "description": "REQUIRED for this widget: the `scalar<number>` slot this control renders and (iff its owning skill is the slot's writer-of-record) edits (SPEC 8.3.4). The slot's kind is declared in `shared_state`; the fit `scalar(number)` is a cross-artifact certification check (P1-04.5), see x-hydropark-widget.binds_state. When the owning skill is NOT the writer-of-record the binding resolves to read-only at merge (contract §5): the control renders live but every edit affordance is disabled and the writer is named."
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "description": "Typed, immutable-per-instance configuration for the numeric input. Closed set (additionalProperties:false).",
+          "properties": {
+            "min": {
+              "type": "number",
+              "description": "Minimum selectable value (inclusive). Maps to aria-valuemin and the Home key."
+            },
+            "max": {
+              "type": "number",
+              "description": "Maximum selectable value (inclusive). Maps to aria-valuemax and the End key. MUST be strictly greater than `min` — a cross-field invariant JSON Schema cannot express in-envelope; enforced by certification (P1-04.5)."
+            },
+            "step": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1,
+              "description": "Granularity of one increment: Arrow-key nudge, −/＋ button press, and slider snap. SHOULD evenly divide (max − min) so both endpoints are reachable; certification warns when it does not."
+            },
+            "page_step": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Larger jump for PageUp / PageDown (and modifier-augmented steps). Omitted → the widget uses max(step, round((max − min) / 10))."
+            },
+            "default_value": {
+              "type": "number",
+              "description": "Value shown before the bound slot holds one (drives the empty → populated transition). MUST lie within [min, max] and align to `step` measured from `min`; certification checks. Omitted → the widget shows the mandatory empty state until the slot or a tool sets a value. Presence NEVER auto-writes the slot — display-only until the user (or a tool) commits a value, so a non-writer cannot smuggle a write (contract §5)."
+            },
+            "unit_label": {
+              "$ref": "_widget-base.schema.json#/$defs/localizableString",
+              "description": "Unit suffix rendered after the value and folded into aria-valuetext so the reading is announced with its unit ('4 servings', '180 g'), never a bare number (WCAG — meaningful text, not glyph-only). Localizable (SPEC 8.7)."
+            },
+            "decimals": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6,
+              "description": "Fixed decimal places for the DISPLAYED and announced value. Omitted → inferred from `step` (an integer step yields 0). Formatting only; the stored scalar keeps full precision."
+            },
+            "show_value": {
+              "type": "boolean",
+              "default": true,
+              "description": "Render the live numeric readout beside the control. When false the value is still exposed to assistive tech via aria-valuenow / aria-valuetext — it is never hidden from screen readers, only from the visual layout."
+            },
+            "marks": {
+              "type": "boolean",
+              "default": false,
+              "description": "`slider` presentation only: render non-interactive tick marks at each `step`, with text labels at min and max (never hue-only). Ignored by the `stepper` presentation."
+            },
+            "clamp": {
+              "type": "boolean",
+              "default": true,
+              "description": "Governs a bound value delivered OUTSIDE [min, max] (e.g. written by another skill's tool). true → clamp into range for display and flag the control out-of-range with text + icon (not color-only); false → surface the mandatory error state instead. Either way the widget never crashes on an out-of-range slot value."
+            },
+            "commit_on": {
+              "type": "string",
+              "enum": ["change", "release"],
+              "default": "release",
+              "description": "When a `slider` drag writes the bound scalar: `release` writes once on pointer/keyboard release (default — avoids a write storm on the bus and keeps the deterministic UI-first path, SPEC 9.3 #2); `change` writes on every intermediate value. The `stepper` presentation always commits once per discrete step and ignores this field."
+            }
+          }
+        },
+        "emits": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/emittedEvent" },
+          "description": "This widget's event set (SPEC 9.3 #4). Recognized names: `value_changed` (fires on each committed value; default to_chat=false — a servings tweak must not spam the transcript) and `limit_reached` (fires when the user tries to step past min/max; default to_chat=false). Omitted → normalization fills both with their default to_chat. Certification rejects duplicate names. Posting an event appends to the transcript / fires an OS notification only when to_chat/time-critical; it NEVER auto-runs inference (SPEC 9.3 #4)."
+        }
+      },
+      "required": ["props", "binds_state"]
+    }
+  ],
+  "$defs": {
+    "emittedEvent": {
+      "description": "An emitted event, tightened to this widget's known names (a per-widget narrowing of _widget-base.schema.json#/$defs/eventDecl). Bare string uses the widget-type's default to_chat; the object form overrides it.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["value_changed", "limit_reached"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": ["value_changed", "limit_reached"]
+            },
+            "to_chat": {
+              "type": "boolean",
+              "description": "Override the event's default to_chat. Both events default to false."
+            }
+          }
+        }
+      ]
+    },
+    "runtimeState": {
+      "description": "NON-MANIFEST (documentation only). The widget's live projection, produced by the bound slot + tools + user input and held by the renderer (SPEC 9.2 'typed runtime state'; 9.9 session-scoped by default). NEVER authored in the manifest — the manifest declares only props + bindings; this $def types what the renderer materializes so the certification harness and component agree on one shape.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": ["number", "null"],
+          "description": "Current committed value from the bound scalar<number> slot; null before the slot or `default_value` sets one (empty state)."
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["loading", "empty", "ready", "error"],
+          "description": "The mandatory lifecycle state (contract §6). `loading` while the slot/tool is in flight; `empty` when bound but unset and no default_value; `ready` when a value is present; `error` on tool-execution failure or an out-of-range value with clamp=false."
+        },
+        "out_of_range": {
+          "type": "boolean",
+          "description": "true when the incoming slot value fell outside [min, max]; drives the clamp badge (text + icon) or the error state per props.clamp."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Resolved at merge (contract §5). true → all edit affordances disabled (aria-disabled), control still renders live."
+        },
+        "writer": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "skill_id": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "description": "The slot's writer-of-record when this skill is NOT it (drives the 'Managed by {name}' tooltip / accessible description); null when this skill owns the slot."
+        }
+      }
+    }
+  },
+  "x-hydropark-widget": {
+    "$comment": "NON-NORMATIVE for envelope validation (custom keyword, ignored by JSON-Schema validators). Home for the contract facets that are enforced against artifacts OUTSIDE this instance — normalization defaults, cross-artifact slot fit, runtime state, lifecycle copy, read-only behavior, and the mechanical a11y contract (contract §§2,3,5,6,8,9; SPEC 9.2–9.4/9.8/9.10). The renderer, the orchestrator's binding/merge layer, and the certification pipeline read it.",
+    "spec": "SPEC 9.4 (slider / stepper — numeric inputs)",
+    "ticket": "P1-06.4",
+    "presentations": {
+      "slider": "Continuous horizontal track + draggable thumb; role=slider. Optional tick `marks`.",
+      "stepper": "Numeric value field flanked by decrement (−) and increment (＋) buttons; role=spinbutton. Direct text entry allowed, committed on Enter/blur."
+    },
+    "normalization_defaults": {
+      "region": "side",
+      "priority": 45,
+      "min_widget_version": "1.0",
+      "emits": [
+        { "name": "value_changed", "to_chat": false },
+        { "name": "limit_reached", "to_chat": false }
+      ]
+    },
+    "binds_state": {
+      "required": true,
+      "accepts_slot_kind": "scalar",
+      "scalar_primitive": "number",
+      "cardinality": "two-way when the owning skill is the slot's writer-of-record; otherwise read-only (contract §5).",
+      "note": "Enforced as a cross-artifact certification check (P1-04.5): the concrete slot named by binds_state must normalize to { kind:'scalar', scalar:'number' }. Binding a slider/stepper to a string/bool/enum/list/record slot blocks the combination naming the slot. Non-writers may still change the value indirectly through a tool that `writes_state` the scalar (only the writer-of-record may set it via the UI — contract §5)."
+    },
+    "reads_state": {
+      "supported": true,
+      "note": "Extra scalar<number> slots may be observed read-only for a comparative readout (e.g. a target vs. current). An update to any observed slot re-renders the control (base.reads_state)."
+    },
+    "binds_tool": {
+      "supported": true,
+      "direction": "widget → tool (UI-first, SPEC 9.3 #2)",
+      "note": "A committed value change may deterministically invoke the bound tool with the new value (e.g. re-scale a recipe on a servings change) with no model round-trip. Distinct from the slot write; a widget may do both — write the scalar AND fire the tool."
+    },
+    "runtime_state_ref": "#/$defs/runtimeState",
+    "state_copy_defaults": {
+      "$comment": "Type-default copy for the mandatory states (contract §6). Overridable per-instance via base `states` (strings only — a state can never be suppressed). Localizable.",
+      "loading": { "label": "Loading…" },
+      "empty": { "label": "Not set", "hint": "Choose a value to begin." },
+      "error": { "label": "Value out of range", "hint": "Enter a number between the minimum and maximum." }
+    },
+    "read_only_behavior": {
+      "$comment": "contract §5. When resolved read-only (runtimeState.readonly=true):",
+      "renders_live": "Reflects every slot update in real time — a first-class view, not a stale copy.",
+      "disables": "Thumb drag, −/＋ buttons, text entry, and keyboard stepping are all inert (visually + aria-disabled/disabled).",
+      "names_owner": "Exposes an accessible description / tooltip 'Managed by {writer.name}' so the user knows where edits are routed."
+    },
+    "a11y": {
+      "$comment": "Mechanical a11y is guaranteed by the first-party widget-library implementation and enforced by the X-A11Y gate (axe + keyboard-nav + SR-label audit) in BOTH themes on EVERY state (contract §8). Not the skill's to author or waive; the skill may override only accessible name/description/live_region via base `a11y`.",
+      "roles": {
+        "slider": "role=slider with aria-valuemin, aria-valuemax, aria-valuenow, aria-valuetext (value + unit_label, e.g. '4 servings'), aria-orientation=horizontal; labelled by `title`/a11y.label, described by any a11y.description and the read-only owner note.",
+        "stepper": "role=spinbutton with the same aria-value* set; the −/＋ controls are role=button with discrete accessible names ('Decrease {title}', 'Increase {title}'); the editable field is labelled by `title`."
+      },
+      "keyboard": {
+        "ArrowRight / ArrowUp": "increment by step",
+        "ArrowLeft / ArrowDown": "decrement by step",
+        "PageUp": "increment by page_step",
+        "PageDown": "decrement by page_step",
+        "Home": "set to min",
+        "End": "set to max",
+        "stepper_typing": "type a number, commit on Enter or blur (clamped/validated per props); Escape reverts"
+      },
+      "focus_order": "title/label → control (slider thumb, or stepper field) → decrement button → increment button (stepper); one Tab stop for the slider. Visible focus ring on the focused element.",
+      "disabled_extremes": "At min the decrement affordance is disabled, at max the increment affordance is disabled — signalled via aria-disabled + a visual state (never color-only).",
+      "no_hue_only": "Out-of-range/limit and disabled states are ALWAYS paired with text and/or an icon; `style.tone` is never the sole signal (WCAG 1.4.1).",
+      "contrast": "WCAG-AA for the track, thumb, focus ring, value text, tick marks, and button glyphs, verified PER THEME (a token passing on dark may fail on light — contract §8.1).",
+      "live_region": "Default polite (base a11y.live_region default): out-of-band writes (a tool changing the slot) announce the new aria-valuetext without stealing focus; direct user stepping is announced by the control's own aria-valuenow updates.",
+      "reduce_motion": "Thumb/track transitions collapse under the OS reduce-motion setting (motion tokens, SPEC 9.6).",
+      "zoom": "Layout and hit targets remain usable when text is scaled up (X-A11Y.3)."
+    },
+    "styling": {
+      "$comment": "contract §7. Skills ship no CSS: styling is only the closed `style` variant vocabulary (tone/emphasis/density/align). The widget-library CSS itself references only the --color/--space/--radius/--font/--text/--transition/--motion token namespaces (non-token-styling lint, P1-20.1)."
+    }
+  }
+}
