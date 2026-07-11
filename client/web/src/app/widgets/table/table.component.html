@@ -1,0 +1,113 @@
+<section class="panel table-widget" [class.density-compact]="density === 'compact'">
+  @if (heading) {
+    <header>
+      <h2>{{ heading }}</h2>
+    </header>
+  }
+
+  <!-- Polite live region: announces out-of-band row updates (base contract §8.4). -->
+  <span class="sr-only" role="status" aria-live="polite">{{ announce() }}</span>
+
+  @switch (phase()) {
+    @case ('loading') {
+      <div class="state state-loading" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>{{ loadingLabel }}</span>
+      </div>
+    }
+    @case ('error') {
+      <div class="state state-error" role="alert">
+        <p class="state-msg">{{ errorLabel }}</p>
+        @if (errorHint) {
+          <p class="state-hint">{{ errorHint }}</p>
+        }
+        <button type="button" class="retry-btn" (click)="retry.emit()">Try again</button>
+      </div>
+    }
+    @case ('empty') {
+      <p class="empty">{{ emptyLabel }}</p>
+    }
+    @default {
+      @if (readonly && writer) {
+        <p class="managed" [id]="'table-managed-' + uid">Managed by {{ writer }}</p>
+      }
+
+      <div class="table-scroll">
+        <table
+          [attr.aria-label]="label || null"
+          [attr.aria-describedby]="readonly && writer ? 'table-managed-' + uid : null"
+          [attr.aria-rowcount]="viewRows().length"
+        >
+          @if (caption) {
+            <caption>{{ caption }}</caption>
+          }
+          <thead>
+            <tr>
+              @for (col of displayColumns(); track col.key) {
+                <th
+                  scope="col"
+                  [class]="'col align-' + col.align + ' width-' + col.width"
+                  [attr.aria-sort]="isSortable(col) ? ariaSort(col) : null"
+                >
+                  @if (isSortable(col)) {
+                    <button type="button" class="sort-btn" (click)="toggleSort(col)">
+                      <span class="th-label">{{ col.header }}</span>
+                      <span
+                        class="sort-ind"
+                        [class.active]="ariaSort(col) !== 'none'"
+                        aria-hidden="true"
+                        >{{ sortGlyph(col) }}</span
+                      >
+                    </button>
+                  } @else {
+                    <span class="th-label">{{ col.header }}</span>
+                  }
+                </th>
+              }
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of viewRows(); track row.id) {
+              <tr>
+                @for (cell of row.cells; track $index) {
+                  @if (cell.isRowHeader) {
+                    <th
+                      scope="row"
+                      [class]="'align-' + cell.align + ' width-' + cell.width"
+                      [class.truncate]="cell.title !== null"
+                    >
+                      <span class="cell-text" [attr.title]="cell.title">{{ cell.text }}</span>
+                    </th>
+                  } @else {
+                    <td
+                      [class]="'align-' + cell.align + ' width-' + cell.width"
+                      [class.truncate]="cell.title !== null"
+                    >
+                      @switch (cell.kind) {
+                        @case ('status') {
+                          <span class="status-pill" [class]="'tone-' + cell.tone">
+                            <span class="cell-icon" aria-hidden="true">{{ cell.icon }}</span>
+                            <span>{{ cell.text }}</span>
+                          </span>
+                        }
+                        @case ('bool') {
+                          <span class="bool-cell">
+                            <span class="cell-icon" aria-hidden="true">{{ cell.icon }}</span>
+                            <span>{{ cell.text }}</span>
+                          </span>
+                        }
+                        @default {
+                          <span class="cell-text" [attr.title]="cell.title">{{ cell.text }}</span>
+                        }
+                      }
+                    </td>
+                  }
+                }
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  }
+</section>

@@ -1,0 +1,85 @@
+<section class="panel date-time-picker" [attr.aria-label]="title()">
+  <header>
+    <h2>{{ title() }}</h2>
+  </header>
+
+  <!-- LOADING (contract §6) -->
+  @if (effectivePhase() === 'loading') {
+    <div class="state-loading" role="status" aria-live="polite">
+      <span class="bar" aria-hidden="true"><span class="bar-fill"></span></span>
+      <span class="state-text">{{ loadingLabel() }}</span>
+    </div>
+  } @else {
+    <!-- READ-ONLY owner note (contract §5) -->
+    @if (readonly()) {
+      <p class="managed-note" [id]="managedId" [attr.title]="'Managed by ' + managedBy()">
+        <span class="icon" aria-hidden="true">🔒</span>
+        Managed by {{ managedBy() }}
+      </p>
+    }
+
+    <div class="dtp-field">
+      <label class="sr-only" [attr.for]="fieldId">{{ title() }}</label>
+      <input
+        class="native-input"
+        [id]="fieldId"
+        [type]="nativeInputType()"
+        [value]="nativeValue()"
+        [attr.min]="nativeMin()"
+        [attr.max]="nativeMax()"
+        [attr.step]="nativeStep()"
+        [disabled]="readonly()"
+        [attr.placeholder]="placeholder()"
+        [attr.aria-label]="title()"
+        [attr.aria-invalid]="effectivePhase() === 'error'"
+        [attr.aria-describedby]="readonly() ? managedId : readoutId"
+        (change)="onNativeChange($any($event.target).value)"
+      />
+
+      @if (showNow()) {
+        <button type="button" class="ghost-btn" (click)="setNow()">
+          {{ nowLabel() }}
+        </button>
+      }
+
+      @if (showClear()) {
+        <button
+          type="button"
+          class="ghost-btn"
+          [attr.aria-label]="'Clear ' + title()"
+          (click)="clearSelection()"
+        >
+          <span aria-hidden="true">✕</span> Clear
+        </button>
+      }
+    </div>
+
+    <!-- EMPTY (contract §6) -->
+    @if (effectivePhase() === 'empty') {
+      <p class="empty">{{ emptyLabel() }}</p>
+    }
+
+    <!-- ERROR (contract §6) — icon + text, never hue-only (§8) -->
+    @if (effectivePhase() === 'error') {
+      <p class="state-error" role="alert">
+        <span class="icon" aria-hidden="true">⚠</span>
+        <span>
+          <strong>{{ errorLabel() }}</strong>
+          @if (errorHint()) { {{ errorHint() }} }
+        </span>
+      </p>
+    }
+
+    <!-- READABLE PREVIEW (locale-aware, Intl) — announced out-of-band -->
+    <p
+      class="dtp-readout"
+      [id]="readoutId"
+      aria-live="polite"
+      [class.is-hidden]="effectivePhase() !== 'ready' || !displayText()"
+    >
+      @if (effectivePhase() === 'ready' && displayText()) {
+        {{ displayText() }}
+      }
+    </p>
+  }
+</section>

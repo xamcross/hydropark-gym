@@ -1,0 +1,76 @@
+<section class="panel tabs-widget" [class.density-compact]="density === 'compact'">
+  @if (heading) {
+    <header>
+      <h2>{{ heading }}</h2>
+    </header>
+  }
+
+  <div
+    class="tablist"
+    role="tablist"
+    [class.vertical]="orientation === 'vertical'"
+    [attr.aria-label]="label || null"
+    [attr.aria-orientation]="orientation"
+    [attr.aria-disabled]="readonly ? true : null"
+  >
+    @for (tab of tabs(); track tab.id; let i = $index) {
+      <button
+        #tabBtn
+        type="button"
+        role="tab"
+        class="tab"
+        [id]="tabControlId(tab.id)"
+        [class.selected]="tab.id === activeId()"
+        [attr.aria-selected]="tab.id === activeId()"
+        [attr.aria-controls]="panelId(tab.id)"
+        [attr.aria-disabled]="readonly ? true : null"
+        [tabindex]="i === rovingIndex() ? 0 : -1"
+        (click)="onClick(i)"
+        (focus)="onFocus(i)"
+        (keydown)="onKeydown($event, i)"
+      >
+        <span class="tab-label">{{ tab.label }}</span>
+      </button>
+    }
+  </div>
+
+  @if (readonly && writer) {
+    <p class="managed">Managed by {{ writer }}</p>
+  }
+
+  @if (activeId(); as active) {
+    <div
+      class="tabpanel"
+      role="tabpanel"
+      tabindex="0"
+      [id]="panelId(active)"
+      [attr.aria-labelledby]="tabControlId(active)"
+    >
+      @switch (phase()) {
+        @case ('loading') {
+          <div class="state state-loading" role="status" aria-live="polite">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>{{ loadingLabel }}</span>
+          </div>
+        }
+        @case ('error') {
+          <div class="state state-error" role="alert">
+            <p class="state-msg">{{ errorLabel }}</p>
+            @if (errorHint) {
+              <p class="state-hint">{{ errorHint }}</p>
+            }
+            <button type="button" class="retry-btn" (click)="retry.emit()">Try again</button>
+          </div>
+        }
+        @case ('empty') {
+          <p class="empty">{{ emptyLabel }}</p>
+        }
+        @default {
+          @if (activePanel(); as tpl) {
+            <ng-container [ngTemplateOutlet]="tpl"></ng-container>
+          }
+        }
+      }
+    </div>
+  }
+</section>

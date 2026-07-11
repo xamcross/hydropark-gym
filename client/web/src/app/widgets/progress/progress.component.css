@@ -1,0 +1,185 @@
+/* progress — token-only styling (contract §7 / P1-20.1 non-token lint). Zero
+   literal hex/px for colour/space/type/radius/motion: every such value is a
+   var(--token); in-between sizes are composed from the 4px space scale with
+   calc() (timer-stack precedent). Data-driven LAYOUT values (fill width %, ring
+   fill %) are structural, not design tokens, and arrive via [style] bindings.
+
+   The fill colour is a single indirection (--pg-fill-color) so the skill-facing
+   `style.tone` variant re-points it per-theme to an AA-safe token; magnitude is
+   ALWAYS also carried by percent / "Working…" / "Done" TEXT (WCAG 1.4.1). */
+
+.progress {
+  --pg-fill-color: var(--color-primary);
+}
+.progress[data-tone='neutral'] {
+  --pg-fill-color: var(--color-text-muted);
+}
+.progress[data-tone='accent'] {
+  --pg-fill-color: var(--color-primary);
+}
+.progress[data-tone='positive'] {
+  --pg-fill-color: var(--tone-fine-fill);
+}
+.progress[data-tone='caution'] {
+  --pg-fill-color: var(--tone-careful-fill);
+}
+.progress[data-tone='danger'] {
+  --pg-fill-color: var(--tone-danger-fill);
+}
+
+.pg-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ---- linear bar (determinate + indeterminate) ------------------------------ */
+.pg-track {
+  position: relative;
+  flex: 1;
+  height: calc(var(--space-1) * 1.5); /* 6px */
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  overflow: hidden;
+}
+[data-density='compact'] .pg-track {
+  height: var(--space-1);
+}
+
+.pg-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--pg-fill-color);
+  transition: width var(--transition-panel);
+}
+.pg-fill.done {
+  background: var(--tone-fine-fill);
+}
+
+/* indeterminate sweep — resting at left:30% so it stays visible under the OS
+   reduce-motion setting (which collapses --transition-slow to ~0ms). */
+.pg-indeterminate-fill {
+  position: absolute;
+  top: 0;
+  left: 30%;
+  width: 40%;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--pg-fill-color);
+  animation: pg-sweep var(--transition-slow) infinite alternate;
+}
+.pg-indeterminate-fill.idle {
+  animation: none;
+  left: 0;
+  width: 100%;
+  background: var(--tone-fine-fill); /* resolved / done */
+}
+@keyframes pg-sweep {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+/* ---- radial ring (determinate) --------------------------------------------- */
+.pg-ring-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.pg-ring {
+  --pg-pct: 0;
+  position: relative;
+  width: calc(var(--space-6) + var(--space-4)); /* 48px */
+  height: calc(var(--space-6) + var(--space-4));
+  border-radius: var(--radius-pill);
+  background: conic-gradient(var(--pg-fill-color) calc(var(--pg-pct) * 1%), var(--color-border) 0);
+}
+.pg-ring.done {
+  background: conic-gradient(var(--tone-fine-fill) calc(var(--pg-pct) * 1%), var(--color-border) 0);
+}
+.pg-ring-hole {
+  position: absolute;
+  inset: calc(var(--space-1) * 1.25); /* ~5px ring thickness */
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+
+/* ---- shared value / caption / provenance ----------------------------------- */
+.pg-percent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  min-width: calc(var(--space-6) + var(--space-2)); /* stable readout width */
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.pg-check {
+  color: var(--tone-fine-text);
+  font-weight: var(--font-weight-bold);
+}
+.pg-status {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.pg-caption {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.pg-provenance {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.pg-cancel {
+  align-self: flex-start;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+.pg-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- error (human message + retry recovery affordance) --------------------- */
+.pg-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.pg-error-msg {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+.pg-error-icon {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-danger);
+}
+.pg-retry {
+  align-self: flex-start;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}

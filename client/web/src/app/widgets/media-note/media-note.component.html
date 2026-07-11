@@ -1,0 +1,158 @@
+<section
+  class="panel media-note"
+  [class.density-compact]="density() === 'compact'"
+  [class.tone-neutral]="tone() === 'neutral'"
+  [class.tone-accent]="tone() === 'accent'"
+  [class.tone-positive]="tone() === 'positive'"
+  [class.tone-caution]="tone() === 'caution'"
+  [class.tone-danger]="tone() === 'danger'"
+  role="note"
+  [attr.aria-label]="noteTitle()"
+  [attr.aria-busy]="effectivePhase() === 'loading' ? 'true' : null"
+>
+  @if (noteTitle()) {
+    <header><h2>{{ noteTitle() }}</h2></header>
+  }
+
+  @switch (effectivePhase()) {
+    <!-- LOADING (§6): never a blank panel while the slot / SVG resolves. -->
+    @case ('loading') {
+      <p class="mn-status" role="status">
+        <span class="spinner" aria-hidden="true"></span>{{ copy().loading }}
+      </p>
+    }
+
+    <!-- PLACEHOLDER (§11): unknown / too-new library — terminal, no data render. -->
+    @case ('placeholder') {
+      <p class="mn-status" role="status">{{ copy().placeholder }}</p>
+    }
+
+    <!-- ERROR (§6): human message + recovery affordance. role=alert announces it. -->
+    @case ('error') {
+      <div class="mn-error" role="alert">
+        <span class="mn-error-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 9v4" /><path d="M12 17h.01" />
+            <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+          </svg>
+        </span>
+        <span class="mn-error-msg">{{ error()?.message || copy().errorFallback }}</span>
+        <button type="button" class="mn-link" (click)="onRetry()">Try again</button>
+      </div>
+    }
+
+    <!-- EMPTY (§6): bound but nothing to show — non-alarming, distinct from error. -->
+    @case ('empty') {
+      <p class="empty">{{ copy().empty }}</p>
+    }
+
+    <!-- READY / READ_ONLY: the live read-only projection. -->
+    @default {
+      <div class="mn-layout">
+        <!-- Leading semantic icon: pairs a toned card with a non-chromatic cue (WCAG 1.4.1). -->
+        @if (safeIcon()) {
+          <span class="mn-icon" aria-hidden="true" [innerHTML]="safeIcon()"></span>
+        }
+
+        <div class="mn-content">
+          @if (text()) {
+            <!-- Disclosure toggle when collapsible: aria-expanded + aria-controls, Enter/Space toggles. -->
+            @if (collapsible()) {
+              <button
+                type="button"
+                class="mn-toggle"
+                [attr.aria-expanded]="expanded()"
+                aria-controls="mn-region"
+                (click)="toggle()"
+              >
+                <span class="mn-chevron" [class.open]="expanded()" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                </span>
+                <span>{{ expanded() ? 'Hide details' : 'Show details' }}</span>
+              </button>
+            }
+
+            <!-- Body region: aria-live=polite when bound so out-of-band slot updates announce (§8). -->
+            <div
+              id="mn-region"
+              class="mn-region"
+              [class.clamped]="clamped()"
+              [style.--mn-max-lines]="clampVar()"
+              [attr.aria-live]="bound() ? 'polite' : null"
+              [hidden]="collapsible() && !expanded()"
+            >
+              @if (format() === 'markdown') {
+                <div class="mn-md">
+                  @for (b of blocks(); track $index) {
+                    @switch (b.kind) {
+                      @case ('ul') {
+                        <ul>
+                          @for (item of b.items; track $index) {
+                            <li>
+                              @for (r of item; track $index) {
+                                @if (r.code) { <code>{{ r.text }}</code> }
+                                @else if (r.strong) { <strong>{{ r.text }}</strong> }
+                                @else if (r.em) { <em>{{ r.text }}</em> }
+                                @else { {{ r.text }} }
+                              }
+                            </li>
+                          }
+                        </ul>
+                      }
+                      @case ('ol') {
+                        <ol>
+                          @for (item of b.items; track $index) {
+                            <li>
+                              @for (r of item; track $index) {
+                                @if (r.code) { <code>{{ r.text }}</code> }
+                                @else if (r.strong) { <strong>{{ r.text }}</strong> }
+                                @else if (r.em) { <em>{{ r.text }}</em> }
+                                @else { {{ r.text }} }
+                              }
+                            </li>
+                          }
+                        </ol>
+                      }
+                      @default {
+                        <p>
+                          @for (r of b.runs; track $index) {
+                            @if (r.code) { <code>{{ r.text }}</code> }
+                            @else if (r.strong) { <strong>{{ r.text }}</strong> }
+                            @else if (r.em) { <em>{{ r.text }}</em> }
+                            @else { {{ r.text }} }
+                          }
+                        </p>
+                      }
+                    }
+                  }
+                </div>
+              } @else {
+                <!-- plain: literal text, line breaks preserved via CSS; auto-escaped by interpolation. -->
+                <p class="mn-plain">{{ text() }}</p>
+              }
+            </div>
+          }
+
+          <!-- Read-only ownership (§5): announced when another skill owns the bound slot. -->
+          @if (bound() && writer()) {
+            <p class="mn-owner">Managed by {{ writer() }}</p>
+          }
+        </div>
+      </div>
+
+      <!-- Vetted, sanitised SVG media. role=img + alt when meaningful; aria-hidden when decorative. -->
+      @if (safeSvg()) {
+        <figure class="mn-figure">
+          @if (decorative()) {
+            <div class="mn-media" aria-hidden="true" [innerHTML]="safeSvg()"></div>
+          } @else {
+            <div class="mn-media" role="img" [attr.aria-label]="alt()" [innerHTML]="safeSvg()"></div>
+          }
+          @if (caption()) {
+            <figcaption class="mn-caption">{{ caption() }}</figcaption>
+          }
+        </figure>
+      }
+    }
+  }
+</section>

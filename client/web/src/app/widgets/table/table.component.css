@@ -1,0 +1,243 @@
+/* table — token-ONLY styling (base contract §7 / non-token-styling lint P1-20.1).
+   Every colour/space/type/radius/motion value resolves through the design-token
+   vocabulary; in-between sizes are composed from the 4px --space-* scale with
+   calc(); only hairline (1px) borders are literal, following the timer-stack
+   precedent (styles/tokens.css + timer-stack.component.css). */
+
+.table-scroll {
+  overflow-x: auto;
+  width: 100%;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+caption {
+  caption-side: top;
+  text-align: start;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  padding-bottom: var(--space-2);
+}
+
+th,
+td {
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.density-compact th,
+.density-compact td {
+  padding: var(--space-1) var(--space-2);
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Zebra striping + hover — subtle, token-driven, never the sole signal. */
+tbody tr:nth-child(even) {
+  background: var(--color-surface-alt);
+}
+
+tbody tr:hover {
+  background: var(--tone-fine-tint);
+}
+
+tbody th[scope='row'] {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+/* Alignment (closed style-variant vocabulary: start | center | end). */
+.align-start {
+  text-align: start;
+}
+.align-center {
+  text-align: center;
+}
+.align-end {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Semantic column widths — no raw px is expressible (base contract §7). */
+.width-flex {
+  width: auto;
+}
+.width-min {
+  width: 1%;
+  white-space: nowrap;
+}
+.truncate {
+  max-width: calc(var(--space-6) * 6); /* ~192px clamp; full value via title */
+}
+.truncate .cell-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Keyboard-operable sort header. The arrow glyph (not colour) carries direction. */
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.align-end .sort-btn {
+  flex-direction: row-reverse;
+}
+.align-center .sort-btn {
+  margin-inline: auto;
+}
+
+.sort-ind {
+  font-size: var(--text-xs);
+  line-height: 1;
+  color: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+.sort-ind.active {
+  color: var(--color-primary);
+  opacity: 1;
+}
+
+/* status cell — token tone ALWAYS paired with an icon + label (WCAG 1.4.1). */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-relaxed);
+}
+
+.tone-positive {
+  background: var(--tone-fine-tint);
+  color: var(--tone-fine-text);
+}
+.tone-caution {
+  background: var(--tone-careful-tint);
+  color: var(--tone-careful-text);
+}
+.tone-danger {
+  background: var(--tone-danger-tint);
+  color: var(--tone-danger-text);
+}
+.tone-accent {
+  background: var(--tone-fine-tint);
+  color: var(--color-accent);
+}
+.tone-neutral {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+.tone-default {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+/* bool cell — check/dash glyph + Yes/No label, never colour-only. */
+.bool-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text);
+}
+
+.cell-icon {
+  font-weight: var(--font-weight-bold);
+}
+
+/* Read-only owner attribution (base contract §5). */
+.managed {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+/* Mandatory states (base contract §6). */
+.state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.state-error {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.state-msg {
+  margin: 0;
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
+}
+
+.state-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.retry-btn {
+  margin-top: var(--space-1);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.retry-btn:hover {
+  background: var(--color-surface-alt);
+}
+
+/* Indeterminate progress affordance — never a blank grid (base contract §6).
+   The spin animation collapses under OS reduce-motion via the global rule. */
+.spinner {
+  width: var(--space-4);
+  height: var(--space-4);
+  border: calc(var(--space-1) * 0.5) solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: var(--radius-pill);
+  animation: table-spin 0.8s linear infinite;
+}
+
+@keyframes table-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
