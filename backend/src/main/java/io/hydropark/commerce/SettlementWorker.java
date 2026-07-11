@@ -4,12 +4,14 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.ErrorCategory;
 import io.hydropark.commerce.PaymentProvider.ProviderEvent;
 import io.hydropark.common.Money;
+import io.hydropark.observability.TelemetryMetrics;
 import io.hydropark.port.Ports.PricingPort;
 import io.hydropark.port.Ports.PurchaseKind;
 import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DuplicateKeyException;
@@ -57,7 +59,22 @@ public class SettlementWorker {
   private final int batchSize;
   private final int maxAttempts;
   private final long staleProcessingMs;
+  private final TelemetryMetrics metrics;
 
+  /** Back-compat constructor (used by existing unit tests); no metrics wired. */
+  public SettlementWorker(
+      MongoTemplate mongo,
+      PaymentProvider provider,
+      SettlementService settlement,
+      PricingPort pricing,
+      int batchSize,
+      int maxAttempts,
+      long staleProcessingMs) {
+    this(mongo, provider, settlement, pricing, batchSize, maxAttempts, staleProcessingMs,
+        TelemetryMetrics.noop());
+  }
+
+  @Autowired
   public SettlementWorker(
       MongoTemplate mongo,
       PaymentProvider provider,
@@ -65,7 +82,8 @@ public class SettlementWorker {
       PricingPort pricing,
       @Value("${hydropark.worker.batch-size:50}") int batchSize,
       @Value("${hydropark.worker.max-attempts:5}") int maxAttempts,
-      @Value("${hydropark.worker.stale-processing-ms:300000}") long staleProcessingMs) {
+      @Value("${hydropark.worker.stale-processing-ms:300000}") long staleProcessingMs,
+      TelemetryMetrics metrics) {
     this.mongo = mongo;
     this.provider = provider;
     this.settlement = settlement;
@@ -73,6 +91,7 @@ public class SettlementWorker {
     this.batchSize = batchSize;
     this.maxAttempts = maxAttempts;
     this.staleProcessingMs = staleProcessingMs;
+    this.metrics = metrics;
   }
 
   @Scheduled(fixedDelayString = "${hydropark.worker.poll-interval-ms:2000}")
@@ -195,6 +214,8 @@ public class SettlementWorker {
           assertRegionAcceptable(order, ev);
           settlement.settleSkillOrBundle(order, ev);
         }
+        metrics.orderSettled(); // P1-21.4: hydropark.orders.checkout.settled
+        metrics.webhookSettled(); // P1-21.4: hydropark.webhook.settled
       }
       case PaymentProvider.REFUNDED -> {
         if (isTopup) {
@@ -202,6 +223,7 @@ public class SettlementWorker {
         } else {
           settlement.refundOrder(order);
         }
+        metrics.orderRefunded(); // P1-21.4: hydropark.orders.checkout.refunded
       }
       case PaymentProvider.CHARGEBACK -> {
         if (isTopup) {
@@ -286,6 +308,7 @@ public class SettlementWorker {
   }
 
   private void deadLetter(String id, String reason) {
+    metrics.webhookDeadLettered(); // P1-21.4: hydropark.webhook.deadlettered
     mongo.updateFirst(
         Query.query(Criteria.where("id").is(id)),
         new Update()

@@ -79,12 +79,15 @@ public class SecurityConfig {
                     .permitAll()
                     // P1-19.3: the base model GGUF is a free, unauthenticated download (§8 calls
                     // this a cost risk, not a security one - mitigated by CDN caching and rate
-                    // limits, never by gating). NOTE: no handler exists behind this path yet - the
-                    // artifact registry / CDN epic (P1-19) is not started, so this currently
-                    // permits a route that 404s. Left in place deliberately, and flagged here so it
-                    // is not mistaken for an accidentally-exposed endpoint.
-                    .requestMatchers(HttpMethod.GET, "/v1/download/model/**")
+                    // limits, never by gating). Handler: DownloadController#model.
+                    .requestMatchers(HttpMethod.GET, "/v1/download/models/**")
                     .permitAll()
+                    // P1-19.2: paid skill packages require a valid access token; DownloadController
+                    // additionally enforces free-or-active-grant entitlement and 403s otherwise.
+                    // Redundant with anyRequest().authenticated() below, kept explicit so the paid
+                    // vs. free split of /v1/download/** is legible right next to the public rule.
+                    .requestMatchers(HttpMethod.GET, "/v1/download/skills/**")
+                    .authenticated()
                     // P1-20 registry submission (POST /v1/registry/**): certify-only, no side
                     // effects, but an admin/pipeline op. The chain rule stays `.authenticated()` (a
                     // valid access token, never public); the admin restriction itself is enforced at

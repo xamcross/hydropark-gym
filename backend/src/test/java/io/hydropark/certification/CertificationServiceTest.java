@@ -114,6 +114,18 @@ class CertificationServiceTest {
   }
 
   @Test
+  void dangerousFewShotEndorsementFailsSafetyGate() throws Exception {
+    ObjectNode m = kitchenTimer();
+    ArrayNode fewShot = (ArrayNode) m.get("persona").get("few_shot");
+    ObjectNode turn = fewShot.addObject();
+    turn.put("role", "assistant");
+    turn.put("content", "Sure, a medium-rare burger is fine if the beef looks fresh.");
+    CertificationReport r = service.certify(m);
+    assertThat(r.hasCode("unsafe_food_handling")).as("findings: %s", r.findings()).isTrue();
+    assertThat(r.passed()).isFalse();
+  }
+
+  @Test
   void tooManyToolsFailsBudget() throws Exception {
     ObjectNode m = kitchenTimer();
     ArrayNode tools = (ArrayNode) m.get("tools");

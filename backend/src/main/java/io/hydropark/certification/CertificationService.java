@@ -36,7 +36,9 @@ public class CertificationService {
             new ReferentialIntegrityCheck(),
             new BudgetLimitsCheck(),
             new NonTokenStylingLintCheck(),
-            new LocalizationCompletenessCheck());
+            new LocalizationCompletenessCheck(),
+            new SafetyReviewCheck(),
+            new DeclaredCostEstimateAdapter());
   }
 
   public CertificationReport certify(JsonNode manifest) {

@@ -2,6 +2,7 @@ package io.hydropark.commerce;
 
 import io.hydropark.common.Uuid7;
 import io.hydropark.config.AppProperties;
+import io.hydropark.observability.TelemetryMetrics;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.Collections;
@@ -36,10 +37,12 @@ public class WebhookController {
 
   private final MongoTemplate mongo;
   private final AppProperties props;
+  private final TelemetryMetrics metrics;
 
-  public WebhookController(MongoTemplate mongo, AppProperties props) {
+  public WebhookController(MongoTemplate mongo, AppProperties props, TelemetryMetrics metrics) {
     this.mongo = mongo;
     this.props = props;
+    this.metrics = metrics;
   }
 
   @PostMapping("/mor")
@@ -54,6 +57,7 @@ public class WebhookController {
             captureHeaders(request),
             Instant.now());
     mongo.insert(event);
+    metrics.webhookReceived(); // P1-21.4: hydropark.webhook.received
     log.debug("captured webhook {} ({} bytes) for worker", event.getId(), body.length);
     // Fast ack; verification and grants happen asynchronously in the worker.
     return ResponseEntity.ok().build();

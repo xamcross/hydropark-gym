@@ -5,6 +5,7 @@ import io.hydropark.common.CursorPage;
 import io.hydropark.common.ErrorCode;
 import io.hydropark.common.Money;
 import io.hydropark.config.AppProperties;
+import io.hydropark.observability.TelemetryMetrics;
 import io.hydropark.port.Ports.PricingPort;
 import io.hydropark.port.Ports.PurchaseKind;
 import io.hydropark.port.Ports.SettlementPort;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -52,7 +54,9 @@ public class OrderService {
   private final WalletPort wallet;
   private final AntiFraudService antiFraud;
   private final AppProperties props;
+  private final TelemetryMetrics metrics;
 
+  /** Back-compat constructor (used by existing unit tests); no metrics wired. */
   public OrderService(
       MongoTemplate mongo,
       PricingPort pricing,
@@ -61,6 +65,19 @@ public class OrderService {
       WalletPort wallet,
       AntiFraudService antiFraud,
       AppProperties props) {
+    this(mongo, pricing, provider, settlement, wallet, antiFraud, props, TelemetryMetrics.noop());
+  }
+
+  @Autowired
+  public OrderService(
+      MongoTemplate mongo,
+      PricingPort pricing,
+      PaymentProvider provider,
+      SettlementPort settlement,
+      WalletPort wallet,
+      AntiFraudService antiFraud,
+      AppProperties props,
+      TelemetryMetrics metrics) {
     this.mongo = mongo;
     this.pricing = pricing;
     this.provider = provider;
@@ -68,10 +85,12 @@ public class OrderService {
     this.wallet = wallet;
     this.antiFraud = antiFraud;
     this.props = props;
+    this.metrics = metrics;
   }
 
   public CheckoutResponse checkout(
       String userId, boolean emailVerified, CheckoutRequest req, String idempotencyKey) {
+    metrics.checkoutStarted(); // P1-21.4: hydropark.orders.checkout.started
     PurchaseKind kind = PurchaseKind.fromWire(req.kind());
     PaymentSource source = PaymentSource.fromWire(req.paymentSource());
     String region = requireRegion(req.region());

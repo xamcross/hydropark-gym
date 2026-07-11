@@ -2,6 +2,7 @@ package io.hydropark.licensing;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.hydropark.common.CursorPage;
+import io.hydropark.observability.TelemetryMetrics;
 import io.hydropark.port.Ports;
 import io.hydropark.port.Ports.IssuedLicense;
 import io.hydropark.port.Ports.LicenseIssuerPort;
@@ -32,11 +33,17 @@ public class LicenseController {
   private final LicenseIssuerPort issuer;
   private final StepUpPort stepUp;
   private final LicenseQueryService query;
+  private final TelemetryMetrics metrics;
 
-  public LicenseController(LicenseIssuerPort issuer, StepUpPort stepUp, LicenseQueryService query) {
+  public LicenseController(
+      LicenseIssuerPort issuer,
+      StepUpPort stepUp,
+      LicenseQueryService query,
+      TelemetryMetrics metrics) {
     this.issuer = issuer;
     this.stepUp = stepUp;
     this.query = query;
+    this.metrics = metrics;
   }
 
   /**
@@ -60,7 +67,9 @@ public class LicenseController {
     // via DeviceSlotPort.assertActiveSlot(userId, deviceId); it never trusts a device the caller
     // does not own. Natural idempotency: an existing active license for (user, skill, device) is
     // returned rather than a second being minted.
-    IssuedLicense lic = issuer.issue(userId, body.skillId(), body.deviceId());
+    // P1-21.4: hydropark.license.issue.latency (timer) + hydropark.license.issued (counter).
+    IssuedLicense lic =
+        metrics.timeLicenseIssue(() -> issuer.issue(userId, body.skillId(), body.deviceId()));
     return new IssueResponse(lic.licenseId(), lic.token(), lic.kid());
   }
 
