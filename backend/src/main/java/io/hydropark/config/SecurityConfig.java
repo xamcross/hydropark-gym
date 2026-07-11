@@ -86,9 +86,11 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.GET, "/v1/download/model/**")
                     .permitAll()
                     // P1-20 registry submission (POST /v1/registry/**): certify-only, no side
-                    // effects, but an internal/admin op — require a valid access token. Tighten to an
-                    // admin authority (or relocate under /internal/**, InternalAuthFilter-gated) once
-                    // publishing writes exist behind it.
+                    // effects, but an admin/pipeline op. The chain rule stays `.authenticated()` (a
+                    // valid access token, never public); the admin restriction itself is enforced at
+                    // the controller via a config-driven allowlist (hydropark.registry.admin-user-ids),
+                    // which 403s any authenticated caller who is not a named admin. Relocate under
+                    // /internal/** (InternalAuthFilter-gated) if publishing writes ever land behind it.
                     .requestMatchers(HttpMethod.POST, "/v1/registry/**")
                     .authenticated()
                     .anyRequest()

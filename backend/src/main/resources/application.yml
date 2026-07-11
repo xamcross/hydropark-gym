@@ -123,6 +123,13 @@ hydropark:
         public-key: ${HP_PACKAGE_SIGNING_PUBLIC_KEY:}
         active: true
 
+  # Registry submission admin allowlist (P1-20). POST /v1/registry/skills:certify is an admin/pipeline
+  # op, not an end-user route: SecurityConfig requires a valid access token, and RegistrySubmissionController
+  # additionally requires the caller's users.id be listed here (403 otherwise). EMPTY default = locked
+  # down (no one may submit) until an operator names admins. Comma-separated ids via HP_REGISTRY_ADMIN_USER_IDS.
+  registry:
+    admin-user-ids: ${HP_REGISTRY_ADMIN_USER_IDS:}
+
   payments:
     # `fake` needs no credentials and is what docker-compose uses by default.
     # `stripe` requires HP_STRIPE_API_KEY + HP_STRIPE_WEBHOOK_SECRET.
