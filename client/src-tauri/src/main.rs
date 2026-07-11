@@ -15,6 +15,7 @@ mod shared_state;
 mod skill_manager;
 mod skills;
 mod telemetry;
+mod templates;
 mod tool_catalog;
 mod tool_routing;
 mod tools;
