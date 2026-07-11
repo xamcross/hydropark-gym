@@ -8,8 +8,11 @@
 
 ## What it is
 
-A license is a **compact, attached JWS** signed with **Ed25519** (`alg: EdDSA`). "Attached" means the
-payload travels inline as the middle segment (it is not a detached JWS). The token is:
+A license is a **compact, attached JWS**. New licenses are signed with **ES256** (`alg: ES256` —
+ECDSA over NIST P-256 with SHA-256); already-deployed **Ed25519** licenses (`alg: EdDSA`) keep
+verifying through the K = 5 rolling transition (§6.3). The signing algorithm is **pinned per `kid`**,
+never taken from the token's own header (see below). "Attached" means the payload travels inline as
+the middle segment (it is not a detached JWS). The token is:
 
 ```
 token = base64url(header) "." base64url(payload) "." base64url(signature)
@@ -21,11 +24,18 @@ token = base64url(header) "." base64url(payload) "." base64url(signature)
 ## Header
 
 ```json
-{ "alg": "EdDSA", "kid": "hp-lic-2026a", "typ": "hp-lic+jws" }
+{ "alg": "ES256", "kid": "hp-lic-2026b", "typ": "hp-lic+jws" }   // new licenses (P-256 kid)
+{ "alg": "EdDSA", "kid": "hp-lic-2026a", "typ": "hp-lic+jws" }   // legacy kid, still in the K=5 window
 ```
 
-- `alg` MUST be exactly `EdDSA`. Reject anything else **before** touching the signature (no `alg`
-  agility, no `none`).
+- `alg` is **pinned per `kid` — never read from the header to *choose* the algorithm.** The verifier
+  looks up `kid` in the trusted set, reads the algorithm **that entry was provisioned with** (`ES256`
+  for a P-256 kid, `EdDSA` for an Ed25519 kid), and verifies with *that* algorithm. It additionally
+  asserts the header's `alg` **equals** the pinned algorithm for the kid and rejects any disagreement
+  **before** touching the signature (an `ES256` kid presented as `alg: EdDSA`, or vice versa, is
+  rejected; so are `none` and any unknown `alg`). The header's `alg` never selects the algorithm; it
+  is only cross-checked against the pin. This per-`kid` pinning is the alg-confusion defense the
+  dual-algorithm window requires (ADR-001).
 - `kid` names the signing key. The client ships the **last K = 5** issuer public keys (§6.3); a token
   whose `kid` is not in that trusted set fails verification.
 - `typ` MUST be `hp-lic+jws`.
@@ -67,12 +77,20 @@ token = base64url(header) "." base64url(payload) "." base64url(signature)
 1. Split the token on `.` into exactly **three** non-empty segments. Anything else → invalid.
 2. Let `signing_input` = the raw bytes of `segments[0] + "." + segments[1]` **as received** — do not
    decode-and-re-encode, do not canonicalize, do not re-serialize any JSON.
-3. base64url-decode and JSON-parse the **header**. Assert `alg == "EdDSA"`, `typ == "hp-lic+jws"`,
-   read `kid`.
-4. Look up the Ed25519 public key for `kid` in the shipped trusted set. Unknown/rolled-off `kid` →
-   invalid.
-5. base64url-decode the **signature** segment and verify it over `signing_input` with that public
-   key. Bad signature → invalid.
+3. base64url-decode and JSON-parse the **header**. Assert `typ == "hp-lic+jws"` and read `kid`. Do
+   **not** read the header's `alg` to *select* an algorithm — the pinned algorithm for the `kid`
+   governs (step 4).
+4. Look up `kid` in the shipped trusted set to get **both its public key and its pinned algorithm**
+   (a P-256 key → `ES256`; an Ed25519 key → `EdDSA`). Unknown/rolled-off `kid` → invalid. Assert the
+   header's `alg` **equals** that pinned algorithm and reject any mismatch (and `none`/unknown) here,
+   before touching the signature.
+5. base64url-decode the **signature** segment and verify it over `signing_input` with that `kid`'s
+   pinned algorithm. Bad signature → invalid.
+   - **ES256** — ECDSA over P-256 with SHA-256. The signature is the fixed **64-byte raw `R‖S`**
+     (RFC 7518 §3.4 / IEEE P1363): R and S each 32 bytes, left-zero-padded big-endian; a non-64-byte
+     ES256 signature is rejected outright. (A JDK/WebCrypto ECDSA verifier consumes DER, so the raw
+     `R‖S` is converted to DER first — see `EcdsaP1363` in `io.hydropark.signing`.)
+   - **EdDSA** — Ed25519 over the raw 64-byte signature.
 6. **Only now** base64url-decode and JSON-parse the **payload**. Assert `iss == "hydropark-licensing"`,
    `entitlement == "perpetual"`, `exp` is `null`, and the required fields are present.
 7. If every check passes, the parsed payload is trustworthy. There is no expiry and no phone-home.
@@ -86,16 +104,25 @@ token = base64url(header) "." base64url(payload) "." base64url(signature)
 ## Keys
 
 - Public keys are base64 **X.509 SubjectPublicKeyInfo**; the private halves (issuer only) are base64
-  **PKCS#8** (in-memory JDK path) or held **non-exportable inside a PKCS#11 HSM** (see below). Both
-  are Ed25519.
-- **Issuer-side key custody is invisible to this format.** Whether the issuer signs with an in-memory
-  JDK key (the interim default, P1-16.3) or a hardware HSM over PKCS#11 (the pre-scale target,
-  P1-16.8), the token bytes and this verification algorithm are **identical** — the signature is the
-  same raw Ed25519 signature over the same `base64url(header) || '.' || base64url(payload)` bytes.
-  The client neither knows nor cares which signer produced it. This is exactly why option (a) in
-  `HSM-MIGRATION.md` was chosen: moving to hardware custody changes nothing a verifier sees. (A move
-  to a cloud KMS would instead require an algorithm change — `alg: ES256` — and a client verifier
-  update; that is the wider option (b), not the plan.)
+  **PKCS#8** (in-memory JDK path) or held **non-exportable in a cloud KMS / PKCS#11 HSM** (see below).
+  New signing keys are **P-256 (ES256)**; already-deployed keys still inside the K=5 window are
+  **Ed25519 (EdDSA)**. The container format (SPKI / PKCS#8, base64) is identical for both — only the
+  curve, and therefore the JCA `KeyFactory`, differs.
+- **For a given algorithm, issuer-side custody is invisible to this format.** On the EdDSA path,
+  whether the issuer signs with an in-memory JDK key (P1-16.3) or a hardware HSM over PKCS#11
+  (option (a) in `HSM-MIGRATION.md`), the token bytes and this verification algorithm are **identical**
+  — the same raw Ed25519 signature over the same `base64url(header) || '.' || base64url(payload)`
+  bytes. The client neither knows nor cares which signer produced it.
+- **The move to ES256 IS the plan — option (b), ADR-001.** No major cloud KMS/HSM signs Ed25519, so
+  obtaining non-exportable cloud-KMS custody (the P1-16.8 goal) required changing the *algorithm*: new
+  licenses are **ES256** under a P-256 key a cloud KMS can hold non-exportably. Unlike the
+  format-invisible EdDSA custody swap above, this is a **client-visible** change — which is exactly why
+  the verifier is dual-algorithm and pins the algorithm **per `kid`** (the alg-confusion mitigation
+  that reintroduces). Today the issuer signs ES256 with an in-memory JDK key through the same `Signer`
+  seam a cloud-KMS backend slots into (`io.hydropark.signing`); the token bytes are identical either
+  way. **Note:** ECDSA is **non-deterministic** — a fresh random nonce per signature — so, unlike
+  Ed25519, signing the same input twice yields two different (both valid) signatures; the signature
+  bytes are therefore **not** a golden-file or idempotency key. See ADR-001 and `HSM-MIGRATION.md`.
 - Rotation is additive: an offline device keeps verifying its cached tokens under the older `kid` it
   already trusts; it only needs an app update to trust **newly** rotated keys, which it encounters
   only when back online. See `KEY-COMPROMISE-RUNBOOK.md` and `HSM-MIGRATION.md`.

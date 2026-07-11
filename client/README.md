@@ -47,12 +47,16 @@ so the `onload` never fires, the sheet stays `media="print"`, and the app render
 unstyled — while every asset returns 200. The fix is `optimization.styles.inlineCritical: false` in
 `angular.json` (already set), **not** loosening the CSP.
 
-### Still stubbed
+### Inference engine & notifications
 
-- `src-tauri/src/inference.rs` — the llama.cpp binding is a `TODO(P0-02.1)` seam. `mock-inference` is
-  the default feature; `real-inference` is an empty placeholder. The `llama-cpp-2` dependency is
-  commented out in `Cargo.toml` because it needs a C++ toolchain and the GGUF, neither of which the
-  build requires today. The Qwen2.5-3B model is **not** bundled.
+- `src-tauri/src/inference.rs` — **both engines are implemented and the real one is verified.**
+  `mock-inference` (the default feature) streams a scripted, deterministic turn with no model file
+  and no native dependency; `real-inference` embeds llama.cpp via `llama-cpp-2` (a real, optional
+  dependency in `Cargo.toml`, gated behind the feature) and runs Qwen2.5-3B in-process on a dedicated
+  worker thread. The GGUF **is** bundled at `models/qwen2.5-3b-instruct-q4_k_m.gguf` (~2.1 GB). The
+  real path has now been **built and run on this machine** (a `real-inference` build additionally
+  needs LLVM/libclang for bindgen — see `docs/REAL-INFERENCE.md`): it loads the GGUF and streams
+  tokens at **~17–20 tok/s (CPU-only)**, above the ≥8 tok/s Recommended-tier floor (P0-02.3).
 - OS timer notification + sound (`P0-05.4`) is authored; the `notification` plugin is wired in Rust.
   Note `plugins.notification` must be **absent** from `tauri.conf.json` — the v2 plugin's config type
   is a unit, so even `"notification": {}` fails to deserialize and panics at startup.
@@ -82,9 +86,13 @@ Phase-0 tickets `P0-01` … `P0-06`:
 
 ## What is stubbed
 
-- `src-tauri/src/inference.rs` — the llama.cpp binding is a `TODO(P0-02.1)` seam behind a
-  `mock-inference` feature. Token streaming, `<tool_call>` parsing, and the malformed-call fallback
-  (prefilled widget / one clarifying question, no repair loop) are written but unexercised.
+- `src-tauri/src/inference.rs` — the real llama.cpp engine (behind the `real-inference` feature) is
+  implemented, not a `TODO` seam: it loads the bundled Qwen2.5-3B GGUF on a dedicated worker thread,
+  streams tokens (UTF-8-safe, with a guard tail so a partial `<tool_call>` never leaks), parses
+  `<tool_call>` blocks, and runs the same malformed-call fallback (prefilled widget / one clarifying
+  question, no repair loop) as the mock — emitting the identical `inference://*` event vocabulary. It
+  has **not yet been compiled or run here**; the default build stays on `mock-inference`. See
+  `docs/REAL-INFERENCE.md` to build and verify it.
 - OS timer notification + sound (`P0-05.4`) is authored, not run.
 - No licensing, no marketplace, no backend calls. Phase 0 has no server (`PHASE0-PLAN.md` §3.1:
   state lives in memory plus a JSONL log; no SQLite).

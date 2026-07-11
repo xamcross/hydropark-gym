@@ -5,16 +5,18 @@
 //!    token stream. No model file, no native inference dependency. This is
 //!    what makes `cargo check`/`cargo build` on this crate meaningful even
 //!    without a GGUF or a C/C++ toolchain (see client/README.md).
-//!  - `real` (feature `real-inference`, NOT wired up — see
-//!    `// TODO(P0-02.1)` below) — where the embedded llama.cpp binding
-//!    goes once available.
+//!  - `real` (feature `real-inference`) — embeds llama.cpp via the
+//!    `llama-cpp-2` binding and runs qwen2.5-3b-instruct-q4_k_m in-process on
+//!    a dedicated worker thread (see `mod real` below). CPU-only unless built
+//!    with the `cuda` feature. Built AND run against llama-cpp-2 0.1.151 + the
+//!    bundled GGUF; the build/run steps and the measured throughput (P0-02.3)
+//!    are in `client/docs/REAL-INFERENCE.md`.
 //!
-//! Both are meant to speak the *exact* same event vocabulary
-//! (`inference://token`, `inference://tool_call_detected`,
-//! `inference://tool_call_result`, `inference://tool_call_fallback`,
-//! `inference://done`, `inference://error` — see `ipc.rs`), so swapping
-//! the feature flag is the only change needed anywhere in the app once a
-//! real model is wired up.
+//! Both speak the *exact* same event vocabulary (`inference://token`,
+//! `inference://tool_call_detected`, `inference://tool_call_result`,
+//! `inference://tool_call_fallback`, `inference://done`, `inference://error`
+//! — see `ipc.rs`) and honour the same `CancelRegistry`, so flipping the
+//! feature flag is the only change needed anywhere in the app.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};

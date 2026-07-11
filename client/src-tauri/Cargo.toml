@@ -7,14 +7,13 @@ edition = "2021"
 rust-version = "1.77"
 publish = false
 
-# NOTE TO BUILDERS: this crate is AUTHORED but has never been compiled in
-# this environment — there is no `cargo` on this machine (see
-# client/README.md "What does not build today"). Treat it as a careful
-# first draft: the shapes, the module boundaries, and the IPC contract are
-# meant to be right; individual API calls against `tauri`/`llama-cpp-2`
-# should be re-checked against those crates' current docs on first real
-# build, since they were written from spec + training knowledge, not a
-# compiler.
+# NOTE TO BUILDERS: the default (`mock-inference`) crate builds, links, and
+# runs on Windows (see client/README.md). The `real-inference` feature has
+# now been BUILT AND RUN on this machine (MSVC + CMake + LLVM/libclang for
+# bindgen) — it loads the bundled Qwen2.5-3B GGUF and streams tokens; see
+# client/docs/REAL-INFERENCE.md for the one-shot build + run + benchmark and
+# the measured throughput (P0-02.3). The `llama-cpp-2` 0.1.151 API calls in
+# `inference.rs::real` are compiler-checked as of that build.
 
 # Desktop-only for Phase 0 (PHASE0-PLAN §2: "Win + macOS if cheap, else Win
 # only") — no mobile target, so this stays a plain binary crate rather than

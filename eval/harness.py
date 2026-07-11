@@ -214,7 +214,7 @@ def summarise(results: list[PromptResult], backend: str) -> dict:
         "notes": [
             "STUB BACKEND: numbers verify the HARNESS, not the model." if backend == "stub"
             else f"backend={backend}: pure-model numbers reflect the real model.",
-            "Deliberate stub errors (conv-006, scale-004, adv-004/009/010) prove the scorer discriminates.",
+            "Deliberate stub errors (conv-006, conv-016, scale-004, scale-010, adv-004/009/010/013/026/056) prove the scorer discriminates.",
         ],
     }
 
