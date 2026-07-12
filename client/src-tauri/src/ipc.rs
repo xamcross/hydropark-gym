@@ -17,14 +17,20 @@ use std::fmt;
 // Tool registry (P0-03.1)
 // ---------------------------------------------------------------------------
 
-/// The fixed, hardcoded Phase-0 tool catalog. No manifest, no discovery —
-/// mirrors `ToolName` in contract.ts exactly (3 variants, nothing else).
+/// The fixed, first-party tool catalog on the IPC wire — no manifest, no
+/// discovery. Mirrors `ToolName` in contract.ts exactly. The three P0 tools
+/// (`start_timer`, `convert_units`, `list_manage`) plus the two STATELESS
+/// Phase-1 tools (`calculate`, `date_math`, surfaced live in P1-05.1) so the
+/// webview can issue/display every tool in `tool_catalog`'s closed 5-tool set.
+/// Kept in lockstep with `crate::tool_catalog::ToolName` (same snake_case refs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolName {
     StartTimer,
     ConvertUnits,
     ListManage,
+    Calculate,
+    DateMath,
 }
 
 impl fmt::Display for ToolName {
@@ -33,6 +39,8 @@ impl fmt::Display for ToolName {
             ToolName::StartTimer => "start_timer",
             ToolName::ConvertUnits => "convert_units",
             ToolName::ListManage => "list_manage",
+            ToolName::Calculate => "calculate",
+            ToolName::DateMath => "date_math",
         };
         write!(f, "{s}")
     }

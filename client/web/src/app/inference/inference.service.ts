@@ -5,8 +5,13 @@ import { TelemetryService } from '../state/telemetry.service';
 import { ToolsService } from '../tools/tools.service';
 import { ToolName } from '../ipc/contract';
 
-/** Maps a tool to the panel that should absorb a fallback prefill (SPEC §8.4 "fallback → widget mapping"). */
-const TOOL_TO_WIDGET: Record<ToolName, string> = {
+/**
+ * Maps a tool to the panel that should absorb a fallback prefill (SPEC §8.4
+ * "fallback → widget mapping"). PARTIAL on purpose: the stateless catalog tools
+ * (`calculate`, `date_math`) have no bound widget, so a malformed call to one of
+ * them has no panel to prefill and degrades to the clarifying-question path.
+ */
+const TOOL_TO_WIDGET: Partial<Record<ToolName, string>> = {
   start_timer: 'timer_stack',
   convert_units: 'segmented_toggle',
   list_manage: 'editable_list',
@@ -42,12 +47,13 @@ export class InferenceService implements OnDestroy {
         this.tools.applyResult(e.tool, e.result, 'model');
       }),
       this.ipc.on('inference://tool_call_fallback', (e) => {
-        if (e.tool && TOOL_TO_WIDGET[e.tool]) {
-          this.notifyPrefill(TOOL_TO_WIDGET[e.tool], e.parsed_args ?? {});
+        const widget = e.tool ? TOOL_TO_WIDGET[e.tool] : undefined;
+        if (widget) {
+          this.notifyPrefill(widget, e.parsed_args ?? {});
           this.session.addMessage({
             id: crypto.randomUUID(),
             role: 'system',
-            text: `I wasn't sure I got that right, so I've prefilled the ${TOOL_TO_WIDGET[e.tool].replace('_', ' ')} panel — please confirm.`,
+            text: `I wasn't sure I got that right, so I've prefilled the ${widget.replace('_', ' ')} panel — please confirm.`,
             streaming: false,
           });
         } else if (e.clarifying_question) {

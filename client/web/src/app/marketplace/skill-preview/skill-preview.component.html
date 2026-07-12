@@ -1,0 +1,100 @@
+<!-- Backdrop: click outside the dialog dismisses (a11y: Escape does too). -->
+<div class="preview-backdrop" (click)="onBackdrop($event)">
+  <div
+    class="preview-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="preview-title"
+    tabindex="-1"
+  >
+    <header class="preview-head">
+      <div class="preview-head-text">
+        <p class="preview-kicker" id="preview-kicker">
+          <span class="preview-dot" aria-hidden="true">●</span> Preview — no purchase
+        </p>
+        <h2 class="preview-title" id="preview-title">
+          @if (preview(); as p) {
+            {{ p.name }}
+          } @else {
+            Skill preview
+          }
+        </h2>
+      </div>
+      <button type="button" class="preview-close" (click)="onClose()" aria-label="Close preview">
+        <span aria-hidden="true">×</span>
+      </button>
+    </header>
+
+    @switch (phase()) {
+      @case ('loading') {
+        <div class="preview-state" role="status" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Loading preview…</span>
+        </div>
+      }
+
+      @case ('error') {
+        <div class="preview-state preview-state-error" role="alert">
+          <p class="state-title">Couldn't load the preview.</p>
+          <p class="state-msg">{{ errorMsg() }}</p>
+          <button type="button" class="ghost-btn" (click)="load(skillId())">Try again</button>
+        </div>
+      }
+
+      @case ('ready') {
+        @if (preview(); as p) {
+          <div class="preview-body">
+            <!-- Demo panels the skill would mount (non-interactive tiles). -->
+            @if (p.panels.length) {
+              <section class="preview-block" aria-label="Demo panels">
+                <h3 class="preview-block-title">Panels you'd get</h3>
+                <ul class="panel-tiles">
+                  @for (panel of p.panels; track panel.title) {
+                    <li class="panel-tile">
+                      <span class="panel-tile-glyph" aria-hidden="true">{{ panelGlyph(panel) }}</span>
+                      <span class="panel-tile-name">{{ panel.title }}</span>
+                      <span class="panel-tile-type">{{ panel.type }}</span>
+                    </li>
+                  }
+                </ul>
+              </section>
+            }
+
+            <!-- Capped demo transcript. Clearly a sample, not a live session. -->
+            <section class="preview-block" aria-label="Demo conversation">
+              <h3 class="preview-block-title">A sample conversation</h3>
+              <ol class="transcript">
+                @for (line of p.transcript; track $index) {
+                  <li [class]="'line role-' + line.role">
+                    <span class="line-role">{{ line.role }}</span>
+                    <span class="line-text">{{ line.text }}</span>
+                  </li>
+                }
+              </ol>
+              @if (p.capped) {
+                <p class="capped-note">
+                  <span aria-hidden="true">✂</span>
+                  Preview trimmed — the full skill keeps going after you buy it.
+                </p>
+              }
+            </section>
+          </div>
+
+          <!-- No license is ever issued from here (SPEC §11.4). -->
+          <footer class="preview-foot">
+            <p class="no-purchase" role="note">
+              <span class="no-purchase-icon" aria-hidden="true">ⓘ</span>
+              This is a preview. No license is issued and nothing is charged.
+            </p>
+            <div class="preview-actions">
+              <button type="button" class="ghost-btn" (click)="onClose()">Close</button>
+              @if (canBuy()) {
+                <button type="button" class="buy-btn" (click)="onBuy()">Buy to unlock</button>
+              }
+            </div>
+          </footer>
+        }
+      }
+    }
+  </div>
+</div>

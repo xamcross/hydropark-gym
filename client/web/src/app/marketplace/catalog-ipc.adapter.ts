@@ -17,6 +17,8 @@ import {
   OwnershipFilter,
   OwnershipState,
   SkillDetail,
+  SkillPreview,
+  buildPreview,
   runsOnThisPc,
 } from './catalog.model';
 
@@ -97,6 +99,17 @@ export class CatalogIpcAdapter extends CatalogPort {
       // Not authenticated / entitlements unavailable ⇒ treat as not owned (non-fatal).
       return { skill_id: id, state: 'not-owned', error: e instanceof Error ? e.message : null };
     }
+  }
+
+  async getPreview(id: string): Promise<SkillPreview> {
+    // Preview is derived from the PUBLIC `catalog_detail` (panels + sample
+    // prompts) — display-only, no license, no new IPC command needed (SPEC
+    // §11.4). A dedicated backend preview endpoint can replace this later without
+    // touching the components.
+    this.telemetry.noteBackendCall();
+    const detail = toModelDetail(await this.ipc.invoke('catalog_detail', { skillId: id }));
+    if (!detail.has_preview) throw new Error(`"${id}" has no preview`);
+    return buildPreview(detail);
   }
 }
 

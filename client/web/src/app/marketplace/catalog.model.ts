@@ -135,6 +135,100 @@ export interface SkillDetail {
   sample_prompts?: string[];
 }
 
+// ── try-before-buy preview (SPEC §11.4, P1-08.4) ─────────────────────────────
+//
+// A preview lets a shopper TASTE a paid skill before buying: the demo panels it
+// would mount and a CAPPED demo transcript. It is display-only — it NEVER issues
+// a license and never unlocks the skill (`no_purchase` is a fixed `true` the UI
+// surfaces as a banner). Assembled from the manifest / the backend preview
+// endpoint; the full paid `system_prompt` is never part of it (SF8).
+
+/** One line of a capped demo transcript shown in the preview. */
+export interface PreviewMessage {
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+}
+
+/** A demo panel the skill would mount, shown as a non-interactive preview tile. */
+export interface PreviewPanel {
+  /** Widget-type name (contract §1 `type`) — drives the tile glyph. */
+  type: string;
+  /** Human panel label. */
+  title: string;
+}
+
+/**
+ * A try-before-buy preview (SPEC §11.4). {@link no_purchase} is always `true`:
+ * requesting a preview issues NO license and performs NO purchase.
+ */
+export interface SkillPreview {
+  skill_id: string;
+  name: string;
+  panels: PreviewPanel[];
+  transcript: PreviewMessage[];
+  /** True when the demo transcript was capped (the real skill continues after purchase). */
+  capped: boolean;
+  /** Always `true` — a preview issues no license (kept explicit for the banner + guards). */
+  no_purchase: true;
+}
+
+/** The cap on a preview transcript (SPEC §11.4 — a taste, not the whole thing). */
+export const PREVIEW_MAX_MESSAGES = 6;
+
+/** Widget-type guess for a human panel label, so a preview tile shows a plausible glyph. */
+function previewWidgetType(label: string): string {
+  const l = label.toLowerCase();
+  if (l.includes('timer')) return 'timer_stack';
+  if (l.includes('step') || l.includes('list') || l.includes('checklist') || l.includes('substitution')) {
+    return 'editable_list';
+  }
+  if (l.includes('table') || l.includes('categor') || l.includes('finding') || l.includes('diff')) {
+    return 'table';
+  }
+  if (l.includes('balance') || l.includes('meter') || l.includes('scal') || l.includes('progress')) {
+    return 'progress';
+  }
+  if (l.includes('toggle') || l.includes('unit')) return 'segmented_toggle';
+  return 'media_note';
+}
+
+function previewReply(detail: SkillDetail, prompt: string): string {
+  const first = (detail.panels && detail.panels[0]) || 'a panel';
+  return (
+    `Here's how ${detail.name} would help with “${prompt}” — it opens ${first} and walks you ` +
+    `through it step by step. Buy the skill to continue past this preview.`
+  );
+}
+
+/**
+ * Assemble a {@link SkillPreview} from a {@link SkillDetail} — the demo panels and
+ * a CAPPED demo transcript synthesized from the skill's sample prompts (SPEC
+ * §11.4). Pure + shared by every {@link CatalogPort} adapter. Issues NO license;
+ * reads only safe, already-public detail fields (never a `system_prompt`).
+ */
+export function buildPreview(detail: SkillDetail): SkillPreview {
+  const panels: PreviewPanel[] = (detail.panels ?? []).map((p) => ({ type: previewWidgetType(p), title: p }));
+  const prompts = detail.sample_prompts ?? [];
+
+  const full: PreviewMessage[] = [
+    { role: 'system', text: `Preview of ${detail.name} — a taste of the skill. Nothing here is purchased.` },
+  ];
+  for (const q of prompts) {
+    full.push({ role: 'user', text: q });
+    full.push({ role: 'assistant', text: previewReply(detail, q) });
+  }
+  const transcript = full.slice(0, PREVIEW_MAX_MESSAGES);
+
+  return {
+    skill_id: detail.id,
+    name: detail.name,
+    panels,
+    transcript,
+    capped: full.length > transcript.length,
+    no_purchase: true,
+  };
+}
+
 // ── catalog query + page (BE §4.2 cursor pagination) ─────────────────────────
 
 /** Free / Owned / All filter (SPEC §11.1). */

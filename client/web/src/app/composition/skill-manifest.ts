@@ -129,6 +129,9 @@ export function panelsFromManifest(m: SkillManifest): PanelDescriptor[] {
     widgetType: p.type,
     id: p.id,
     binding: p.binds_state,
+    // Stamp the owning skill so the bound-state runtime can decide read-only vs.
+    // two-way against the slot's writer-of-record (contract §5).
+    ownerSkillId: m.id,
     region: p.region ?? defaultRegionFor(p.type),
     priority: p.priority ?? DEFAULT_PRIORITY,
     minWidgetVersion: p.min_widget_version,

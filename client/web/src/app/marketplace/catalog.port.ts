@@ -1,5 +1,5 @@
 import { InjectionToken } from '@angular/core';
-import { CatalogFilters, CatalogPage, Ownership, SkillDetail } from './catalog.model';
+import { CatalogFilters, CatalogPage, Ownership, SkillDetail, SkillPreview } from './catalog.model';
 
 /**
  * The one seam the marketplace UI goes through to reach the catalog (BE §4.2).
@@ -25,6 +25,14 @@ export abstract class CatalogPort {
 
   /** The effective ownership/install/enable state for one skill (SPEC §11.3). */
   abstract ownership(id: string): Promise<Ownership>;
+
+  /**
+   * A try-before-buy preview (SPEC §11.4, P1-08.4) — demo panels + a CAPPED demo
+   * transcript. NEVER issues a license: the returned {@link SkillPreview} carries
+   * `no_purchase: true`. Only meaningful when `SkillDetail.has_preview` is set;
+   * implementations reject a skill with no preview.
+   */
+  abstract getPreview(id: string): Promise<SkillPreview>;
 }
 
 export const CATALOG_PORT = new InjectionToken<CatalogPort>('CATALOG_PORT');

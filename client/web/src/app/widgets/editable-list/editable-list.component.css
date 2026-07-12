@@ -1,3 +1,24 @@
+/* Read-only bound-state attribution (contract §5). Token-only; the lock glyph
+   pairs with text so meaning is never colour-only (WCAG 1.4.1). */
+.managed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--text-2xs);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.managed-icon {
+  font-style: normal;
+}
+
+/* A read-only observer reads slightly recessed so it is visibly not the editor. */
+.editable-list.is-readonly .ingredient-list {
+  opacity: 0.85;
+}
+
 .add-form {
   display: flex;
   gap: var(--space-2);

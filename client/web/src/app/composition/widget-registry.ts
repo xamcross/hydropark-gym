@@ -53,6 +53,13 @@ export interface WidgetEntry {
    * throws NG0303 — so optional props are threaded in a follow-up, not guessed.
    */
   inputs?: (panel: ArrangedPanel) => Record<string, unknown>;
+  /**
+   * True when this widget accepts the read-only-aware `bound` input (the §5
+   * bound-state runtime, P1-06.1). The host attaches a live {@link BoundState}
+   * to a bound panel ONLY for widgets flagged here — passing `bound` to a widget
+   * that does not declare that input would throw NG0303.
+   */
+  acceptsBoundState?: boolean;
 }
 
 /** widgetType → renderer. `slider`/`stepper` alias the single slider_stepper component. */
@@ -60,13 +67,15 @@ const REGISTRY = new Map<string, WidgetEntry>([
   // --- P0 self-sourcing widgets (no inputs) ---
   ['chat', { component: ChatComponent }],
   ['timer_stack', { component: TimerStackComponent }],
-  ['editable_list', { component: EditableListComponent }],
+  // editable_list is bound-state-aware (P1-06.1): when the host feeds a `bound`
+  // slot it renders the live list read-only-aware; absent, it self-sources.
+  ['editable_list', { component: EditableListComponent, acceptsBoundState: true }],
   ['segmented_toggle', { component: SegmentedToggleComponent }],
 
   // --- P1 library widgets. Only their REQUIRED inputs are seeded (defaults) so
   //     a manifest that declares them renders instead of throwing; optional
   //     props/state binding is a follow-up. ---
-  ['table', { component: TableComponent }],
+  ['table', { component: TableComponent, acceptsBoundState: true }],
   ['tabs', { component: TabsComponent }],
   ['progress', { component: ProgressComponent }],
   ['key_value_panel', { component: KeyValuePanelComponent }],
@@ -92,6 +101,15 @@ export function widgetInputsFor(panel: ArrangedPanel): Record<string, unknown> {
 /** True when a widget type has a registered renderer. */
 export function hasRenderer(widgetType: string): boolean {
   return REGISTRY.has(widgetType);
+}
+
+/**
+ * True when a widget type accepts the read-only-aware `bound` input (P1-06.1).
+ * The host only attaches a live bound state to widgets flagged here, so it never
+ * pushes a `bound` input at a widget that does not declare it (NG0303).
+ */
+export function acceptsBoundState(widgetType: string): boolean {
+  return REGISTRY.get(widgetType)?.acceptsBoundState === true;
 }
 
 /* =============================================================================
@@ -193,4 +211,14 @@ export function resolveWidget(panel: ArrangedPanel): ResolvedWidget {
     return toPlaceholder('too_new', widgetType, minVersion ?? null);
   }
   return { component: entry.component, inputs: entry.inputs ? entry.inputs(panel) : {} };
+}
+
+/**
+ * True when a resolved widget is the graceful PLACEHOLDER (unknown / too-new)
+ * rather than a real registered widget. The host checks this before attaching a
+ * `bound` input — the placeholder has no such input, so a bound-but-too-new panel
+ * must never receive one (NG0303).
+ */
+export function isPlaceholder(resolved: ResolvedWidget): boolean {
+  return resolved.component === WidgetPlaceholderComponent;
 }

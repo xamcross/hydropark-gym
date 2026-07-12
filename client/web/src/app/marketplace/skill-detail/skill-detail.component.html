@@ -46,17 +46,24 @@
             </div>
           </div>
 
-          <!-- Ownership state machine (§11.3) — live purchase state wins over baseline. -->
-          @if (displayState(); as st) {
-            <app-ownership-button
-              class="head-own"
-              [state]="st"
-              [price]="d.price"
-              [isFree]="d.is_free"
-              [error]="ownError()"
-              (action)="onAction($event)"
-            ></app-ownership-button>
-          }
+          <!-- Ownership + try-before-buy (§11.3 / §11.4). Live purchase state
+               wins over baseline; a preview issues NO license. -->
+          <div class="head-actions">
+            @if (displayState(); as st) {
+              <app-ownership-button
+                [state]="st"
+                [price]="d.price"
+                [isFree]="d.is_free"
+                [error]="ownError()"
+                (action)="onAction($event)"
+              ></app-ownership-button>
+            }
+            @if (canPreview()) {
+              <button type="button" class="preview-cta" (click)="openPreview()">
+                <span aria-hidden="true">▶</span> Try a preview
+              </button>
+            }
+          </div>
         </header>
 
         <!-- ── Description ────────────────────────────────────────────────── -->
@@ -163,6 +170,16 @@
             <h2 class="block-title">Changelog</h2>
             <pre class="changelog">{{ d.changelog }}</pre>
           </section>
+        }
+
+        <!-- ── Try-before-buy preview (§11.4) — display-only, issues no license -->
+        @if (previewOpen()) {
+          <app-skill-preview
+            [skillId]="d.id"
+            [canBuy]="previewCanBuy()"
+            (close)="closePreview()"
+            (buy)="onPreviewBuy()"
+          ></app-skill-preview>
         }
       }
     }

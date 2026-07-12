@@ -1,9 +1,13 @@
 import { Injectable } from '@angular/core';
 import {
   AuthState,
+  CalculateArgs,
+  CalculateResult,
   ComposedAgentView,
   ComposedRouteView,
   ComposedToolView,
+  DateMathArgs,
+  DateMathResult,
   DownloadUrlResult,
   EntitlementsGetResult,
   HardwareProfile,
@@ -229,6 +233,20 @@ export class MockIpcService extends IpcPort {
             tool: 'list_manage',
             result: this.listManage(validated.args as ListManageArgs),
           };
+        case 'calculate':
+          return {
+            request_id: req.request_id,
+            ok: true,
+            tool: 'calculate',
+            result: this.calculate(validated.args as CalculateArgs),
+          };
+        case 'date_math':
+          return {
+            request_id: req.request_id,
+            ok: true,
+            tool: 'date_math',
+            result: this.dateMath(validated.args as DateMathArgs),
+          };
       }
     } catch (e) {
       const message = e instanceof UnitConversionError ? e.message : String(e);
@@ -330,6 +348,49 @@ export class MockIpcService extends IpcPort {
         break;
     }
     return { ingredients: this.ingredients };
+  }
+
+  // ---- stateless catalog tools (P1-05.1) --------------------------------
+  //
+  // Pure execution mirroring `tool_catalog::run_calculate` / `run_date_math`
+  // (same closed ops, same divide-by-zero / out-of-range failures). Thrown
+  // errors are surfaced as a structured `execution_error` by the caller's catch.
+
+  private calculate(args: CalculateArgs): CalculateResult {
+    let acc = args.operands[0];
+    for (let i = 1; i < args.operands.length; i++) {
+      const x = args.operands[i];
+      switch (args.op) {
+        case 'add':
+          acc += x;
+          break;
+        case 'sub':
+          acc -= x;
+          break;
+        case 'mul':
+          acc *= x;
+          break;
+        case 'div':
+          if (x === 0) throw new Error('division by zero');
+          acc /= x;
+          break;
+      }
+    }
+    if (!Number.isFinite(acc)) throw new Error(`result is not a finite number (${acc})`);
+    return { value: acc };
+  }
+
+  private dateMath(args: DateMathArgs): DateMathResult {
+    const base = new Date(args.base);
+    if (Number.isNaN(base.getTime())) throw new Error('base is not a valid date-time');
+    const days = args.delta.days ?? 0;
+    const hours = args.delta.hours ?? 0;
+    const minutes = args.delta.minutes ?? 0;
+    const totalMinutes = days * 24 * 60 + hours * 60 + minutes;
+    const signed = args.op === 'sub' ? -totalMinutes : totalMinutes;
+    const out = new Date(base.getTime() + signed * 60_000);
+    if (Number.isNaN(out.getTime())) throw new Error('resulting date is out of range');
+    return { result: out.toISOString() };
   }
 
   // ---- skill lifecycle --------------------------------------------------

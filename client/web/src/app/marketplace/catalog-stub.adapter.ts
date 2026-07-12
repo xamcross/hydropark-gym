@@ -8,6 +8,8 @@ import {
   OwnershipState,
   Requirements,
   SkillDetail,
+  SkillPreview,
+  buildPreview,
   runsOnThisPc,
 } from './catalog.model';
 
@@ -186,6 +188,16 @@ export class StubCatalogPort extends CatalogPort {
     const rec = this.records.find((r) => r.item.id === id);
     if (!rec) throw new Error(`unknown skill "${id}"`);
     return { skill_id: id, state: rec.state };
+  }
+
+  async getPreview(id: string): Promise<SkillPreview> {
+    await this.latency();
+    const rec = this.records.find((r) => r.item.id === id);
+    if (!rec) throw new Error(`unknown skill "${id}"`);
+    if (!rec.detail.has_preview) throw new Error(`"${id}" has no preview`);
+    // A preview is display-only: assemble it from the already-public detail
+    // fields (panels + sample prompts). No license, no unlock (SPEC §11.4).
+    return buildPreview(rec.detail);
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────────

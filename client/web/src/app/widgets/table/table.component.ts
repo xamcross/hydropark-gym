@@ -8,6 +8,7 @@ import {
   effect,
   signal,
 } from '@angular/core';
+import { BoundState } from '../widget-contract';
 
 /**
  * `table` widget (SPEC 9.4 · schema contracts/widgets/table.schema.json).
@@ -208,6 +209,22 @@ export class TableComponent {
   @Input() readonly = false;
   @Input() writer?: string;
 
+  /**
+   * Read-only-aware SLOT BINDING (base contract §5 · P1-06.1). When the composed-
+   * panel-host feeds a `bound` state, the table renders the live slot rows and
+   * takes its read-only verdict + writer attribution from it. The table has no
+   * inline editing, so "read-only" here only surfaces the "Managed by {writer}"
+   * description — there are no edit affordances to disable. Absent ⇒ the plain
+   * `rows`/`columns` mount, unchanged.
+   */
+  @Input()
+  set bound(value: BoundState<TableRow[]> | null | undefined) {
+    if (!value) return;
+    this._rows.set(Array.isArray(value.value) ? value.value : []);
+    this.readonly = value.readonly;
+    this.writer = value.writer ?? undefined;
+  }
+
   // Overridable state copy (base contract §6 — copy only).
   @Input() loadingLabel = 'Loading table…';
   @Input() emptyLabel = 'No rows';
@@ -238,9 +255,16 @@ export class TableComponent {
 
   // --- derived view model --------------------------------------------------
 
-  readonly displayColumns = computed<NormalizedColumn[]>(() =>
-    this._columns().map((c) => this.normalizeColumn(c))
-  );
+  readonly displayColumns = computed<NormalizedColumn[]>(() => {
+    const declared = this._columns();
+    if (declared.length > 0) return declared.map((c) => this.normalizeColumn(c));
+    // Bound-state fallback (P1-06.1): a slot may deliver rows with no authored
+    // columns — infer them from the first row's keys so the table still renders a
+    // meaningful grid rather than an empty shell.
+    const rows = this._rows();
+    if (rows.length === 0) return [];
+    return Object.keys(rows[0]).map((key) => this.normalizeColumn({ key }));
+  });
 
   readonly phase = computed<'loading' | 'empty' | 'error' | 'populated'>(() => {
     const s = this._state();

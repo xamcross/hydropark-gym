@@ -7,7 +7,17 @@
  * that decides "valid → execute" vs. "invalid → fallback, no repair loop"
  * (SPEC §8.4 pt 3, scoped down for Phase 0 per PHASE0-PLAN §3.3).
  */
-import { ListManageArgs, StartTimerArgs, ConvertUnitsArgs, ToolArgsMap, ToolName, TOOL_NAMES } from '../ipc/contract';
+import {
+  CalculateArgs,
+  ConvertUnitsArgs,
+  DateDelta,
+  DateMathArgs,
+  ListManageArgs,
+  StartTimerArgs,
+  ToolArgsMap,
+  ToolName,
+  TOOL_NAMES,
+} from '../ipc/contract';
 import { UNIT_DOMAIN } from './unit-math';
 
 export type ValidationResult<T> = { ok: true; args: T } | { ok: false; message: string };
@@ -70,7 +80,52 @@ function validateListManage(raw: unknown): ValidationResult<ListManageArgs> {
   return { ok: true, args: raw as unknown as ListManageArgs };
 }
 
-/** Restricts `name` to the 3-tool catalog and validates `arguments` against that tool's schema (P0-04.1). */
+function validateCalculate(raw: unknown): ValidationResult<CalculateArgs> {
+  if (!isPlainObject(raw)) return { ok: false, message: 'arguments must be an object' };
+  const { op, operands } = raw as Record<string, unknown>;
+  if (op !== 'add' && op !== 'sub' && op !== 'mul' && op !== 'div') {
+    return { ok: false, message: '"op" must be add | sub | mul | div' };
+  }
+  if (!Array.isArray(operands) || operands.length < 2) {
+    return { ok: false, message: '"operands" must be an array of at least two numbers' };
+  }
+  const nums: number[] = [];
+  for (let i = 0; i < operands.length; i++) {
+    const n = operands[i];
+    if (typeof n !== 'number' || !Number.isFinite(n)) {
+      return { ok: false, message: `"operands[${i}]" must be a finite number` };
+    }
+    nums.push(n);
+  }
+  return { ok: true, args: { op, operands: nums } };
+}
+
+function validateDateMath(raw: unknown): ValidationResult<DateMathArgs> {
+  if (!isPlainObject(raw)) return { ok: false, message: 'arguments must be an object' };
+  const { base, op, delta } = raw as Record<string, unknown>;
+  if (typeof base !== 'string' || Number.isNaN(Date.parse(base))) {
+    return { ok: false, message: '"base" must be an RFC 3339 date-time' };
+  }
+  if (op !== 'add' && op !== 'sub') {
+    return { ok: false, message: '"op" must be add | sub' };
+  }
+  if (!isPlainObject(delta)) {
+    return { ok: false, message: '"delta" must be an object with days/hours/minutes' };
+  }
+  const d = delta as Record<string, unknown>;
+  const out: DateDelta = {};
+  for (const key of ['days', 'hours', 'minutes'] as const) {
+    const v = d[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'number' || !Number.isInteger(v)) {
+      return { ok: false, message: `"delta.${key}" must be an integer` };
+    }
+    out[key] = v;
+  }
+  return { ok: true, args: { base, op, delta: out } };
+}
+
+/** Restricts `name` to the fixed catalog and validates `arguments` against that tool's schema (P0-04.1, P1-05.1). */
 export function validateToolCall(
   name: unknown,
   args: unknown
@@ -89,6 +144,12 @@ export function validateToolCall(
       break;
     case 'list_manage':
       result = validateListManage(args) as ValidationResult<ToolArgsMap[ToolName]>;
+      break;
+    case 'calculate':
+      result = validateCalculate(args) as ValidationResult<ToolArgsMap[ToolName]>;
+      break;
+    case 'date_math':
+      result = validateDateMath(args) as ValidationResult<ToolArgsMap[ToolName]>;
       break;
   }
   if (!result.ok) {

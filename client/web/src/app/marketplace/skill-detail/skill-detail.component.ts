@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, ou
 import { CATALOG_PORT } from '../catalog.port';
 import { OwnershipAction, OwnershipState, SkillDetail, formatPrice, formatSize, runsOnThisPc } from '../catalog.model';
 import { OwnershipButtonComponent } from '../ownership-button/ownership-button.component';
+import { SkillPreviewComponent } from '../skill-preview/skill-preview.component';
 import { PurchaseService } from '../purchase.service';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -29,7 +30,7 @@ type Phase = 'loading' | 'ready' | 'error';
   selector: 'app-skill-detail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OwnershipButtonComponent],
+  imports: [OwnershipButtonComponent, SkillPreviewComponent],
   templateUrl: './skill-detail.component.html',
   styleUrl: './skill-detail.component.css',
 })
@@ -65,6 +66,19 @@ export class SkillDetailComponent {
   readonly sizeLabel = computed(() => formatSize(this.detail()?.current_version?.size ?? null));
   readonly canRun = computed(() => runsOnThisPc(this.detail()?.requirements, this.deviceTier()));
 
+  // --- try-before-buy preview (SPEC §11.4, P1-08.4) ------------------------
+
+  /** Whether this skill offers a preview (drives the "Try a preview" affordance). */
+  readonly canPreview = computed<boolean>(() => this.detail()?.has_preview ?? false);
+  /** True while the preview modal is open. */
+  readonly previewOpen = signal(false);
+  /** Offer the in-preview Buy CTA only for a paid skill the user does not yet own. */
+  readonly previewCanBuy = computed<boolean>(() => {
+    const d = this.detail();
+    const st = this.displayState();
+    return !!d && !d.is_free && (st === null || st === 'not-owned');
+  });
+
   constructor() {
     // Reload whenever the selected skill changes (initial run included).
     effect(() => {
@@ -97,5 +111,21 @@ export class SkillDetailComponent {
     if (!d) return;
     this.action.emit({ skillId: this.skillId(), action });
     this.purchase.dispatch(d, action);
+  }
+
+  // --- preview modal control (P1-08.4) -------------------------------------
+
+  openPreview(): void {
+    this.previewOpen.set(true);
+  }
+
+  closePreview(): void {
+    this.previewOpen.set(false);
+  }
+
+  /** Buy chosen from inside the preview: dismiss, then run the normal purchase flow. */
+  onPreviewBuy(): void {
+    this.previewOpen.set(false);
+    this.onAction('buy');
   }
 }

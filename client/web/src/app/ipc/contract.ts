@@ -21,13 +21,21 @@
 // Tool registry (P0-03.1)
 // ---------------------------------------------------------------------------
 
-/** The fixed, hardcoded Phase-0 tool catalog. No manifest, no discovery. */
-export type ToolName = 'start_timer' | 'convert_units' | 'list_manage';
+/**
+ * The fixed, first-party, audited tool catalog. The three P0 tools plus the two
+ * Phase-1 stateless additions (`calculate`, `date_math`, P1-05.1) — the exact
+ * closed set the manifest schema's `toolRef` enum and the Rust
+ * `tool_catalog::ToolName` expose (snake_case wire names). No manifest can invent
+ * a tool outside this set; adding one is a reviewed catalog change on both sides.
+ */
+export type ToolName = 'start_timer' | 'convert_units' | 'list_manage' | 'calculate' | 'date_math';
 
 export const TOOL_NAMES: readonly ToolName[] = [
   'start_timer',
   'convert_units',
   'list_manage',
+  'calculate',
+  'date_math',
 ] as const;
 
 // --- start_timer -----------------------------------------------------------
@@ -97,18 +105,66 @@ export interface ListManageResult {
   ingredients: IngredientItem[];
 }
 
+// --- calculate (P1-05.1) ---------------------------------------------------
+//
+// One deterministic arithmetic op over two-or-more operands — NO free-form
+// expression evaluation. Mirrors `tool_catalog::CalculateArgs/CalculateResult`.
+
+/** The closed arithmetic-op set (snake_case wire, matches Rust `CalcOp`). */
+export type CalcOp = 'add' | 'sub' | 'mul' | 'div';
+
+export interface CalculateArgs {
+  op: CalcOp;
+  /** Two or more finite operands, folded left-to-right by `op`. */
+  operands: number[];
+}
+
+export interface CalculateResult {
+  value: number;
+}
+
+// --- date_math (P1-05.1) ---------------------------------------------------
+//
+// Add/subtract a whole days/hours/minutes delta to an RFC 3339 instant. Mirrors
+// `tool_catalog::DateMathArgs/DateMathResult`.
+
+export type DateOp = 'add' | 'sub';
+
+/** A signed offset in whole days/hours/minutes; each component defaults to 0. */
+export interface DateDelta {
+  days?: number;
+  hours?: number;
+  minutes?: number;
+}
+
+export interface DateMathArgs {
+  /** The base instant as an RFC 3339 date-time (e.g. `2026-07-11T09:00:00Z`). */
+  base: string;
+  op: DateOp;
+  delta: DateDelta;
+}
+
+export interface DateMathResult {
+  /** The resulting instant, RFC 3339. */
+  result: string;
+}
+
 // --- generic tool args/result map ------------------------------------------
 
 export interface ToolArgsMap {
   start_timer: StartTimerArgs;
   convert_units: ConvertUnitsArgs;
   list_manage: ListManageArgs;
+  calculate: CalculateArgs;
+  date_math: DateMathArgs;
 }
 
 export interface ToolResultMap {
   start_timer: StartTimerResult;
   convert_units: ConvertUnitsResult;
   list_manage: ListManageResult;
+  calculate: CalculateResult;
+  date_math: DateMathResult;
 }
 
 /** Who triggered the call — the UI-first path (P0-03.6) or the model path (P0-04.1). */
