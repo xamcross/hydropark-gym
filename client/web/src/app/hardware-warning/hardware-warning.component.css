@@ -1,0 +1,75 @@
+/* hardware-tier speed warning (P1-02.6) — token-only, theme-aware. Severity is
+   carried by the icon + text, with the `careful` tone tint as reinforcement only
+   (never hue alone, WCAG 1.4.1). */
+:host {
+  display: block;
+}
+
+.hw-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--tone-careful-fill);
+  background: var(--tone-careful-tint);
+  color: var(--color-text);
+}
+
+.hw-warn-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--tone-careful-text);
+  font-size: var(--text-md);
+  line-height: var(--leading-tight);
+}
+
+.hw-warn-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.hw-warn-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--tone-careful-text);
+}
+
+.hw-warn-text {
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--color-text);
+}
+
+.hw-warn-rate {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.hw-warn-dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--space-5) - var(--space-1));
+  height: calc(var(--space-5) - var(--space-1));
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+  line-height: 1;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.hw-warn-dismiss:hover {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}

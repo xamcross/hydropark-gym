@@ -10,6 +10,7 @@ import { ComposedPanelHostComponent } from './composition/composed-panel-host.co
 import { MarketplaceViewComponent } from './marketplace/marketplace-view.component';
 import { AccountMenuComponent } from './account/account-menu.component';
 import { ToastHostComponent } from './shared/notify/toast-host.component';
+import { HardwareWarningComponent } from './hardware-warning/hardware-warning.component';
 import { OnboardingOverlayComponent } from './onboarding/onboarding-overlay.component';
 import { OnboardingService } from './onboarding/onboarding.service';
 import { SessionService } from './state/session.service';
@@ -37,6 +38,7 @@ type ShellView = 'assistant' | 'marketplace';
     MarketplaceViewComponent,
     AccountMenuComponent,
     ToastHostComponent,
+    HardwareWarningComponent,
     OnboardingOverlayComponent,
   ],
   templateUrl: './app.component.html',

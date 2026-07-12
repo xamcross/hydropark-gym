@@ -727,6 +727,70 @@ export interface PurchaseCallbackEvent {
 }
 
 // ---------------------------------------------------------------------------
+// On-demand model download (P1-02.7) — resumable, REAL-progress downloader
+// ---------------------------------------------------------------------------
+//
+// The bundled 3B model ships inside the app, so nothing is required to start
+// (SPEC §16.1). This block covers PULLING an optional larger model on demand.
+// The Rust core owns the actual HTTP range-download, the on-disk temp file, the
+// resume offset, and the SHA-256 verify; the webview only starts/cancels it and
+// RENDERS the progress it streams back. camelCase wire names, same P1 convention
+// as the marketplace block.
+//
+// Honesty contract (P1-02.7): every byte figure that crosses this seam is a REAL
+// count the core measured — there is deliberately no "estimated %" field the UI
+// could animate. When the total isn't known yet the UI shows an indeterminate
+// bar, never a fabricated fraction.
+
+/** Which downloadable model to fetch. `modelId` keys the core-side model registry. */
+export interface ModelDownloadStartArgs {
+  modelId: string;
+  /**
+   * Resume from a retained partial file when one exists (default true). `false`
+   * forces a clean restart from byte 0, discarding any partial.
+   */
+  resume?: boolean;
+}
+
+export interface ModelDownloadStatusArgs {
+  modelId: string;
+}
+
+export interface ModelDownloadCancelArgs {
+  modelId: string;
+}
+
+/** Lifecycle phase of a model download — drives which UI state renders. */
+export type ModelDownloadPhase =
+  | 'queued' //      accepted, not yet transferring (no headers yet)
+  | 'downloading' // bytes moving
+  | 'verifying' //   transfer complete, checking SHA-256
+  | 'complete' //    verified + installed on disk
+  | 'paused' //      stopped with a resumable partial retained
+  | 'cancelled' //   user-cancelled (a resumable partial may be retained)
+  | 'error'; //      failed — see `message`; often resumable
+
+/**
+ * A download status snapshot — the SHARED shape returned by `model_download_status`
+ * / `model_download_start` AND pushed on every `model://progress` event. Carries
+ * `bytes` / `totalBytes` / `phase` / `resumed` (plus a `message` on error). Never
+ * an estimated percentage — the UI derives the fraction as `bytes / totalBytes`
+ * only when `totalBytes` is known.
+ */
+export interface ModelDownloadStatus {
+  modelId: string;
+  phase: ModelDownloadPhase;
+  /** Bytes transferred so far — a REAL count measured by the core, never estimated. */
+  bytes: number;
+  /** Total content length in bytes, or null until the core knows it (pre-headers). */
+  totalBytes: number | null;
+  /** True when this run resumed from a retained partial rather than starting at 0. */
+  resumed: boolean;
+  /** Human-readable failure reason; set only when `phase === 'error'`. */
+  message?: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
 // ---------------------------------------------------------------------------
 
@@ -763,6 +827,14 @@ export interface IpcCommandMap {
   step_up_answer: { args: StepUpAnswerArgs; result: AuthState };
   entitlements_refresh: { args: EntitlementsRefreshArgs; result: EntitlementsGetResult };
   open_external: { args: OpenExternalArgs; result: void };
+
+  // --- P1 on-demand model download (P1-02.7) ---
+  /** Begin (or resume) a model download; the initial snapshot returns synchronously. */
+  model_download_start: { args: ModelDownloadStartArgs; result: ModelDownloadStatus };
+  /** Poll the current status — `null` when nothing has ever been started for this model. */
+  model_download_status: { args: ModelDownloadStatusArgs; result: ModelDownloadStatus | null };
+  /** Cancel an in-flight download (the core may retain a resumable partial). */
+  model_download_cancel: { args: ModelDownloadCancelArgs; result: void };
 }
 
 export type IpcCommand = keyof IpcCommandMap;
@@ -780,6 +852,8 @@ export interface IpcEventMap {
   'timer://updated': TimerStateSnapshot;
   /** Deep-link return from the system-browser checkout (P1-08.6). */
   'purchase://callback': PurchaseCallbackEvent;
+  /** Streamed model-download progress (P1-02.7) — REAL byte counts, never estimated. */
+  'model://progress': ModelDownloadStatus;
 }
 
 export type IpcEvent = keyof IpcEventMap;

@@ -10,6 +10,7 @@ mod capacity;
 mod composition;
 mod deep_link;
 mod device;
+mod downloader;
 mod grammar;
 mod inference;
 mod ipc;
@@ -457,6 +458,7 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .manage(tools::AppState::new())
         .manage(inference::CancelRegistry::new())
+        .manage(downloader::DownloadManager::new())
         .manage(BackendClient::new())
         .setup(|app| {
             log_hardware_profile();
@@ -516,6 +518,9 @@ fn main() {
             compose_agent,
             inference_start,
             inference_cancel,
+            downloader::model_download_start,
+            downloader::model_download_status,
+            downloader::model_download_cancel,
             skill_enable,
             skill_disable,
             allergen_scan,

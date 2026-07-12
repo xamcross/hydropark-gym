@@ -287,6 +287,96 @@ pub struct InferenceErrorEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Model download manager (P1-02.7) — the Rust core streams + SIGNATURE-VERIFIES
+// the GGUF before the inference engine may load it (see `downloader.rs`). Same
+// snake_case wire shape as the inference events above (this is the model side of
+// the inference domain, not the marketplace/commerce camelCase family). The
+// Angular mirror in contract.ts is a later tranche (the download UI + a live model
+// host are out of scope for this ticket — the verify/resume LOGIC is what ships here).
+// ---------------------------------------------------------------------------
+
+/// One part of a delta manifest: a byte range of the assembled file fetched from a
+/// (relative or absolute) `path`, with an optional per-part digest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDeltaPart {
+    pub path: String,
+    pub offset: u64,
+    pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+/// `model_download_start` args. `url` is the resolved GGUF blob URL, or the base the
+/// delta `parts` resolve against. `sha256`/`signature`/`signing_key_id` are the trust
+/// triple the finished file is checked against before it is accepted (mirrors the
+/// package-manifest trust model): the file's SHA-256 must equal `sha256`, and the
+/// detached `ed25519:<base64>` `signature` over that 32-byte digest must verify against
+/// the pinned key named by `signing_key_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDownloadStartArgs {
+    pub model_id: String,
+    pub version: String,
+    pub url: String,
+    pub sha256: String,
+    pub signature: String,
+    pub signing_key_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<ModelDeltaPart>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_bytes: Option<u64>,
+}
+
+/// The lifecycle phase of the (single, at-a-time) model download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelDownloadPhase {
+    Idle,
+    Downloading,
+    Verifying,
+    Complete,
+    Failed,
+    Cancelled,
+}
+
+/// Streamed to `model_download://progress` as bytes arrive and on each phase change.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDownloadProgressEvent {
+    pub model_id: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub phase: ModelDownloadPhase,
+}
+
+/// The snapshot returned by `model_download_start` / `_status` / `_cancel`. `model_path`
+/// is set only once the file is downloaded AND verified (the promotion point).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDownloadStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    pub phase: ModelDownloadPhase,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl ModelDownloadStatus {
+    /// The at-rest status before any download has been requested.
+    pub fn idle() -> Self {
+        Self {
+            model_id: None,
+            phase: ModelDownloadPhase::Idle,
+            downloaded_bytes: 0,
+            total_bytes: 0,
+            model_path: None,
+            error: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Skills (P0-05.1)
 // ---------------------------------------------------------------------------
 
@@ -638,6 +728,11 @@ pub enum CmdError {
     /// `store::StoreError` / `device::DeviceError` message.
     #[error("account store error: {0}")]
     Account(String),
+    /// A model download (P1-02.7) failed — transport, a non-2xx status, an I/O error,
+    /// or (crucially) the finished file failing signature verification. Carries the
+    /// `downloader::DownloadError` message.
+    #[error("model download failed: {0}")]
+    Download(String),
 }
 
 impl From<std::io::Error> for CmdError {

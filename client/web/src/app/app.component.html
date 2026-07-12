@@ -51,6 +51,10 @@
     </div>
   </header>
 
+  <!-- Persistent, dismissible speed warning when the hardware tier is below
+       recommended (P1-02.6). Self-gates; renders nothing otherwise. -->
+  <app-hardware-warning></app-hardware-warning>
+
   <!-- ── ASSISTANT / COMPOSE ─────────────────────────────────────────────── -->
   @if (view() === 'assistant') {
     <app-skill-toggle></app-skill-toggle>

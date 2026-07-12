@@ -86,6 +86,7 @@
 .ob-model-facts > div { display: flex; flex-direction: column; gap: 2px; }
 .ob-model-facts dt { font-size: var(--text-2xs); color: var(--color-text-muted); }
 .ob-model-facts dd { margin: 0; font-size: var(--text-sm); }
+.ob-model-optional-lead { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--color-text-muted); max-width: 60ch; }
 
 /* tour step */
 .ob-tour { display: flex; gap: var(--space-4); align-items: flex-start; min-height: 168px; }

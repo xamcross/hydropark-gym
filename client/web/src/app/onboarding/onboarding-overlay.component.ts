@@ -9,6 +9,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { PanelDockComponent } from '../shared/panel-dock/panel-dock.component';
+import { ModelDownloadComponent } from '../models/model-download.component';
+import { LARGER_MODEL } from '../models/model-download.service';
 import { OnboardingService } from './onboarding.service';
 
 /**
@@ -36,12 +38,15 @@ import { OnboardingService } from './onboarding.service';
   selector: 'app-onboarding-overlay',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PanelDockComponent],
+  imports: [PanelDockComponent, ModelDownloadComponent],
   templateUrl: './onboarding-overlay.component.html',
   styleUrl: './onboarding-overlay.component.css',
 })
 export class OnboardingOverlayComponent {
   readonly svc = inject(OnboardingService);
+
+  /** The optional larger model surfaced on the model step (the bundled one keeps working). */
+  readonly largerModel = LARGER_MODEL;
 
   /** Stable ids that the (single, live) step heading/description carry for aria wiring. */
   readonly titleId = 'ob-step-title';

@@ -98,8 +98,18 @@
                 </dl>
               </div>
 
+              <!-- OPTIONAL larger model: a live, resumable download surface (P1-02.7).
+                   Idle it's a "Download" affordance; once a download is in progress it
+                   shows REAL byte progress. The bundled model above keeps working meanwhile. -->
+              <p class="ob-model-optional-lead">Want more headroom? {{ largerModel.blurb }} It downloads in the background — optional, and the bundled model keeps working.</p>
+              <app-model-download
+                [modelId]="largerModel.id"
+                [modelName]="largerModel.name"
+                [sizeBytes]="largerModel.sizeBytes"
+              ></app-model-download>
+
               <p class="ob-fineprint">
-                A larger-model picker and on-demand downloads come later. For now this bundled model powers everything on device.
+                Only the bundled model is needed to get started. A larger model runs more slowly but reasons a little better.
               </p>
             </section>
           }

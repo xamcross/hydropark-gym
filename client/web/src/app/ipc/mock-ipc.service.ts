@@ -15,6 +15,9 @@ import {
   LicenseFetchResult,
   ListManageArgs,
   ListManageResult,
+  ModelDownloadPhase,
+  ModelDownloadStartArgs,
+  ModelDownloadStatus,
   OrderCheckoutResult,
   OrderGetResult,
   StartTimerArgs,
@@ -74,6 +77,15 @@ export class MockIpcService extends IpcPort {
   private readonly ownedSkills = new Set<string>(['packing-list', 'budget-planner']);
   /** In-flight orders → when they settle (so order_get flips pending→settled). */
   private readonly orders = new Map<string, { skillId: string; settleAt: number }>();
+
+  // --- simulated on-demand model download (P1-02.7) ----------------------
+  /** Active downloads → the live transfer state (stands in for the Rust range-download). */
+  private readonly modelDownloads = new Map<
+    string,
+    { bytes: number; total: number; phase: ModelDownloadPhase; resumed: boolean; interval: ReturnType<typeof setInterval> | null }
+  >();
+  /** Retained partial byte offsets, so a cancelled/failed download can RESUME (real range behavior). */
+  private readonly modelPartials = new Map<string, number>();
 
   // ---- IpcPort ------------------------------------------------------------
 
@@ -143,6 +155,15 @@ export class MockIpcService extends IpcPort {
       case 'open_external':
         // No system browser to hand off to in the mock — the SystemBrowserService
         // uses window.open in the web build and never reaches this.
+        return undefined as IpcCommandMap[K]['result'];
+
+      // --- on-demand model download (P1-02.7) ---
+      case 'model_download_start':
+        return this.modelDownloadStart(args as ModelDownloadStartArgs) as IpcCommandMap[K]['result'];
+      case 'model_download_status':
+        return this.modelDownloadStatus((args as { modelId: string }).modelId) as IpcCommandMap[K]['result'];
+      case 'model_download_cancel':
+        this.modelDownloadCancel((args as { modelId: string }).modelId);
         return undefined as IpcCommandMap[K]['result'];
 
       default:
@@ -518,6 +539,74 @@ export class MockIpcService extends IpcPort {
         overflow: blocked ? used - nCtx : 0,
       },
     };
+  }
+
+  // ---- on-demand model download (P1-02.7) --------------------------------
+  //
+  // A believable stand-in for the Rust range-downloader: streams REAL (simulated)
+  // byte counts on `model://progress`, retains a resumable partial on cancel, runs
+  // a short verify phase, then completes. The whole resumable download + cancel
+  // loop is demonstrable under `ng serve` with no core. The Rust core replaces
+  // every method here (it measures actual transferred bytes + SHA-256 verifies).
+
+  /** The content-length the real core would read from the response headers. */
+  private modelTotalBytes(modelId: string): number {
+    const KNOWN: Record<string, number> = { 'qwen2.5-7b-instruct-q4km': 4_680_000_000 };
+    return KNOWN[modelId] ?? 4_680_000_000;
+  }
+
+  private modelDownloadStart(args: ModelDownloadStartArgs): ModelDownloadStatus {
+    const { modelId } = args;
+    const total = this.modelTotalBytes(modelId);
+    const existing = this.modelDownloads.get(modelId);
+    if (existing && existing.phase === 'downloading') {
+      return { modelId, phase: 'downloading', bytes: existing.bytes, totalBytes: existing.total, resumed: existing.resumed };
+    }
+
+    const resumeFrom = args.resume === false ? 0 : this.modelPartials.get(modelId) ?? 0;
+    const resumed = resumeFrom > 0;
+    const d = { bytes: resumeFrom, total, phase: 'downloading' as ModelDownloadPhase, resumed, interval: null as ReturnType<typeof setInterval> | null };
+    this.modelDownloads.set(modelId, d);
+    this.modelPartials.delete(modelId);
+
+    // ~40 ticks of real byte deltas → a demonstrable multi-second transfer.
+    const chunk = Math.max(1, Math.ceil(total / 40));
+    d.interval = setInterval(() => {
+      d.bytes = Math.min(d.total, d.bytes + chunk);
+      if (d.bytes >= d.total) {
+        if (d.interval) clearInterval(d.interval);
+        d.interval = null;
+        d.phase = 'verifying';
+        this.emit('model://progress', { modelId, phase: 'verifying', bytes: d.total, totalBytes: d.total, resumed });
+        setTimeout(() => {
+          this.modelDownloads.delete(modelId);
+          this.modelPartials.delete(modelId);
+          this.emit('model://progress', { modelId, phase: 'complete', bytes: total, totalBytes: total, resumed });
+        }, 700);
+      } else {
+        this.emit('model://progress', { modelId, phase: 'downloading', bytes: d.bytes, totalBytes: d.total, resumed });
+      }
+    }, 220);
+
+    return { modelId, phase: 'downloading', bytes: d.bytes, totalBytes: d.total, resumed };
+  }
+
+  private modelDownloadStatus(modelId: string): ModelDownloadStatus | null {
+    const d = this.modelDownloads.get(modelId);
+    if (d) return { modelId, phase: d.phase, bytes: d.bytes, totalBytes: d.total, resumed: d.resumed };
+    const partial = this.modelPartials.get(modelId);
+    if (partial && partial > 0) return { modelId, phase: 'paused', bytes: partial, totalBytes: this.modelTotalBytes(modelId), resumed: false };
+    return null;
+  }
+
+  private modelDownloadCancel(modelId: string): void {
+    const d = this.modelDownloads.get(modelId);
+    if (!d) return;
+    if (d.interval) clearInterval(d.interval);
+    this.modelDownloads.delete(modelId);
+    // Retain the partial so a later resume picks up where this left off.
+    this.modelPartials.set(modelId, d.bytes);
+    this.emit('model://progress', { modelId, phase: 'cancelled', bytes: d.bytes, totalBytes: d.total, resumed: d.resumed });
   }
 
   // ---- hardware profiling (P0-02.3, read-only) ---------------------------

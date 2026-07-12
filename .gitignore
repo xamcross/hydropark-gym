@@ -33,7 +33,12 @@ dist/
 # committed (PHASE0-PLAN §8: bundled/side-loaded, no download manager).
 # ---------------------------------------------------------------------------
 *.gguf
-models/
+# Anchored to the model-ARTIFACT dirs ONLY. A bare `models/` also matched the Angular
+# source dir client/web/src/app/models/ (F2 model-download UI) and silently dropped it
+# from the repo - keep these anchored so real source under any */models/ stays tracked.
+/models/
+/client/models/
+/client/src-tauri/models/
 
 # ---------------------------------------------------------------------------
 # Tooling / OS
