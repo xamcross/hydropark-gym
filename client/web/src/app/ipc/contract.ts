@@ -355,6 +355,205 @@ export type TelemetryEvent =
   | OutcomeEvent;
 
 // ---------------------------------------------------------------------------
+// Marketplace + agent-composition commands (P1 live-flow wiring)
+// ---------------------------------------------------------------------------
+//
+// NB: unlike the P0 seed above (which mirrors `ipc.rs` field-for-field in
+// snake_case), these Phase-1 commands use camelCase wire field names — that is
+// the shape the live-flow task fixes as the cross-agent contract, and the Rust
+// half builds its Tauri commands (`#[serde(rename_all = "camelCase")]`) to the
+// same names. Base URL for the network-backed ones comes from
+// `HYDROPARK_API_BASE` on the Rust side; the webview never talks HTTP directly.
+//
+// `catalog_list` / `catalog_detail` are PUBLIC (no bearer). Orders,
+// entitlements, license and download take an OPTIONAL `bearer` access token —
+// the client auth flow that mints it is a later tranche; the plumbing passes it
+// through when present and omits it otherwise.
+
+/** One row of `catalog_list` — the card projection (SPEC §11.1). `priceCents === 0` ⇒ free. */
+export interface CatalogItem {
+  id: string;
+  name: string;
+  pitch: string;
+  category: string;
+  /** Minor units (cents). `0` = free. */
+  priceCents: number;
+  sizeBytes: number;
+  /** Human-readable hardware-fit chip, e.g. "Runs on your PC" / "Needs a larger model". */
+  hardwareBadge: string;
+  /** Effective ownership/lifecycle state string (e.g. "not-owned" | "owned" | "installed" | "active"). */
+  ownership: string;
+}
+
+export interface CatalogListArgs {
+  region?: string;
+}
+
+export interface CatalogListResult {
+  skills: CatalogItem[];
+}
+
+export interface CatalogDetailArgs {
+  skillId: string;
+}
+
+/**
+ * `catalog_detail` result. Carries `compressedPrompt` ONLY — never the full paid
+ * `system_prompt` (IP protection SF8); there is deliberately no field for it.
+ */
+export interface SkillDetail {
+  id: string;
+  name: string;
+  pitch: string;
+  category: string;
+  priceCents: number;
+  sizeBytes: number;
+  hardwareBadge: string;
+  ownership: string;
+  description?: string;
+  /** The compressed teaser prompt — the only prompt text ever exposed. */
+  compressedPrompt?: string;
+  panels?: string[];
+  tools?: string[];
+  samplePrompts?: string[];
+  hasPreview?: boolean;
+  currentVersion?: string;
+  changelog?: string;
+}
+
+export interface OrderCheckoutArgs {
+  targetId: string;
+  region: string;
+  bearer?: string;
+}
+
+export interface OrderCheckoutResult {
+  orderId: string;
+  checkoutUrl: string;
+}
+
+export interface OrderGetArgs {
+  orderId: string;
+  bearer?: string;
+}
+
+export interface OrderGetResult {
+  orderId: string;
+  status: string;
+}
+
+export interface EntitlementsGetArgs {
+  bearer?: string;
+}
+
+/** One owned entitlement row (SPEC §11.3 / §13). */
+export interface EntitlementItem {
+  skillId: string;
+  /** e.g. "owned" | "installed" | "active". */
+  state: string;
+  version?: string;
+}
+
+export interface EntitlementsGetResult {
+  skills: EntitlementItem[];
+}
+
+export interface LicenseFetchArgs {
+  skillId: string;
+  bearer?: string;
+}
+
+export interface LicenseFetchResult {
+  /** The compact-JWS license token (ES256, see HSM migration doc). */
+  compactJws: string;
+}
+
+export interface DownloadUrlArgs {
+  skillId: string;
+  version: string;
+  bearer?: string;
+}
+
+export interface DownloadUrlResult {
+  url: string;
+  /** ISO-8601 expiry of the signed URL. */
+  expiresAt: string;
+  /** Per-user watermark token embedded in the package (BE anti-piracy). */
+  watermark: string;
+}
+
+// ---------------------------------------------------------------------------
+// Agent composition (`compose_agent`) — mirrors client/src-tauri/src/composition.rs
+// ---------------------------------------------------------------------------
+//
+// The Rust `compose_agent` command chains manifest validation → merge (order /
+// persona / tools / conflicts) → capacity gate → tool routing, and returns the
+// flattened `ComposedAgentView` (or throws a structured `ComposeError`). These
+// interfaces are the 1:1 TypeScript mirror of the `#[derive(Serialize)]` views
+// in composition.rs so the webview consumes it type-safely.
+
+/** One composed tool (mirrors Rust `ToolView`). */
+export interface ComposedToolView {
+  call_name: string;
+  tool_ref: string;
+  contributors: string[];
+  namespaced: boolean;
+}
+
+/** One tool's resolved routing (mirrors Rust `RouteView`). `target` is `"chat"` or `"widget:<name>"`. */
+export interface ComposedRouteView {
+  tool_ref: string;
+  reads: string[];
+  writes: string[];
+  target: string;
+}
+
+/** The context-capacity projection (mirrors Rust `CapacityView`). */
+export interface ComposedCapacityView {
+  ctx_window: number;
+  reserve_tokens: number;
+  skill_tokens: number;
+  used_tokens: number;
+  remaining: number;
+  blocked: boolean;
+  overflow: number;
+}
+
+/** The fully composed agent the `compose_agent` command returns (mirrors Rust `ComposedAgentView`). */
+export interface ComposedAgentView {
+  order: string[];
+  primary: string | null;
+  persona: string;
+  tools: ComposedToolView[];
+  routing: ComposedRouteView[];
+  capacity: ComposedCapacityView;
+}
+
+/**
+ * A structured composition failure (mirrors Rust `ComposeErrorView`). The Tauri
+ * command surfaces this as the rejected-promise payload; the client also uses
+ * this shape for transport/parse failures it raises itself (`kind: 'ipc'`).
+ */
+export interface ComposeError {
+  /** `invalid_manifest` | `malformed` | `conflict` | `capacity_overflow` | `ipc`. */
+  kind: string;
+  message: string;
+}
+
+export interface ComposeAgentArgs {
+  /**
+   * Raw `.hpskill` manifest JSON for the currently-enabled skills. Typed
+   * `unknown[]` because the Rust side treats each as an opaque `serde_json::Value`
+   * and validates it — the webview passes the manifest objects through verbatim.
+   */
+  manifests: unknown[];
+  /** The user's chosen lead skill, if any (otherwise merge order decides). */
+  primaryHint?: string;
+  /** Model context window in tokens (e.g. 4096). */
+  nCtx?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
 // ---------------------------------------------------------------------------
 
@@ -371,6 +570,16 @@ export interface IpcCommandMap {
   get_hardware_profile: { args: void; result: HardwareProfile };
   telemetry_log: { args: TelemetryEvent; result: void };
   notify: { args: NotifyArgs; result: void };
+
+  // --- P1 marketplace + composition ---
+  catalog_list: { args: CatalogListArgs; result: CatalogListResult };
+  catalog_detail: { args: CatalogDetailArgs; result: SkillDetail };
+  order_checkout: { args: OrderCheckoutArgs; result: OrderCheckoutResult };
+  order_get: { args: OrderGetArgs; result: OrderGetResult };
+  entitlements_get: { args: EntitlementsGetArgs; result: EntitlementsGetResult };
+  license_fetch: { args: LicenseFetchArgs; result: LicenseFetchResult };
+  download_url: { args: DownloadUrlArgs; result: DownloadUrlResult };
+  compose_agent: { args: ComposeAgentArgs; result: ComposedAgentView };
 }
 
 export type IpcCommand = keyof IpcCommandMap;

@@ -5,6 +5,28 @@
       <span class="brand-name">Hydropark</span>
       <span class="brand-tag">Phase 0 prototype</span>
     </div>
+
+    <nav class="shell-nav" aria-label="Primary">
+      <button
+        type="button"
+        class="nav-btn"
+        [class.on]="view() === 'assistant'"
+        [attr.aria-pressed]="view() === 'assistant'"
+        (click)="setView('assistant')"
+      >
+        Assistant
+      </button>
+      <button
+        type="button"
+        class="nav-btn"
+        [class.on]="view() === 'marketplace'"
+        [attr.aria-pressed]="view() === 'marketplace'"
+        (click)="setView('marketplace')"
+      >
+        Marketplace
+      </button>
+    </nav>
+
     <div class="topbar-actions">
       <button
         type="button"
@@ -24,20 +46,40 @@
     </div>
   </header>
 
-  <app-skill-toggle></app-skill-toggle>
-  <app-unlock></app-unlock>
+  <!-- ── ASSISTANT / COMPOSE ─────────────────────────────────────────────── -->
+  @if (view() === 'assistant') {
+    <app-skill-toggle></app-skill-toggle>
+    <app-unlock></app-unlock>
 
-  <main class="layout">
-    <section class="chat-region">
-      <app-chat></app-chat>
-    </section>
+    <main class="layout">
+      <section class="chat-region">
+        <app-chat></app-chat>
+      </section>
 
-    <app-panel-dock [open]="skillEnabled()">
-      <aside class="side-region" aria-label="Skill panels">
-        <app-timer-stack></app-timer-stack>
-        <app-editable-list></app-editable-list>
-        <app-segmented-toggle></app-segmented-toggle>
+      <!-- P0 hardcoded skill panels (unchanged) -->
+      <app-panel-dock [open]="skillEnabled()">
+        <aside class="side-region" aria-label="Skill panels">
+          <app-timer-stack></app-timer-stack>
+          <app-editable-list></app-editable-list>
+          <app-segmented-toggle></app-segmented-toggle>
+        </aside>
+      </app-panel-dock>
+
+      <!-- P1 composition experience (additive): the SAME skills, mounted
+           dynamically via the composed agent + layout dock + bus. -->
+      <aside class="compose-region" aria-label="Composed agent">
+        <app-composed-panel-host></app-composed-panel-host>
       </aside>
-    </app-panel-dock>
-  </main>
+    </main>
+  }
+
+  <!-- ── MARKETPLACE ─────────────────────────────────────────────────────── -->
+  @if (view() === 'marketplace') {
+    <main class="marketplace-region">
+      <app-marketplace-view></app-marketplace-view>
+    </main>
+  }
 </div>
+
+<!-- Global in-app notification surface (SPEC §9.7 fallback) -->
+<app-toast-host></app-toast-host>

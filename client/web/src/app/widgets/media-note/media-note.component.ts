@@ -25,8 +25,8 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
        there is NO sanitiser surface for text. Images and link targets are
        stripped/flattened per the schema.
      • SVG is the ONLY thing rendered via [innerHTML]. The authoritative control
-       is INSTALL-TIME sanitisation of media.asset (script/style/on*/foreignObject/
-       external-href stripped — schema $defs/assetRef); the renderer hands this
+       is INSTALL-TIME sanitisation of media.asset (script, style, on*-handlers,
+       foreignObject, external-href stripped — schema $defs/assetRef); the renderer hands this
        component the already-vetted inline SVG STRING. As defence-in-depth the
        component re-scrubs that string (scrubSvg) and only then calls
        bypassSecurityTrustHtml — the single, documented bypass, justified because

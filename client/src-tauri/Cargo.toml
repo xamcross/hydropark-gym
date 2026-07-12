@@ -56,6 +56,11 @@ sha2 = "0.10"
 # already needs for its linker.
 rusqlite = { version = "0.31", features = ["bundled"] }
 
+# Backend HTTP client (P1-08.6 / networking): the Rust core owns network egress (the webview CSP is
+# `connect-src 'self'`), so catalog / orders / entitlements / license / download calls cross the IPC
+# boundary as Tauri commands. rustls (ring) keeps it off a system OpenSSL.
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
+
 # Embedded llama.cpp binding (P0-02.1). Optional + gated behind the
 # `real-inference` feature so the default `mock-inference` build needs no
 # C/C++ toolchain, no GGUF, and no libclang. `llama-cpp-sys-2` builds

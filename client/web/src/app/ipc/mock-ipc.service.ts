@@ -1,5 +1,8 @@
 import { Injectable } from '@angular/core';
 import {
+  ComposedAgentView,
+  ComposedRouteView,
+  ComposedToolView,
   HardwareProfile,
   IngredientItem,
   IpcCommand,
@@ -91,6 +94,8 @@ export class MockIpcService extends IpcPort {
       case 'notify':
         this.showNotification(args as IpcCommandMap['notify']['args']);
         return undefined as IpcCommandMap[K]['result'];
+      case 'compose_agent':
+        return this.mockCompose(args as IpcCommandMap['compose_agent']['args']) as IpcCommandMap[K]['result'];
       default:
         throw new Error(`MockIpcService: unhandled command "${String(cmd)}"`);
     }
@@ -265,6 +270,91 @@ export class MockIpcService extends IpcPort {
       persona_injected: true,
       tools_registered: ['start_timer', 'convert_units', 'list_manage'],
       panels: ['timer_stack', 'editable_list', 'segmented_toggle'],
+    };
+  }
+
+  // ---- agent composition (mirrors client/src-tauri/src/composition.rs) ----
+  //
+  // A lightweight stand-in for the Rust `compose_agent` pipeline so the compose
+  // experience runs under `ng serve` with no core: order by combine_priority,
+  // assemble a persona, union tools, project routing, and run the capacity gate.
+  // It intentionally MIRRORS the Rust view shape (composition.rs `to_view`).
+
+  private mockCompose(args: IpcCommandMap['compose_agent']['args']): ComposedAgentView {
+    const manifests = (args.manifests ?? []) as MockManifest[];
+    const nCtx = args.nCtx ?? 4096;
+
+    // Order: combine_priority desc, then id asc. Primary = hint (if enabled) else the lead.
+    const ordered = [...manifests].sort((a, b) => {
+      const pa = a.compatibility?.combine_priority ?? 0;
+      const pb = b.compatibility?.combine_priority ?? 0;
+      if (pa !== pb) return pb - pa;
+      return (a.id ?? '').localeCompare(b.id ?? '');
+    });
+    const order = ordered.map((m) => m.id ?? '<unknown>');
+    const hint = args.primaryHint && order.includes(args.primaryHint) ? args.primaryHint : null;
+    const primary = hint ?? order[0] ?? null;
+
+    // Persona: base + primary's full prompt + secondaries' compressed form.
+    const primaryManifest = ordered.find((m) => (m.id ?? '') === primary);
+    const parts = [MOCK_BASE_PREAMBLE];
+    if (primaryManifest) parts.push(primaryManifest.persona?.system_prompt ?? primaryManifest.summary ?? '');
+    for (const m of ordered) {
+      if ((m.id ?? '') === primary) continue;
+      const c = m.persona?.compressed_prompt ?? m.summary;
+      if (c) parts.push(c);
+    }
+    const persona = parts.filter((p) => p).join('\n\n');
+
+    // Tools: union by ref (equal first-party config ⇒ shared, not namespaced here).
+    const toolMap = new Map<string, ComposedToolView>();
+    const routing: ComposedRouteView[] = [];
+    for (const m of ordered) {
+      const boundWidget = new Map<string, string>();
+      for (const p of m.ui?.panels ?? []) {
+        if (p.binds_tool && p.id) boundWidget.set(p.binds_tool, p.id);
+      }
+      for (const t of m.tools ?? []) {
+        const ref = t.ref ?? '';
+        if (!ref) continue;
+        const existing = toolMap.get(ref);
+        if (existing) existing.contributors.push(m.id ?? '');
+        else toolMap.set(ref, { call_name: ref, tool_ref: ref, contributors: [m.id ?? ''], namespaced: false });
+        const writes = t.writes_state ?? [];
+        const widget = boundWidget.get(ref);
+        routing.push({
+          tool_ref: ref,
+          reads: t.reads_state ?? [],
+          writes,
+          target: writes.length === 0 && widget ? `widget:${widget}` : 'chat',
+        });
+      }
+    }
+
+    // Capacity gate (rough token estimate; blocks on overflow like the Rust gate).
+    const reserve = 512;
+    const skillTokens = ordered.reduce(
+      (sum, m) => sum + (m.cost_estimate?.prompt_tokens ?? Math.ceil((m.persona?.system_prompt ?? m.summary ?? '').length / 4)),
+      0
+    );
+    const used = reserve + skillTokens;
+    const blocked = used > nCtx;
+
+    return {
+      order,
+      primary,
+      persona,
+      tools: [...toolMap.values()],
+      routing,
+      capacity: {
+        ctx_window: nCtx,
+        reserve_tokens: reserve,
+        skill_tokens: skillTokens,
+        used_tokens: used,
+        remaining: Math.max(0, nCtx - used),
+        blocked,
+        overflow: blocked ? used - nCtx : 0,
+      },
     };
   }
 
@@ -456,6 +546,22 @@ export class MockIpcService extends IpcPort {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** The loose shape `mockCompose` reads out of the opaque manifest JSON. */
+interface MockManifest {
+  id?: string;
+  summary?: string;
+  persona?: { system_prompt?: string; compressed_prompt?: string };
+  tools?: Array<{ ref?: string; reads_state?: string[]; writes_state?: string[] }>;
+  ui?: { panels?: Array<{ type?: string; id?: string; binds_tool?: string }> };
+  compatibility?: { combine_priority?: number };
+  cost_estimate?: { prompt_tokens?: number };
+}
+
+/** Mirrors `composition.rs` BASE_PREAMBLE (the base agent's voice). */
+const MOCK_BASE_PREAMBLE =
+  'You are Hydropark, a private assistant that runs fully on-device. You are offline and never ' +
+  'send the conversation anywhere. Be helpful, concise, and honest.';
 
 function tryParseToolCall(raw: string): { name: string; arguments: unknown } | null {
   const match = raw.match(/<tool_call>([\s\S]*?)<\/tool_call>/);

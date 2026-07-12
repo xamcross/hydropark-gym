@@ -55,10 +55,13 @@
           <span class="spinner" aria-hidden="true"></span>
           <span>{{ loadingLabel() }}</span>
         </div>
-      } @else if (bodyTemplate(panel); as tpl) {
-        <ng-container [ngTemplateOutlet]="tpl" [ngTemplateOutletContext]="bodyContext(panel)"></ng-container>
       } @else {
-        <p class="panel-fallback">{{ noRendererLabel() }}</p>
+        @let tpl = bodyTemplate(panel);
+        @if (tpl) {
+          <ng-container [ngTemplateOutlet]="tpl" [ngTemplateOutletContext]="bodyContext(panel)"></ng-container>
+        } @else {
+          <p class="panel-fallback">{{ noRendererLabel() }}</p>
+        }
       }
     </div>
 

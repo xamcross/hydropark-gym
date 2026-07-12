@@ -1,0 +1,142 @@
+:host {
+  display: block;
+}
+
+.composed-host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--color-border, #d8d8d8);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-alt, #f6f6f6);
+}
+
+.ch-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+}
+
+.ch-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.ch-status {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #666);
+}
+
+.ch-ok {
+  color: var(--color-text, #222);
+}
+
+.ch-error {
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border: 1px solid var(--color-danger, #b23b2e);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--color-danger, #b23b2e) 10%, transparent);
+}
+
+.ch-error-title {
+  margin: 0 0 2px;
+  font-weight: 700;
+}
+
+.ch-error-msg {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.ch-error-kind {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+.ch-capacity {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #666);
+}
+
+.ch-capacity-blocked {
+  color: var(--color-danger, #b23b2e);
+  font-weight: 600;
+}
+
+.ch-persona {
+  font-size: 0.82rem;
+}
+
+.ch-persona > summary {
+  cursor: pointer;
+  color: var(--color-text-muted, #666);
+}
+
+.ch-persona-text {
+  margin: var(--space-1, 4px) 0 0;
+  color: var(--color-text, #222);
+  line-height: 1.4;
+}
+
+.ch-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1, 4px);
+}
+
+.ch-tool {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #d8d8d8);
+  background: var(--color-surface, #fff);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+}
+
+.ch-tool-ns {
+  border-style: dashed;
+}
+
+.ch-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ch-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  font-size: 0.78rem;
+}
+
+.ch-slot-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 600;
+}
+
+.ch-slot-val {
+  color: var(--color-text-muted, #666);
+}
+
+.ch-slot-ver {
+  margin-left: auto;
+  color: var(--color-text-muted, #666);
+  opacity: 0.7;
+}
+
+.ch-panels {
+  min-height: 1px;
+}
+
+.ch-idle,
+.ch-no-renderer {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #666);
+}

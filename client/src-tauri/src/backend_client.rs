@@ -1,0 +1,789 @@
+//! Backend HTTP client (P1-08.x live-flow wiring).
+//!
+//! The Rust core owns all network egress — the webview CSP is
+//! `connect-src 'self'`, so it cannot talk to the backend directly. Every
+//! marketplace / commerce call therefore crosses the IPC boundary as a Tauri
+//! command (see `main.rs`) that delegates here. This module issues the actual
+//! GET/POST to the backend `/v1/…` routes, attaches an `Authorization: Bearer`
+//! header when a token is supplied, and maps the JSON response into the
+//! camelCase IPC return types declared in `ipc.rs`.
+//!
+//! ## Backend wire shape vs. IPC shape
+//! The backend serializes **snake_case** JSON (Spring global
+//! `property-naming-strategy: SNAKE_CASE`) with its own DTO shapes — a merged
+//! skills+bundles catalog feed, `Money { amount, currency }`, cursor pages,
+//! etc. The IPC contract the webview consumes is **camelCase** and reshaped
+//! (`priceCents`, `hardwareBadge`, …). So the flow is always: decode the
+//! backend JSON into a private `wire::*` struct, then map it to the public
+//! `ipc::*` type. The URL builders and the decode/map step are split into small
+//! pure functions so they are unit-testable without a live server (see the
+//! `tests` module) — the `async` methods are thin wrappers that do the I/O and
+//! call them.
+
+use serde::{Deserialize, Serialize};
+
+use crate::ipc::{
+    CatalogItem, CheckoutResult, DownloadUrlResult, EntitlementItem, LicenseResult, OrderStatusResult,
+    SkillDetail,
+};
+
+/// Dev default when `HYDROPARK_API_BASE` is unset — the port the local stack
+/// (deploy/local) and the README's `curl localhost:8080/v1/catalog` use.
+pub const DEFAULT_API_BASE: &str = "http://localhost:8080";
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/// Failure taxonomy for a backend call. Kept distinct so the command layer (and
+/// later the webview) can tell a transport failure from a rejected request from
+/// a shape mismatch. Converted to `ipc::CmdError::Backend` at the command edge.
+#[derive(Debug, thiserror::Error)]
+pub enum BackendError {
+    /// Transport-level failure: DNS, connect, TLS, timeout, body read.
+    #[error("network error: {0}")]
+    Network(String),
+    /// The backend answered, but with a non-2xx status. Carries the raw body so
+    /// the structured `{ error: { code, message } }` envelope is not discarded.
+    #[error("backend returned HTTP {status}: {body}")]
+    Status { status: u16, body: String },
+    /// A 2xx body that did not match the expected shape.
+    #[error("could not decode backend response: {0}")]
+    Decode(String),
+}
+
+impl BackendError {
+    fn network(e: reqwest::Error) -> Self {
+        BackendError::Network(e.to_string())
+    }
+    fn decode(e: serde_json::Error) -> Self {
+        BackendError::Decode(e.to_string())
+    }
+}
+
+impl From<BackendError> for crate::ipc::CmdError {
+    fn from(e: BackendError) -> Self {
+        crate::ipc::CmdError::Backend(e.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Base URL + URL builders (pure)
+// ---------------------------------------------------------------------------
+
+/// Resolve the API base from an already-read env value. Split from `base_url`
+/// so it is testable without touching process env (which is racy under the test
+/// harness). An empty/whitespace value falls back to the dev default.
+fn resolve_base(var: Option<String>) -> String {
+    match var {
+        Some(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => DEFAULT_API_BASE.to_string(),
+    }
+}
+
+/// Read `HYDROPARK_API_BASE`, defaulting to [`DEFAULT_API_BASE`].
+pub fn base_url() -> String {
+    resolve_base(std::env::var("HYDROPARK_API_BASE").ok())
+}
+
+/// Join a base and a path with exactly one `/` between them, tolerating a
+/// trailing slash on the base and/or a leading slash on the path.
+fn join(base: &str, path: &str) -> String {
+    format!("{}/{}", base.trim_end_matches('/'), path.trim_start_matches('/'))
+}
+
+fn catalog_route(base: &str, region: Option<&str>) -> String {
+    let url = join(base, "/v1/catalog");
+    match region.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(r) => format!("{url}?region={r}"),
+        None => url,
+    }
+}
+
+fn catalog_detail_route(base: &str, skill_id: &str) -> String {
+    join(base, &format!("/v1/catalog/skills/{skill_id}"))
+}
+
+fn checkout_route(base: &str) -> String {
+    join(base, "/v1/orders/checkout")
+}
+
+fn order_route(base: &str, order_id: &str) -> String {
+    join(base, &format!("/v1/orders/{order_id}"))
+}
+
+fn entitlements_route(base: &str) -> String {
+    join(base, "/v1/entitlements")
+}
+
+fn license_route(base: &str) -> String {
+    join(base, "/v1/licenses/issue")
+}
+
+fn download_route(base: &str, skill_id: &str, version: &str) -> String {
+    join(base, &format!("/v1/download/skills/{skill_id}/{version}"))
+}
+
+/// Human-readable hardware badge derived from a skill's required model tier
+/// (mirrors the tier vocabulary in `skill_manager.rs`). Unknown/absent tiers
+/// read as "runs anywhere" so an unrecognised value never *over*states the
+/// requirement.
+fn hardware_badge(min_model_tier: Option<&str>) -> String {
+    let label = match min_model_tier.map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+        Some("small") | Some("s") => "Runs on most PCs",
+        Some("mid") | Some("medium") | Some("m") => "Needs a mid-range PC",
+        Some("large") | Some("l") => "Needs a high-end PC",
+        _ => "Runs on any device",
+    };
+    label.to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Request bodies (pure, serialized to the backend's snake_case shape)
+// ---------------------------------------------------------------------------
+
+/// `POST /v1/orders/checkout` body for a Merchant-of-Record skill purchase
+/// (`kind=skill`, `payment_source=mor`). The backend derives price server-side;
+/// amount/currency are omitted (they are honoured only for `wallet_topup`).
+#[derive(Debug, Serialize)]
+struct CheckoutBody<'a> {
+    kind: &'a str,
+    target_id: &'a str,
+    payment_source: &'a str,
+    region: &'a str,
+}
+
+fn checkout_body<'a>(target_id: &'a str, region: &'a str) -> CheckoutBody<'a> {
+    CheckoutBody { kind: "skill", target_id, payment_source: "mor", region }
+}
+
+/// `POST /v1/licenses/issue` body: `{ skill_id, device_id }`. Device binding
+/// (and the `X-Step-Up-Token` the backend also requires) come from a later
+/// tranche; `device_id` is sourced from `HYDROPARK_DEVICE_ID` for now so the
+/// request is well-formed. This plumbs the call end-to-end without inventing a
+/// device-registration flow here.
+#[derive(Debug, Serialize)]
+struct LicenseBody<'a> {
+    skill_id: &'a str,
+    device_id: &'a str,
+}
+
+fn license_body<'a>(skill_id: &'a str, device_id: &'a str) -> LicenseBody<'a> {
+    LicenseBody { skill_id, device_id }
+}
+
+fn device_id() -> String {
+    std::env::var("HYDROPARK_DEVICE_ID").unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// Backend wire shapes (private) — snake_case, mirror the Java DTOs
+// ---------------------------------------------------------------------------
+
+mod wire {
+    use super::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    pub struct Money {
+        pub amount: i64,
+        #[allow(dead_code)]
+        pub currency: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Requirements {
+        #[serde(default)]
+        pub min_model_tier: Option<String>,
+        #[serde(default)]
+        #[allow(dead_code)]
+        pub min_app_version: Option<String>,
+    }
+
+    /// One row of `GET /v1/catalog` (CatalogItemDto). Skills and bundles share
+    /// this shape; bundle rows carry null category/size/requirements.
+    #[derive(Debug, Deserialize)]
+    pub struct CatalogItem {
+        pub id: String,
+        pub name: String,
+        #[serde(default)]
+        pub pitch: Option<String>,
+        #[serde(default)]
+        pub category: Option<String>,
+        #[serde(default)]
+        pub price: Option<Money>,
+        #[serde(default)]
+        pub is_free: bool,
+        #[serde(default)]
+        pub requirements: Option<Requirements>,
+        #[serde(default)]
+        pub size: Option<i64>,
+        #[serde(default)]
+        pub owned: Option<bool>,
+    }
+
+    /// `GET /v1/catalog` is cursor-paginated: `{ items, next_cursor }`. We take
+    /// `items` only (the live-flow catalog command is not paginated).
+    #[derive(Debug, Deserialize)]
+    pub struct CatalogPage {
+        pub items: Vec<CatalogItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct SkillVersion {
+        pub version: String,
+        #[serde(default)]
+        pub size: Option<i64>,
+    }
+
+    /// `GET /v1/catalog/skills/{id}` (SkillDetailDto).
+    #[derive(Debug, Deserialize)]
+    pub struct SkillDetail {
+        pub id: String,
+        pub name: String,
+        #[serde(default)]
+        pub pitch: Option<String>,
+        #[serde(default)]
+        pub category: Option<String>,
+        #[serde(default)]
+        pub is_free: bool,
+        pub status: String,
+        #[serde(default)]
+        pub price: Option<Money>,
+        #[serde(default)]
+        pub compressed_prompt: Option<String>,
+        #[serde(default)]
+        pub has_preview: bool,
+        #[serde(default)]
+        pub min_model_tier: Option<String>,
+        #[serde(default)]
+        pub requirements: Option<Requirements>,
+        #[serde(default)]
+        pub current_version: Option<SkillVersion>,
+        #[serde(default)]
+        pub changelog: Option<String>,
+        #[serde(default)]
+        pub owned: Option<bool>,
+    }
+
+    /// `POST /v1/orders/checkout` (CheckoutResponse). `checkout_url` is null for
+    /// the wallet-funded path; the MoR path this client uses always sets it.
+    #[derive(Debug, Deserialize)]
+    pub struct Checkout {
+        pub order_id: String,
+        #[serde(default)]
+        pub checkout_url: Option<String>,
+    }
+
+    /// `GET /v1/orders/{id}` (OrderView) — we surface id + status only.
+    #[derive(Debug, Deserialize)]
+    pub struct Order {
+        pub order_id: String,
+        pub status: String,
+    }
+
+    /// One row of `GET /v1/entitlements` (EntitlementView).
+    #[derive(Debug, Deserialize)]
+    pub struct Entitlement {
+        pub skill_id: String,
+        pub status: String,
+    }
+
+    /// `POST /v1/licenses/issue` (IssueResponse) — `token` is the compact JWS.
+    #[derive(Debug, Deserialize)]
+    pub struct License {
+        pub token: String,
+    }
+
+    /// `GET /v1/download/skills/{id}/{ver}` (SkillDownloadResponse). `expires_at`
+    /// is an ISO-8601 instant string on the wire.
+    #[derive(Debug, Deserialize)]
+    pub struct Download {
+        pub url: String,
+        pub expires_at: String,
+        pub watermark: String,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Decode + map helpers (pure) — backend JSON string -> IPC type
+// ---------------------------------------------------------------------------
+
+fn price_cents(is_free: bool, price: &Option<wire::Money>) -> i64 {
+    if is_free {
+        0
+    } else {
+        price.as_ref().map(|m| m.amount).unwrap_or(0)
+    }
+}
+
+fn map_catalog_item(w: wire::CatalogItem) -> CatalogItem {
+    let price_cents = price_cents(w.is_free, &w.price);
+    let badge = hardware_badge(
+        w.requirements.as_ref().and_then(|r| r.min_model_tier.as_deref()),
+    );
+    CatalogItem {
+        id: w.id,
+        name: w.name,
+        pitch: w.pitch,
+        category: w.category,
+        price_cents,
+        size_bytes: w.size,
+        hardware_badge: badge,
+        ownership: w.owned,
+    }
+}
+
+fn decode_catalog(json: &str) -> Result<Vec<CatalogItem>, BackendError> {
+    let page: wire::CatalogPage = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(page.items.into_iter().map(map_catalog_item).collect())
+}
+
+fn map_skill_detail(w: wire::SkillDetail) -> SkillDetail {
+    let price = price_cents(w.is_free, &w.price);
+    // Prefer the detail-level tier; fall back to requirements.min_model_tier.
+    let tier = w
+        .min_model_tier
+        .as_deref()
+        .or_else(|| w.requirements.as_ref().and_then(|r| r.min_model_tier.as_deref()));
+    let badge = hardware_badge(tier);
+    let size_bytes = w.current_version.as_ref().and_then(|v| v.size);
+    let current_version = w.current_version.as_ref().map(|v| v.version.clone());
+    SkillDetail {
+        id: w.id,
+        name: w.name,
+        pitch: w.pitch,
+        category: w.category,
+        price_cents: price,
+        is_free: w.is_free,
+        status: w.status,
+        compressed_prompt: w.compressed_prompt,
+        has_preview: w.has_preview,
+        min_model_tier: w.min_model_tier,
+        hardware_badge: badge,
+        size_bytes,
+        current_version,
+        changelog: w.changelog,
+        ownership: w.owned,
+    }
+}
+
+fn decode_skill_detail(json: &str) -> Result<SkillDetail, BackendError> {
+    let w: wire::SkillDetail = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(map_skill_detail(w))
+}
+
+fn decode_checkout(json: &str) -> Result<CheckoutResult, BackendError> {
+    let w: wire::Checkout = serde_json::from_str(json).map_err(BackendError::decode)?;
+    let checkout_url = w.checkout_url.ok_or_else(|| {
+        BackendError::Decode("checkout response carried no checkout_url".to_string())
+    })?;
+    Ok(CheckoutResult { order_id: w.order_id, checkout_url })
+}
+
+fn decode_order(json: &str) -> Result<OrderStatusResult, BackendError> {
+    let w: wire::Order = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(OrderStatusResult { order_id: w.order_id, status: w.status })
+}
+
+fn decode_entitlements(json: &str) -> Result<Vec<EntitlementItem>, BackendError> {
+    let rows: Vec<wire::Entitlement> =
+        serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(rows
+        .into_iter()
+        .map(|w| EntitlementItem { skill_id: w.skill_id, status: w.status })
+        .collect())
+}
+
+fn decode_license(json: &str) -> Result<LicenseResult, BackendError> {
+    let w: wire::License = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(LicenseResult { compact_jws: w.token })
+}
+
+fn decode_download(json: &str) -> Result<DownloadUrlResult, BackendError> {
+    let w: wire::Download = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(DownloadUrlResult { url: w.url, expires_at: w.expires_at, watermark: w.watermark })
+}
+
+// ---------------------------------------------------------------------------
+// Client
+// ---------------------------------------------------------------------------
+
+/// Cheaply cloneable (`reqwest::Client` is an `Arc` internally). Registered
+/// once via `.manage()` in `main.rs`; each command clones it out of `State`
+/// before awaiting so no `State` borrow is held across an `.await`.
+#[derive(Clone)]
+pub struct BackendClient {
+    http: reqwest::Client,
+    base: String,
+}
+
+impl Default for BackendClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BackendClient {
+    /// Build with the base URL from `HYDROPARK_API_BASE` (or the dev default).
+    pub fn new() -> Self {
+        Self { http: reqwest::Client::new(), base: base_url() }
+    }
+
+    /// Build against an explicit base URL (used by tests / callers that already
+    /// resolved the base).
+    #[allow(dead_code)]
+    pub fn with_base(base: impl Into<String>) -> Self {
+        Self { http: reqwest::Client::new(), base: base.into() }
+    }
+
+    // --- catalog (PUBLIC — no bearer) --------------------------------------
+
+    pub async fn catalog_list(
+        &self,
+        region: Option<&str>,
+    ) -> Result<Vec<CatalogItem>, BackendError> {
+        let url = catalog_route(&self.base, region);
+        let resp = self.http.get(&url).send().await.map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_catalog(&body)
+    }
+
+    pub async fn catalog_detail(&self, skill_id: &str) -> Result<SkillDetail, BackendError> {
+        let url = catalog_detail_route(&self.base, skill_id);
+        let resp = self.http.get(&url).send().await.map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_skill_detail(&body)
+    }
+
+    // --- orders / entitlements / license / download (optional bearer) ------
+
+    pub async fn order_checkout(
+        &self,
+        target_id: &str,
+        region: &str,
+        bearer: Option<&str>,
+    ) -> Result<CheckoutResult, BackendError> {
+        let url = checkout_route(&self.base);
+        let req = with_bearer(self.http.post(&url).json(&checkout_body(target_id, region)), bearer);
+        let resp = req.send().await.map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_checkout(&body)
+    }
+
+    pub async fn order_get(
+        &self,
+        order_id: &str,
+        bearer: Option<&str>,
+    ) -> Result<OrderStatusResult, BackendError> {
+        let url = order_route(&self.base, order_id);
+        let resp = with_bearer(self.http.get(&url), bearer)
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_order(&body)
+    }
+
+    pub async fn entitlements_get(
+        &self,
+        bearer: Option<&str>,
+    ) -> Result<Vec<EntitlementItem>, BackendError> {
+        let url = entitlements_route(&self.base);
+        let resp = with_bearer(self.http.get(&url), bearer)
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_entitlements(&body)
+    }
+
+    pub async fn license_fetch(
+        &self,
+        skill_id: &str,
+        bearer: Option<&str>,
+    ) -> Result<LicenseResult, BackendError> {
+        let url = license_route(&self.base);
+        let device = device_id();
+        let req = with_bearer(
+            self.http.post(&url).json(&license_body(skill_id, &device)),
+            bearer,
+        );
+        let resp = req.send().await.map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_license(&body)
+    }
+
+    pub async fn download_url(
+        &self,
+        skill_id: &str,
+        version: &str,
+        bearer: Option<&str>,
+    ) -> Result<DownloadUrlResult, BackendError> {
+        let url = download_route(&self.base, skill_id, version);
+        let resp = with_bearer(self.http.get(&url), bearer)
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_download(&body)
+    }
+}
+
+/// Attach `Authorization: Bearer <token>` when a non-empty token is supplied.
+fn with_bearer(rb: reqwest::RequestBuilder, bearer: Option<&str>) -> reqwest::RequestBuilder {
+    match bearer.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(token) => rb.bearer_auth(token),
+        None => rb,
+    }
+}
+
+/// Read a response body, turning a non-2xx status into [`BackendError::Status`]
+/// (keeping the body, which is the backend's structured error envelope).
+async fn read_ok(resp: reqwest::Response) -> Result<String, BackendError> {
+    let status = resp.status();
+    let body = resp.text().await.map_err(BackendError::network)?;
+    if status.is_success() {
+        Ok(body)
+    } else {
+        Err(BackendError::Status { status: status.as_u16(), body })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — pure helpers only; no network I/O.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BASE: &str = "http://api.example";
+
+    #[test]
+    fn resolve_base_falls_back_to_default() {
+        assert_eq!(resolve_base(None), DEFAULT_API_BASE);
+        assert_eq!(resolve_base(Some("   ".to_string())), DEFAULT_API_BASE);
+        assert_eq!(resolve_base(Some(String::new())), DEFAULT_API_BASE);
+        assert_eq!(resolve_base(Some("http://x:9".to_string())), "http://x:9");
+    }
+
+    #[test]
+    fn join_normalizes_slashes() {
+        assert_eq!(join("http://x", "/v1/catalog"), "http://x/v1/catalog");
+        assert_eq!(join("http://x/", "/v1/catalog"), "http://x/v1/catalog");
+        assert_eq!(join("http://x/", "v1/catalog"), "http://x/v1/catalog");
+    }
+
+    #[test]
+    fn catalog_route_appends_region_query() {
+        assert_eq!(catalog_route(BASE, None), "http://api.example/v1/catalog");
+        assert_eq!(catalog_route(BASE, Some("")), "http://api.example/v1/catalog");
+        assert_eq!(catalog_route(BASE, Some("  ")), "http://api.example/v1/catalog");
+        assert_eq!(
+            catalog_route(BASE, Some("US")),
+            "http://api.example/v1/catalog?region=US"
+        );
+    }
+
+    #[test]
+    fn routes_are_built_correctly() {
+        assert_eq!(
+            catalog_detail_route(BASE, "home-diy"),
+            "http://api.example/v1/catalog/skills/home-diy"
+        );
+        assert_eq!(checkout_route(BASE), "http://api.example/v1/orders/checkout");
+        assert_eq!(order_route(BASE, "ord_1"), "http://api.example/v1/orders/ord_1");
+        assert_eq!(entitlements_route(BASE), "http://api.example/v1/entitlements");
+        assert_eq!(license_route(BASE), "http://api.example/v1/licenses/issue");
+        assert_eq!(
+            download_route(BASE, "home-diy", "1.4.2"),
+            "http://api.example/v1/download/skills/home-diy/1.4.2"
+        );
+    }
+
+    #[test]
+    fn checkout_body_is_a_mor_skill_purchase() {
+        let v = serde_json::to_value(checkout_body("home-diy", "US")).unwrap();
+        assert_eq!(v["kind"], "skill");
+        assert_eq!(v["payment_source"], "mor");
+        assert_eq!(v["target_id"], "home-diy");
+        assert_eq!(v["region"], "US");
+        // amount/currency are never sent for a skill purchase (server-derived price).
+        assert!(v.get("amount").is_none());
+        assert!(v.get("currency").is_none());
+    }
+
+    #[test]
+    fn license_body_carries_skill_and_device() {
+        let v = serde_json::to_value(license_body("home-diy", "dev-123")).unwrap();
+        assert_eq!(v["skill_id"], "home-diy");
+        assert_eq!(v["device_id"], "dev-123");
+    }
+
+    #[test]
+    fn hardware_badge_maps_known_tiers() {
+        assert_eq!(hardware_badge(Some("small")), "Runs on most PCs");
+        assert_eq!(hardware_badge(Some("S")), "Runs on most PCs");
+        assert_eq!(hardware_badge(Some("mid")), "Needs a mid-range PC");
+        assert_eq!(hardware_badge(Some("medium")), "Needs a mid-range PC");
+        assert_eq!(hardware_badge(Some("large")), "Needs a high-end PC");
+        assert_eq!(hardware_badge(None), "Runs on any device");
+        assert_eq!(hardware_badge(Some("wat")), "Runs on any device");
+    }
+
+    #[test]
+    fn decode_catalog_maps_price_size_badge_and_ownership() {
+        // A merged skills+bundles page: a priced skill, a free skill, and a
+        // bundle row with null category/size/requirements.
+        let json = r#"{
+          "items": [
+            {
+              "kind": "skill", "id": "home-diy", "name": "Home DIY",
+              "category": "home", "price": { "amount": 500, "currency": "USD" },
+              "is_free": false,
+              "requirements": { "min_model_tier": "mid", "min_app_version": null },
+              "size": 12345678, "current_version": "1.4.2", "owned": false,
+              "pitch": "Fix it yourself"
+            },
+            {
+              "kind": "skill", "id": "kitchen-timer", "name": "Kitchen Timer",
+              "category": "kitchen", "price": { "amount": 0, "currency": "USD" },
+              "is_free": true,
+              "requirements": { "min_model_tier": "small", "min_app_version": null },
+              "size": 2048, "current_version": "1.0.0", "owned": null
+            },
+            {
+              "kind": "bundle", "id": "home-starter-pack", "name": "Home Starter Pack",
+              "category": null, "price": { "amount": 1200, "currency": "USD" },
+              "is_free": false, "requirements": null, "size": null,
+              "current_version": null, "owned": null
+            }
+          ],
+          "next_cursor": null
+        }"#;
+
+        let items = decode_catalog(json).expect("decodes");
+        assert_eq!(items.len(), 3);
+
+        let diy = &items[0];
+        assert_eq!(diy.id, "home-diy");
+        assert_eq!(diy.pitch.as_deref(), Some("Fix it yourself"));
+        assert_eq!(diy.price_cents, 500);
+        assert_eq!(diy.size_bytes, Some(12345678));
+        assert_eq!(diy.hardware_badge, "Needs a mid-range PC");
+        assert_eq!(diy.ownership, Some(false));
+
+        let free = &items[1];
+        assert_eq!(free.price_cents, 0, "is_free forces priceCents to 0");
+        assert_eq!(free.hardware_badge, "Runs on most PCs");
+        assert_eq!(free.ownership, None, "null owned = anonymous/unknown");
+
+        let bundle = &items[2];
+        assert_eq!(bundle.category, None);
+        assert_eq!(bundle.size_bytes, None);
+        assert_eq!(bundle.hardware_badge, "Runs on any device");
+        assert_eq!(bundle.price_cents, 1200);
+    }
+
+    #[test]
+    fn decode_catalog_serializes_to_camelcase_ipc_shape() {
+        let json = r#"{"items":[{"id":"a","name":"A","is_free":true,
+            "requirements":{"min_model_tier":"small"},"size":10,"owned":true}],
+            "next_cursor":null}"#;
+        let items = decode_catalog(json).unwrap();
+        let v = serde_json::to_value(&items[0]).unwrap();
+        // The IPC boundary is camelCase, unlike the snake_case backend wire.
+        assert_eq!(v["priceCents"], 0);
+        assert_eq!(v["sizeBytes"], 10);
+        assert_eq!(v["hardwareBadge"], "Runs on most PCs");
+        assert_eq!(v["ownership"], true);
+        assert!(v.get("price_cents").is_none());
+    }
+
+    #[test]
+    fn decode_skill_detail_reshapes_current_version_and_prompt() {
+        let json = r#"{
+          "id": "home-diy", "name": "Home DIY", "category": "home",
+          "is_free": false, "status": "published",
+          "price": { "amount": 500, "currency": "USD" },
+          "compressed_prompt": "You help with DIY tasks.",
+          "has_preview": true, "min_model_tier": "mid",
+          "requirements": { "min_model_tier": "mid", "min_app_version": "1.0.0" },
+          "current_version": {
+            "version": "1.4.2", "min_app_version": "1.0.0", "size": 999,
+            "sha256": "deadbeef", "is_current": true, "changelog": "fixes",
+            "status": "published"
+          },
+          "changelog": "fixes", "owned": true
+        }"#;
+
+        let d = decode_skill_detail(json).expect("decodes");
+        assert_eq!(d.id, "home-diy");
+        assert_eq!(d.price_cents, 500);
+        assert_eq!(d.compressed_prompt.as_deref(), Some("You help with DIY tasks."));
+        assert!(d.has_preview);
+        assert_eq!(d.current_version.as_deref(), Some("1.4.2"));
+        assert_eq!(d.size_bytes, Some(999));
+        assert_eq!(d.hardware_badge, "Needs a mid-range PC");
+        assert_eq!(d.ownership, Some(true));
+    }
+
+    #[test]
+    fn decode_checkout_extracts_order_and_url() {
+        let json = r#"{"order_id":"ord_1","checkout_url":"https://pay.example/s/abc"}"#;
+        let r = decode_checkout(json).unwrap();
+        assert_eq!(r.order_id, "ord_1");
+        assert_eq!(r.checkout_url, "https://pay.example/s/abc");
+    }
+
+    #[test]
+    fn decode_checkout_errors_when_url_missing() {
+        // Wallet-funded checkout has no checkout_url; the MoR command needs one.
+        let json = r#"{"order_id":"ord_1","owned":["home-diy"]}"#;
+        let err = decode_checkout(json).unwrap_err();
+        assert!(matches!(err, BackendError::Decode(_)));
+    }
+
+    #[test]
+    fn decode_order_extracts_status() {
+        let json = r#"{"order_id":"ord_1","kind":"skill","target_id":"home-diy",
+            "amount":500,"currency":"USD","payment_source":"mor",
+            "status":"pending","created_at":"2026-07-12T00:00:00Z"}"#;
+        let r = decode_order(json).unwrap();
+        assert_eq!(r.order_id, "ord_1");
+        assert_eq!(r.status, "pending");
+    }
+
+    #[test]
+    fn decode_entitlements_maps_rows() {
+        let json = r#"[{"skill_id":"home-diy","status":"owned"},
+            {"skill_id":"garden-plants","status":"revoked"}]"#;
+        let rows = decode_entitlements(json).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], EntitlementItem { skill_id: "home-diy".into(), status: "owned".into() });
+        assert_eq!(rows[1].status, "revoked");
+    }
+
+    #[test]
+    fn decode_license_takes_token_as_compact_jws() {
+        let json = r#"{"license_id":"lic_1","token":"eyJhbGciOiJFUzI1NiJ9.e30.sig","kid":"k1"}"#;
+        let r = decode_license(json).unwrap();
+        assert_eq!(r.compact_jws, "eyJhbGciOiJFUzI1NiJ9.e30.sig");
+    }
+
+    #[test]
+    fn decode_download_maps_all_fields() {
+        let json = r#"{"url":"https://blob.example/x?sig=1",
+            "expires_at":"2026-07-12T01:00:00Z","watermark":"wm-abc"}"#;
+        let r = decode_download(json).unwrap();
+        assert_eq!(r.url, "https://blob.example/x?sig=1");
+        assert_eq!(r.expires_at, "2026-07-12T01:00:00Z");
+        assert_eq!(r.watermark, "wm-abc");
+    }
+
+    #[test]
+    fn decode_reports_error_on_garbage() {
+        assert!(matches!(decode_catalog("not json"), Err(BackendError::Decode(_))));
+        assert!(matches!(decode_order("{}"), Err(BackendError::Decode(_))));
+    }
+}

@@ -5,6 +5,7 @@
 // responsibility split this file implements.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backend_client;
 mod capacity;
 mod composition;
 mod grammar;
@@ -28,11 +29,14 @@ mod unlock;
 
 use tauri::{AppHandle, Manager, State};
 
+use backend_client::BackendClient;
 use ipc::{
-    CmdError, HardwareProfile, InferenceCancelArgs, InferenceStartArgs, NotifyArgs,
-    SkillDisableArgs, SkillEnableArgs, SkillEnableResult, TelemetryEvent, TimerControlArgs,
-    TimerStateSnapshot, ToolCallError, ToolCallErrorCode, ToolCallRequest, ToolCallResponse,
-    ToolName,
+    CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult, CmdError,
+    DownloadUrlArgs, DownloadUrlResult, EntitlementsGetArgs, EntitlementsResult, HardwareProfile,
+    InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult, NotifyArgs,
+    OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SkillDetail, SkillDisableArgs,
+    SkillEnableArgs, SkillEnableResult, TelemetryEvent, TimerControlArgs, TimerStateSnapshot,
+    ToolCallError, ToolCallErrorCode, ToolCallRequest, ToolCallResponse, ToolName,
 };
 
 // ---------------------------------------------------------------------------
@@ -224,11 +228,91 @@ fn compose_agent(
     composition::compose_agent_view(&manifests, primary_hint.as_deref(), n_ctx.unwrap_or(4096))
 }
 
+// ---------------------------------------------------------------------------
+// Marketplace / live-flow commands (P1-08.x). The Rust core owns network egress
+// (the webview CSP is `connect-src 'self'`), so catalog / orders / entitlements
+// / license / download all cross the IPC boundary here and delegate to
+// `backend_client.rs`. Each clones the managed `BackendClient` out of `State`
+// before awaiting so no `State` borrow is held across an `.await`. `catalog_*`
+// are PUBLIC (no bearer); the rest pass an optional bearer access token through
+// when present (the client auth flow that mints it is a later tranche).
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn catalog_list(
+    args: CatalogListArgs,
+    client: State<'_, BackendClient>,
+) -> Result<CatalogListResult, CmdError> {
+    let client = client.inner().clone();
+    let skills = client.catalog_list(args.region.as_deref()).await?;
+    Ok(CatalogListResult { skills })
+}
+
+#[tauri::command]
+async fn catalog_detail(
+    args: CatalogDetailArgs,
+    client: State<'_, BackendClient>,
+) -> Result<SkillDetail, CmdError> {
+    let client = client.inner().clone();
+    Ok(client.catalog_detail(&args.skill_id).await?)
+}
+
+#[tauri::command]
+async fn order_checkout(
+    args: OrderCheckoutArgs,
+    client: State<'_, BackendClient>,
+) -> Result<CheckoutResult, CmdError> {
+    let client = client.inner().clone();
+    Ok(client
+        .order_checkout(&args.target_id, &args.region, args.bearer.as_deref())
+        .await?)
+}
+
+#[tauri::command]
+async fn order_get(
+    args: OrderGetArgs,
+    client: State<'_, BackendClient>,
+) -> Result<OrderStatusResult, CmdError> {
+    let client = client.inner().clone();
+    Ok(client.order_get(&args.order_id, args.bearer.as_deref()).await?)
+}
+
+#[tauri::command]
+async fn entitlements_get(
+    args: EntitlementsGetArgs,
+    client: State<'_, BackendClient>,
+) -> Result<EntitlementsResult, CmdError> {
+    let client = client.inner().clone();
+    let skills = client.entitlements_get(args.bearer.as_deref()).await?;
+    Ok(EntitlementsResult { skills })
+}
+
+#[tauri::command]
+async fn license_fetch(
+    args: LicenseFetchArgs,
+    client: State<'_, BackendClient>,
+) -> Result<LicenseResult, CmdError> {
+    let client = client.inner().clone();
+    Ok(client.license_fetch(&args.skill_id, args.bearer.as_deref()).await?)
+}
+
+#[tauri::command]
+async fn download_url(
+    args: DownloadUrlArgs,
+    client: State<'_, BackendClient>,
+) -> Result<DownloadUrlResult, CmdError> {
+    let client = client.inner().clone();
+    Ok(client
+        .download_url(&args.skill_id, &args.version, args.bearer.as_deref())
+        .await?)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(tools::AppState::new())
         .manage(inference::CancelRegistry::new())
+        .manage(BackendClient::new())
         .setup(|app| {
             log_hardware_profile();
             // Seed the paid-skill session cache from the persisted unlock so a
@@ -256,6 +340,13 @@ fn main() {
             get_hardware_profile,
             telemetry_log,
             notify,
+            catalog_list,
+            catalog_detail,
+            order_checkout,
+            order_get,
+            entitlements_get,
+            license_fetch,
+            download_url,
             unlock::unlock_redeem,
             unlock::unlock_status,
         ])

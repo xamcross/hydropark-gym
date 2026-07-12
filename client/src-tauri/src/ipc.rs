@@ -387,6 +387,172 @@ pub const TELEMETRY_SCHEMA_VERSION: u32 = 1;
 pub type TelemetryEvent = serde_json::Value;
 
 // ---------------------------------------------------------------------------
+// Marketplace / live-flow commands (P1-08.x) — catalog, orders, entitlements,
+// license, download. UNLIKE the rest of this file (snake_case on the IPC wire,
+// see the header + IPC-CONTRACT.md), these commands use **camelCase** field
+// names on the Rust<->Angular boundary: that is the shape both halves of the
+// live-flow wiring were specified against, and the shape Angular's
+// `invoke(name, { args })` sends/expects. The Rust core (not the webview) owns
+// network egress — the webview CSP is `connect-src 'self'` — so these cross the
+// IPC boundary as Tauri commands that call `backend_client.rs`. The backend's
+// own wire shape is snake_case and reshaped here; `backend_client.rs` decodes
+// the backend JSON into these types.
+// ---------------------------------------------------------------------------
+
+// --- catalog (PUBLIC — no bearer) ------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogListArgs {
+    #[serde(default)]
+    pub region: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogDetailArgs {
+    pub skill_id: String,
+}
+
+/// One marketplace card. `priceCents == 0` means free. `sizeBytes`/`category`/
+/// `pitch`/`ownership` are `null` when the backend has no value (e.g. bundles
+/// carry no category/size; `ownership` is `null` for an anonymous caller,
+/// distinguishing "not authenticated" from "authenticated and not owned").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogItem {
+    pub id: String,
+    pub name: String,
+    pub pitch: Option<String>,
+    pub category: Option<String>,
+    pub price_cents: i64,
+    pub size_bytes: Option<i64>,
+    pub hardware_badge: String,
+    pub ownership: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogListResult {
+    pub skills: Vec<CatalogItem>,
+}
+
+/// `GET /v1/catalog/skills/{id}` reshaped for the detail page. Carries the
+/// backend's `compressed_prompt` teaser ONLY — never a full system prompt
+/// (there is no such field on the wire; see SkillDetailDto's javadoc).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDetail {
+    pub id: String,
+    pub name: String,
+    pub pitch: Option<String>,
+    pub category: Option<String>,
+    pub price_cents: i64,
+    pub is_free: bool,
+    pub status: String,
+    pub compressed_prompt: Option<String>,
+    pub has_preview: bool,
+    pub min_model_tier: Option<String>,
+    pub hardware_badge: String,
+    pub size_bytes: Option<i64>,
+    pub current_version: Option<String>,
+    pub changelog: Option<String>,
+    pub ownership: Option<bool>,
+}
+
+// --- orders (optional bearer) ----------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderCheckoutArgs {
+    pub target_id: String,
+    pub region: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutResult {
+    pub order_id: String,
+    pub checkout_url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderGetArgs {
+    pub order_id: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderStatusResult {
+    pub order_id: String,
+    pub status: String,
+}
+
+// --- entitlements (optional bearer) ----------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitlementsGetArgs {
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitlementItem {
+    pub skill_id: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitlementsResult {
+    pub skills: Vec<EntitlementItem>,
+}
+
+// --- license issue (optional bearer) ---------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseFetchArgs {
+    pub skill_id: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+/// The offline-verifiable compact JWS (the backend's `token`); `license_verify.rs`
+/// is what checks it against the pinned per-`kid` key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseResult {
+    pub compact_jws: String,
+}
+
+// --- download URL (optional bearer) ----------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadUrlArgs {
+    pub skill_id: String,
+    pub version: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadUrlResult {
+    pub url: String,
+    pub expires_at: String,
+    pub watermark: String,
+}
+
+// ---------------------------------------------------------------------------
 // Command errors
 // ---------------------------------------------------------------------------
 
@@ -406,6 +572,11 @@ pub enum CmdError {
     /// redeemed (P0-05.3/.5). The webview surfaces this as the locked state.
     #[error("skill is locked; redeem an unlock code first")]
     SkillLocked,
+    /// A backend HTTP call (catalog / orders / entitlements / license / download)
+    /// failed — network, non-2xx status, or an undecodable body. Carries the
+    /// `backend_client::BackendError`'s message; see that module for the taxonomy.
+    #[error("backend request failed: {0}")]
+    Backend(String),
 }
 
 impl From<std::io::Error> for CmdError {

@@ -1,0 +1,93 @@
+<!-- P1 live-flow — the composed agent's live panel surface. Summary + dynamic
+     dock (widgets mounted by the registry) + the bus's shared-state readout. -->
+<section class="composed-host" aria-label="Composed agent">
+  <header class="ch-head">
+    <h2 class="ch-title">Composed agent</h2>
+    @if (composing()) {
+      <span class="ch-status" role="status">Composing…</span>
+    }
+    @if (!composing() && composed(); as c) {
+      <span class="ch-status ch-ok">
+        {{ c.order.length }} skill{{ c.order.length === 1 ? '' : 's' }}
+        @if (c.primary) { · lead: <strong>{{ c.primary }}</strong> }
+      </span>
+    }
+  </header>
+
+  <!-- Structured composition failure (SPEC §8.3.5 block, conflicts, etc.) -->
+  @if (error(); as e) {
+    <div class="ch-error" role="alert">
+      <p class="ch-error-title">Couldn't compose the agent</p>
+      <p class="ch-error-msg"><span class="ch-error-kind">{{ e.kind }}</span> — {{ e.message }}</p>
+    </div>
+  }
+
+  @if (composed(); as c) {
+    <!-- Capacity gate outcome -->
+    @if (c.capacity.blocked) {
+      <p class="ch-capacity ch-capacity-blocked" role="alert">
+        Context overflow: {{ c.capacity.used_tokens }} / {{ c.capacity.ctx_window }} tokens
+        (over by {{ c.capacity.overflow }}). Disable a skill to fit.
+      </p>
+    } @else {
+      <p class="ch-capacity">
+        Context {{ c.capacity.used_tokens }} / {{ c.capacity.ctx_window }} tokens
+        · {{ c.capacity.remaining }} free
+      </p>
+    }
+
+    <!-- Composed persona preview (compressed/assembled — never the paid prompt) -->
+    @if (personaPreview()) {
+      <details class="ch-persona">
+        <summary>Assembled persona</summary>
+        <p class="ch-persona-text">{{ personaPreview() }}</p>
+      </details>
+    }
+
+    <!-- Composed tool set -->
+    @if (c.tools.length) {
+      <div class="ch-tools" aria-label="Composed tools">
+        @for (t of c.tools; track t.call_name) {
+          <span class="ch-tool" [class.ch-tool-ns]="t.namespaced" [title]="t.contributors.join(', ')">
+            {{ t.call_name }}
+          </span>
+        }
+      </div>
+    }
+  }
+
+  <!-- Bus shared-state readout — proves tool→state routing lands on the bus -->
+  @if (slots().length) {
+    <div class="ch-slots" aria-label="Shared state">
+      @for (s of slots(); track s.slot) {
+        <div class="ch-slot">
+          <span class="ch-slot-name">{{ s.slot }}</span>
+          <span class="ch-slot-val">{{ slotSummary(s.slot) }}</span>
+          <span class="ch-slot-ver">v{{ slotVersion(s.slot) }}</span>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- The panels themselves, animated in/out by the reduce-motion-aware
+       structural directive (kept OUTSIDE any @if so its exit beat can play). -->
+  <div class="ch-panels" *appPanelTransition="hasAgent()">
+    <app-layout-dock
+      [panels]="panels()"
+      [loading]="composing()"
+      emptyLabel="This agent has no panels — it is chat-only."
+    >
+      <ng-template appPanelBody let-panel>
+        @if (componentFor(panel.descriptor.widgetType); as cmp) {
+          <ng-container *ngComponentOutlet="cmp; inputs: inputsFor(panel)"></ng-container>
+        } @else {
+          <p class="ch-no-renderer">No renderer for "{{ panel.descriptor.widgetType }}".</p>
+        }
+      </ng-template>
+    </app-layout-dock>
+  </div>
+
+  @if (!hasAgent()) {
+    <p class="ch-idle" role="status">No skills enabled — enable one to compose an agent.</p>
+  }
+</section>

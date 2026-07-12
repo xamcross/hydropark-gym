@@ -113,8 +113,55 @@
   overflow-y: auto;
 }
 
+.shell-nav {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.nav-btn {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.nav-btn.on {
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+  background: var(--color-primary);
+}
+
+.compose-region {
+  width: 360px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.marketplace-region {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
 @media (max-width: 860px) {
   .layout {
     flex-direction: column;
+  }
+
+  .compose-region {
+    width: 100%;
   }
 }
