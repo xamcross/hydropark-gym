@@ -22,7 +22,7 @@
 <!-- ═══════════════════════ ANALYTICS (P1-24.2) ═══════════════════════
      Privacy-friendly, cookieless product analytics for the funnel events
      app.js ALREADY emits (lp_view · plate_added · plate_removed ·
-     plate_refused{reason} · lead_changed · lead_refused · bench_changed ·
+     plate_refused{reason} · lead_changed · bench_changed ·
      preset_loaded · loadout_copied · download_click · checkout_click).
      No new events are invented here; no PII or conversation content is ever
      sent (SPEC §15). `track()` in app.js pushes each event to `dataLayer`
@@ -183,7 +183,7 @@
             data-snippet="Timers, unit conversion, and a tick-off ingredient checklist."
             data-persona="You are a brisk kitchen helper. Answer in one or two lines and reach for a timer before you reach for a paragraph."
             data-certified="true" data-cost-estimate="190"
-            data-cost-source="contracts/examples/kitchen-timer.manifest.json#/cost_estimate">
+            data-cost-source="contracts/catalog/kitchen-timer.manifest.json#/cost_estimate">
             <span class="plate__price plate__price--free">Free</span>
             <span class="plate__name">Kitchen Timer &amp; Units</span>
             <span class="plate__blurb">Timers, a cups-to-grams switch, and a tick-off ingredient list. The free sample of the idea.</span>
@@ -194,127 +194,163 @@
           <button class="plate" type="button" aria-pressed="false"
             data-id="packing-list" data-name="Packing List" data-price="0"
             data-role="primary_eligible" data-priority="25"
-            data-prompt="160" data-fewshot="0" data-compressed="32"
-            data-tools="list_manage,date_math"
-            data-panels="editable_list#packing_list,date_time_picker#dates"
+            data-prompt="350" data-fewshot="0" data-compressed="32"
+            data-tools="list_manage,date_math,calculate"
+            data-panels="editable_list#packing,date_time_picker#departure,quick_actions#quick_add,key_value_panel#trip_summary"
             data-writes="packing_list"
             data-snippet="Packing lists and trip dates."
             data-persona="You are a calm packing assistant. Ask where and how long, then build the list."
-            data-certified="false"
-            data-cost-source="PENDING — P1-22.2 not yet authored (contracts/catalog/packing-list.manifest.json)">
+            data-certified="true" data-cost-estimate="350"
+            data-cost-source="contracts/catalog/packing-list.manifest.json#/cost_estimate">
             <span class="plate__price plate__price--free">Free</span>
             <span class="plate__name">Packing List</span>
             <span class="plate__blurb">A checklist and a date picker. Writes the <code>packing_list</code> slot.</span>
-            <span class="plate__meta"><i>160 tok</i><i>2 tools</i><i>2 panels</i></span>
+            <span class="plate__meta"><i>350 tok</i><i>3 tools</i><i>4 panels</i></span>
           </button>
         </li>
         <li>
           <button class="plate" type="button" aria-pressed="false"
             data-id="cooking-assistant" data-name="Cooking Assistant" data-price="5"
             data-role="primary_eligible" data-priority="60"
-            data-prompt="380" data-fewshot="0" data-compressed="45"
+            data-prompt="620" data-fewshot="0" data-compressed="45"
             data-tools="start_timer,convert_units,list_manage"
             data-panels="timer_stack#timers,editable_list#ingredients,segmented_toggle#unit_system"
             data-writes="ingredients"
             data-conflicts="kitchen-timer"
             data-snippet="Cooking specialist: recipes, substitutions, timers, units."
             data-persona="You are a warm, practical cooking assistant. Explain substitutions. Never make authoritative allergen claims."
-            data-certified="true" data-cost-estimate="380"
-            data-cost-source="contracts/examples/cooking-assistant.manifest.json#/cost_estimate">
+            data-certified="true" data-cost-estimate="620"
+            data-cost-source="contracts/catalog/cooking-assistant.manifest.json#/cost_estimate">
             <span class="plate__price">$5</span>
             <span class="plate__name">Cooking Assistant</span>
             <span class="plate__blurb">Fills the ingredient list from a recipe, runs the timers, flips the units.</span>
-            <span class="plate__meta"><i>380 tok</i><i>3 tools</i><i>3 panels</i></span>
+            <span class="plate__meta"><i>620 tok</i><i>3 tools</i><i>3 panels</i></span>
           </button>
         </li>
         <li>
           <button class="plate" type="button" aria-pressed="false"
             data-id="nutrition-coach" data-name="Nutrition Coach" data-price="5"
             data-role="secondary_only" data-priority="40"
-            data-prompt="300" data-fewshot="0" data-compressed="38"
-            data-tools="calculate,list_manage"
-            data-panels="key_value_panel#nutrition"
+            data-prompt="650" data-fewshot="0" data-compressed="38"
+            data-tools="calculate,list_manage,convert_units"
+            data-panels="media_note#disclaimer,key_value_panel#targets,editable_list#food_log,table#macros,segmented_toggle#units,quick_actions#quick_nutrition"
             data-reads="ingredients"
             data-snippet="Nutrition: calories and macros for the current list. Informational only."
             data-persona=""
-            data-certified="false"
-            data-cost-source="PENDING — P1-22.5 not yet authored (contracts/catalog/nutrition-coach.manifest.json)">
+            data-certified="true" data-cost-estimate="650"
+            data-cost-source="contracts/catalog/nutrition-coach.manifest.json#/cost_estimate">
             <span class="plate__price">$5</span>
             <span class="plate__name">Nutrition Coach</span>
             <span class="plate__blurb">Reads whatever is in <code>ingredients</code> and shows the macros. Never leads.</span>
-            <span class="plate__meta"><i>38 tok</i><i>2 tools</i><i>1 panel</i></span>
+            <span class="plate__meta"><i>650 tok</i><i>3 tools</i><i>6 panels</i></span>
           </button>
         </li>
         <li>
           <button class="plate" type="button" aria-pressed="false"
             data-id="travel-planner" data-name="Travel Planner" data-price="5"
             data-role="primary_eligible" data-priority="55"
-            data-prompt="420" data-fewshot="260" data-compressed="44"
-            data-tools="list_manage,date_math,convert_units,quick_note"
-            data-panels="editable_list#itinerary,date_time_picker#dates,table#bookings,key_value_panel#budget"
+            data-prompt="520" data-fewshot="0" data-compressed="44"
+            data-tools="list_manage,date_math,calculate,convert_units"
+            data-panels="editable_list#itinerary,date_time_picker#depart_date,date_time_picker#return_date,table#budget_table,segmented_toggle#temp_units,quick_actions#quick_plan"
             data-writes="trip_dates" data-reads="packing_list"
             data-snippet="Travel planning: itineraries, dates, budgets."
             data-persona="You are a seasoned trip planner. Work in days, not adjectives. Confirm dates before you commit to a plan."
-            data-certified="false"
-            data-cost-source="PENDING — P1-22.4 not yet authored (contracts/catalog/travel-planner.manifest.json)">
+            data-certified="true" data-cost-estimate="520"
+            data-cost-source="contracts/catalog/travel-planner.manifest.json#/cost_estimate">
             <span class="plate__price">$5</span>
             <span class="plate__name">Travel Planner</span>
-            <span class="plate__blurb">The heaviest plate on the rack — it carries worked examples. Reads your packing list.</span>
-            <span class="plate__meta"><i>680 tok</i><i>4 tools</i><i>4 panels</i></span>
+            <span class="plate__blurb">Day-by-day itineraries, trip-length math, and a rough budget. Reads your packing list.</span>
+            <span class="plate__meta"><i>520 tok</i><i>4 tools</i><i>6 panels</i></span>
           </button>
         </li>
         <li>
           <button class="plate" type="button" aria-pressed="false"
             data-id="home-diy" data-name="Home &amp; DIY" data-price="5"
             data-role="primary_eligible" data-priority="50"
-            data-prompt="340" data-fewshot="90" data-compressed="40"
-            data-tools="convert_units,calculate,list_manage"
-            data-panels="editable_list#shopping_list,stepper#quantities,table#cut_list"
+            data-prompt="680" data-fewshot="0" data-compressed="40"
+            data-tools="calculate,convert_units,list_manage,start_timer,date_math"
+            data-panels="media_note#safety_note,editable_list#materials,table#estimates,timer_stack#timers,segmented_toggle#units,quick_actions#quick_diy,key_value_panel#project"
             data-writes="shopping_list"
             data-snippet="Home repair: measurements, materials, cut lists."
             data-persona="You are a patient, safety-minded handyman. Measure twice in every answer."
-            data-certified="false"
-            data-cost-source="PENDING — P1-22.6 not yet authored (contracts/catalog/home-diy.manifest.json)">
+            data-certified="true" data-cost-estimate="680"
+            data-cost-source="contracts/catalog/home-diy.manifest.json#/cost_estimate">
             <span class="plate__price">$5</span>
             <span class="plate__name">Home &amp; DIY</span>
             <span class="plate__blurb">Cut lists, materials, quantities. Writes the <code>shopping_list</code> slot.</span>
-            <span class="plate__meta"><i>430 tok</i><i>3 tools</i><i>3 panels</i></span>
+            <span class="plate__meta"><i>680 tok</i><i>5 tools</i><i>7 panels</i></span>
           </button>
         </li>
         <li>
           <button class="plate" type="button" aria-pressed="false"
             data-id="garden-plants" data-name="Garden &amp; Plants" data-price="5"
             data-role="primary_eligible" data-priority="45"
-            data-prompt="300" data-fewshot="0" data-compressed="36"
-            data-tools="start_timer,date_math,list_manage"
-            data-panels="editable_list#plants,date_time_picker#dates,media_note#care"
+            data-prompt="640" data-fewshot="0" data-compressed="36"
+            data-tools="date_math,list_manage,calculate,convert_units,start_timer"
+            data-panels="media_note#safety_note,editable_list#garden_tasks,date_time_picker#last_frost,table#watering,timer_stack#timers,quick_actions#quick_garden,key_value_panel#conditions"
             data-reads="shopping_list"
             data-snippet="Garden care: watering schedules, seasons."
             data-persona="You are an unhurried gardener. Think in seasons."
-            data-certified="false"
-            data-cost-source="PENDING — P1-22.7 not yet authored (contracts/catalog/garden-plants.manifest.json)">
+            data-certified="true" data-cost-estimate="640"
+            data-cost-source="contracts/catalog/garden-plants.manifest.json#/cost_estimate">
             <span class="plate__price">$5</span>
             <span class="plate__name">Garden &amp; Plants</span>
             <span class="plate__blurb">Watering schedules and season notes. Shares the date picker with Travel.</span>
-            <span class="plate__meta"><i>300 tok</i><i>3 tools</i><i>3 panels</i></span>
+            <span class="plate__meta"><i>640 tok</i><i>5 tools</i><i>7 panels</i></span>
           </button>
         </li>
         <li>
           <button class="plate" type="button" aria-pressed="false"
             data-id="car-care" data-name="Car Care" data-price="5"
             data-role="primary_eligible" data-priority="35"
-            data-prompt="310" data-fewshot="0" data-compressed="36"
-            data-tools="date_math,calculate,list_manage"
-            data-panels="table#service_log,date_time_picker#dates,key_value_panel#specs"
+            data-prompt="660" data-fewshot="0" data-compressed="36"
+            data-tools="list_manage,date_math,calculate,convert_units,start_timer"
+            data-panels="media_note#safety_note,editable_list#maintenance_log,date_time_picker#last_service,key_value_panel#vehicle,table#intervals,segmented_toggle#units,quick_actions#quick_car"
             data-reads="shopping_list"
             data-snippet="Car maintenance: schedules, fluids, service log."
             data-persona="You are a methodical mechanic. Give intervals, not opinions."
-            data-certified="false"
-            data-cost-source="PENDING — P1-22.8 not yet authored (contracts/catalog/car-care.manifest.json)">
+            data-certified="true" data-cost-estimate="660"
+            data-cost-source="contracts/catalog/car-care.manifest.json#/cost_estimate">
             <span class="plate__price">$5</span>
             <span class="plate__name">Car Care</span>
             <span class="plate__blurb">Service intervals and a log that remembers what you did last spring.</span>
-            <span class="plate__meta"><i>310 tok</i><i>3 tools</i><i>3 panels</i></span>
+            <span class="plate__meta"><i>660 tok</i><i>5 tools</i><i>7 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="budget-bills" data-name="Budget &amp; Bills" data-price="5"
+            data-role="primary_eligible" data-priority="30"
+            data-prompt="640" data-fewshot="0" data-compressed="42"
+            data-tools="list_manage,calculate,date_math"
+            data-panels="media_note#disclaimer,editable_list#bills,table#breakdown,key_value_panel#totals,date_time_picker#due_date,quick_actions#quick_budget"
+            data-writes="bills"
+            data-snippet="Budgeting: a bills checklist, cost splits, and 50/30/20 math."
+            data-persona="You are a calm, plain-spoken budgeting helper. Show the sum in a line, then the total. This is general education, never financial advice."
+            data-certified="true" data-cost-estimate="640"
+            data-cost-source="contracts/catalog/budget-bills.manifest.json#/cost_estimate">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Budget &amp; Bills</span>
+            <span class="plate__blurb">A bills checklist, a spending breakdown, and monthly totals. General education, not financial advice.</span>
+            <span class="plate__meta"><i>640 tok</i><i>3 tools</i><i>6 panels</i></span>
+          </button>
+        </li>
+        <li>
+          <button class="plate" type="button" aria-pressed="false"
+            data-id="study-flashcards" data-name="Study &amp; Flashcards" data-price="5"
+            data-role="primary_eligible" data-priority="32"
+            data-prompt="620" data-fewshot="0" data-compressed="40"
+            data-tools="list_manage,date_math,start_timer,calculate"
+            data-panels="timer_stack#timers,editable_list#cards,progress#session,table#schedule,quick_actions#quick_study,key_value_panel#stats"
+            data-writes="cards"
+            data-snippet="Study: flashcards, spaced-repetition reviews, and focus timers."
+            data-persona="You are an encouraging study coach. Quiz one card at a time, ask before you reveal, and celebrate progress."
+            data-certified="true" data-cost-estimate="620"
+            data-cost-source="contracts/catalog/study-flashcards.manifest.json#/cost_estimate">
+            <span class="plate__price">$5</span>
+            <span class="plate__name">Study &amp; Flashcards</span>
+            <span class="plate__blurb">Turns your notes into a deck, schedules reviews, and runs focus timers.</span>
+            <span class="plate__meta"><i>620 tok</i><i>4 tools</i><i>6 panels</i></span>
           </button>
         </li>
       </ul>
@@ -339,12 +375,14 @@
       <div class="gauge">
         <div class="gauge__head">
           <span class="gauge__title">Prompt budget</span>
-          <span class="gauge__val"><b id="tokUsed">0</b> / <span id="tokBudget">2600</span> tokens</span>
+          <span class="gauge__val"><b id="tokUsed">0</b> / <span id="tokBudget">3072</span> tokens</span>
         </div>
         <div class="gauge__track"><span class="gauge__fill" id="tokFill"></span></div>
         <p class="gauge__foot">
-          The rest of the context window is reserved for your conversation, so a long
-          chat never quietly evicts a skill.
+          Skills may fill 3,072 tokens; the other 1,024 of the model's 4,096-token
+          window is held back for your conversation, so a long chat never quietly
+          evicts a skill. The budget is the same on every machine — your bench sets
+          speed, not how much fits.
         </p>
       </div>
 
@@ -571,11 +609,14 @@
 
       <details>
         <summary>How many skills can it hold at once?</summary>
-        <p>There is no fixed number, which is why there is a meter. Each skill spends
-        some of a prompt budget; the leader spends the most. On an 8&nbsp;GB laptop with no
-        graphics card you will get a comfortable two or three and a warning on the fourth.
-        On 16&nbsp;GB you will stop noticing. Set the bench above to the weakest machine and
-        the planner will start telling you no — that is the real rule, not a marketing number.</p>
+        <p>There is no fixed number, which is why there is a meter. Each skill spends part
+        of the model's context window — its instructions, its tools, and its panels — and
+        the app holds a fixed reserve back for your live conversation. When the next skill
+        would not fit, the planner refuses it before you enable it and names the plate to
+        drop. That budget is the same on every machine: a stronger bench buys faster replies
+        and fewer speed warnings, not more plates. Toggle the bench above and the speed
+        readout moves while the capacity stays put — that is the real rule, not a marketing
+        number.</p>
       </details>
 
       <details>
