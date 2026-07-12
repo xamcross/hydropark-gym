@@ -1,0 +1,46 @@
+<!--
+  Hydropark account portal (P1-27, SPEC §12) — a framework-light, plain-TypeScript SPA.
+
+  BUILD/RUN NOTE: this task ships type-checked source only (verified by `tsc --noEmit`, see
+  tsconfig.json). tsconfig sets `noEmit: true`, so no JS is produced here; a bundler (esbuild/vite)
+  or a separate `tsc` emit step produces `dist/app.js` from `src/app.ts` for the browser. Runtime
+  correctness is out of scope for this task. To point the portal at a non-same-origin API, set
+  `window.HYDROPARK_API_BASE` before app.js loads.
+-->
+<a class="skip-link" href="#outlet">Skip to main content</a>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">◆</span>
+    <span class="brand-name">Hydropark</span>
+    <span class="brand-sub">Account</span>
+  </div>
+
+  <button id="nav-toggle" class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav">
+    <span class="visually-hidden">Toggle navigation</span>
+    <span class="nav-toggle-bar" aria-hidden="true"></span>
+  </button>
+
+  <nav id="primary-nav" class="primary-nav" aria-label="Account sections">
+    <ul id="nav-list" class="nav-list"></ul>
+  </nav>
+
+  <div id="session-area" class="session-area"></div>
+</header>
+
+<div id="verify-banner" class="verify-banner-host"></div>
+
+<main id="outlet" class="outlet" tabindex="-1"></main>
+
+<footer class="app-footer">
+  <span>© Hydropark</span>
+  <span class="footer-sep" aria-hidden="true">·</span>
+  <a class="footer-link" href="#/privacy">Privacy &amp; data</a>
+  <span class="footer-sep" aria-hidden="true">·</span>
+  <a class="footer-link" href="#/support">Support</a>
+</footer>
+
+<!-- Visually-hidden polite live region for screen-reader status announcements. -->
+<div id="live-region" class="visually-hidden" role="status" aria-live="polite"></div>
+
+<script type="module" src="./dist/app.js"></script>

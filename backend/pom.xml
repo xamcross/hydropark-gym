@@ -56,6 +56,14 @@
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
 
+    <!-- Transactional email (P1-12.4): SMTP adapter behind the AuthEmailSender port. The logging dev
+         sender stays the default; the SMTP sender is @ConditionalOnProperty and inert without creds
+         (a launch gate). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+
     <!-- Access-token JWTs (RS256, alg-pinned). The *license* JWS is signed with
          JDK-native Ed25519 instead - see licensing/LicenseSigner. -->
     <dependency>

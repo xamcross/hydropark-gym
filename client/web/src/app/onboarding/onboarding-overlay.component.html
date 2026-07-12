@@ -1,0 +1,218 @@
+@if (svc.active()) {
+  <div class="ob-backdrop">
+    <div
+      #dialog
+      class="ob-dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="titleId"
+      [attr.aria-describedby]="descId"
+      (keydown)="onKeydown($event)"
+    >
+      <!-- ── header: brand + progress + skip ─────────────────────────────── -->
+      <header class="ob-head">
+        <span class="ob-brand-name">Hydropark</span>
+
+        <ol class="ob-dots" aria-hidden="true">
+          @for (s of svc.steps; track s; let i = $index) {
+            <li class="ob-dot" [class.on]="i + 1 === svc.stepNumber()" [class.done]="i + 1 < svc.stepNumber()"></li>
+          }
+        </ol>
+
+        <button type="button" class="ob-skip" (click)="svc.skip()">Skip for now</button>
+      </header>
+
+      <!-- ── body: one step at a time ────────────────────────────────────── -->
+      <div class="ob-body">
+        @switch (svc.step()) {
+          <!-- 1 · WELCOME ─────────────────────────────────────────────── -->
+          @case ('welcome') {
+            <section class="ob-step">
+              <p class="ob-kicker">Welcome</p>
+              <h1 #stepHeading tabindex="-1" [id]="titleId" class="ob-title">An AI agent that runs on your machine</h1>
+              <p [id]="descId" class="ob-lead">
+                Hydropark runs a real language model <strong>on your own device</strong> — no account, no cloud round-trip,
+                your conversations never leave your computer. You compose it from small skills, and it uses tools (timers,
+                lists, unit math) to actually get things done.
+              </p>
+              <ul class="ob-points">
+                <li>Offline by default — the model is on disk, not on a server.</li>
+                <li>Skills snap together into one live agent.</li>
+                <li>Private by design — nothing you type is sent anywhere.</li>
+              </ul>
+            </section>
+          }
+
+          <!-- 2 · HARDWARE ────────────────────────────────────────────── -->
+          @case ('hardware') {
+            <section class="ob-step">
+              <p class="ob-kicker">Hardware check</p>
+              <h1 #stepHeading tabindex="-1" [id]="titleId" class="ob-title">How fast will it run here?</h1>
+              <p [id]="descId" class="ob-lead">
+                A quick, read-only look at your CPU and memory. This only sets expectations — it never limits any feature.
+              </p>
+
+              @if (svc.probing() && !svc.tier().tokRange) {
+                <div class="ob-card ob-card--muted" role="status">
+                  <span>Reading your hardware…</span>
+                </div>
+              } @else {
+                <div class="ob-card ob-hw">
+                  <div class="ob-hw-verdict">
+                    <span class="ob-chip" [attr.data-tone]="svc.tier().tone">{{ svc.tier().label }}</span>
+                    @if (svc.tier().rangeText) {
+                      <span class="ob-hw-rate">{{ svc.tier().rangeText }}</span>
+                    }
+                  </div>
+                  <p class="ob-hw-note">{{ svc.tier().speedNote }}</p>
+                  <p class="ob-hw-detail">{{ svc.tier().detail }}</p>
+                </div>
+              }
+
+              @if (svc.probeError()) {
+                <p class="ob-inline-note" role="status">{{ svc.probeError() }}</p>
+              }
+              <p class="ob-fineprint">Estimated for the bundled 3B model. Your real speed is measured live as you chat.</p>
+            </section>
+          }
+
+          <!-- 3 · MODEL ───────────────────────────────────────────────── -->
+          @case ('model') {
+            <section class="ob-step">
+              <p class="ob-kicker">The model</p>
+              <h1 #stepHeading tabindex="-1" [id]="titleId" class="ob-title">Already on your disk</h1>
+              <p [id]="descId" class="ob-lead">
+                The on-device model ships <strong>inside the app</strong> — there's nothing to download to get started.
+              </p>
+
+              <div class="ob-card ob-model">
+                <div class="ob-model-row">
+                  <span class="ob-model-name">{{ svc.model.name }}</span>
+                  <span class="ob-chip" data-tone="fine">Ready</span>
+                </div>
+                <dl class="ob-model-facts">
+                  <div><dt>Quantization</dt><dd>{{ svc.model.quant }}</dd></div>
+                  <div><dt>Size on disk</dt><dd>≈ {{ svc.model.approxSizeGb }} GB</dd></div>
+                  <div><dt>Context window</dt><dd>{{ svc.model.ctxTokens }} tokens</dd></div>
+                  <div><dt>Status</dt><dd>Bundled — no download</dd></div>
+                </dl>
+              </div>
+
+              <p class="ob-fineprint">
+                A larger-model picker and on-demand downloads come later. For now this bundled model powers everything on device.
+              </p>
+            </section>
+          }
+
+          <!-- 4 · GUIDED TOUR (the §9.6 wow beat) ─────────────────────── -->
+          @case ('tour') {
+            <section class="ob-step">
+              <p class="ob-kicker">Try it</p>
+              <h1 #stepHeading tabindex="-1" [id]="titleId" class="ob-title">Enable a skill and watch it compose</h1>
+              <p [id]="descId" class="ob-lead">
+                Turning on a skill injects its persona, registers its tools, and mounts its panels — all at once. Enable the
+                free <strong>Kitchen Timer &amp; Units</strong> skill to see the panels slide into place.
+              </p>
+
+              <div class="ob-tour">
+                <div class="ob-tour-chat" aria-hidden="true">
+                  <div class="ob-bubble ob-bubble--user">Set a 10-minute pasta timer and add it to my list.</div>
+                  <div class="ob-bubble ob-bubble--agent">
+                    @if (svc.skillEnabled()) {
+                      On it — timer running and the panels are live on the right. ›
+                    } @else {
+                      Enable a skill and I'll gain the tools to do that. ›
+                    }
+                  </div>
+                </div>
+
+                <!-- Reuses the real §9.6 PanelDock beat: representative panels animate in on enable. -->
+                <app-panel-dock [open]="svc.skillEnabled()">
+                  <div class="ob-demo-panels">
+                    <div class="panel ob-demo-panel">
+                      <header><h2>Timers</h2></header>
+                      <div class="ob-demo-timer"><span class="ob-demo-timer-read">09:52</span><span class="ob-chip" data-tone="fine">Pasta</span></div>
+                    </div>
+                    <div class="panel ob-demo-panel">
+                      <header><h2>Ingredients</h2></header>
+                      <ul class="ob-demo-list">
+                        <li><span class="ob-tick" aria-hidden="true">▢</span> 200 g spaghetti</li>
+                        <li><span class="ob-tick" aria-hidden="true">▢</span> 2 eggs</li>
+                        <li><span class="ob-tick" aria-hidden="true">▢</span> 50 g pecorino</li>
+                      </ul>
+                    </div>
+                    <div class="panel ob-demo-panel">
+                      <header><h2>Units</h2></header>
+                      <div class="ob-demo-units"><span class="ob-seg on">US</span><span class="ob-seg">Metric</span></div>
+                    </div>
+                  </div>
+                </app-panel-dock>
+              </div>
+
+              @if (svc.skillEnabled()) {
+                <p class="ob-inline-note ob-inline-note--ok" role="status">
+                  Skill enabled — those panels are now part of your live agent. Continue when you're ready.
+                </p>
+              }
+              @if (svc.tourError()) {
+                <p class="ob-inline-note" role="status">{{ svc.tourError() }}</p>
+              }
+            </section>
+          }
+
+          <!-- 5 · OPTIONAL EMAIL ──────────────────────────────────────── -->
+          @case ('email') {
+            <section class="ob-step">
+              <p class="ob-kicker">Optional</p>
+              <h1 #stepHeading tabindex="-1" [id]="titleId" class="ob-title">Want a heads-up on new skills?</h1>
+              <p [id]="descId" class="ob-lead">
+                Totally optional — Hydropark works fully without it. Leave your email if you'd like a note when new skills land.
+                No account, and it stays on your device until you choose to share it.
+              </p>
+
+              <form class="ob-email" (submit)="notifyMe(); $event.preventDefault()">
+                <label class="ob-email-label" for="ob-email-input">Email address (optional)</label>
+                <div class="ob-email-row">
+                  <input
+                    id="ob-email-input"
+                    class="ob-email-input"
+                    type="email"
+                    inputmode="email"
+                    autocomplete="email"
+                    placeholder="you@example.com"
+                    [value]="emailDraft()"
+                    (input)="onEmailInput($any($event.target).value)"
+                    [attr.aria-invalid]="svc.emailStatus() === 'invalid'"
+                    aria-describedby="ob-email-status"
+                  />
+                  <button type="submit" class="ob-btn ob-btn--ghost">Notify me</button>
+                </div>
+                <p id="ob-email-status" class="ob-email-status" role="status">
+                  @switch (svc.emailStatus()) {
+                    @case ('saved') { <span class="ob-ok">Saved on this device — you can remove it anytime.</span> }
+                    @case ('invalid') { <span class="ob-err">That doesn't look like an email address.</span> }
+                    @default { <span class="ob-muted">You can skip this and still use everything.</span> }
+                  }
+                </p>
+              </form>
+            </section>
+          }
+        }
+      </div>
+
+      <!-- ── footer: back / count / primary ──────────────────────────────── -->
+      <footer class="ob-foot">
+        <button type="button" class="ob-btn ob-btn--ghost" (click)="svc.back()" [disabled]="svc.isFirst()">Back</button>
+        <span class="ob-count">Step {{ svc.stepNumber() }} of {{ svc.stepCount }}</span>
+        <button
+          type="button"
+          class="ob-btn ob-btn--primary"
+          (click)="onPrimary()"
+          [disabled]="svc.step() === 'tour' && svc.tourBusy()"
+        >
+          {{ primaryLabel() }}
+        </button>
+      </footer>
+    </div>
+  </div>
+}

@@ -73,6 +73,33 @@ public class LocalLicenseIssuer implements LicenseIssuerPort {
   @Override
   @Transactional
   public IssuedLicense issue(String userId, String skillId, String deviceId) {
+    return issue(userId, skillId, deviceId, IssuanceRateLimiter.CALLER_ISSUE);
+  }
+
+  /**
+   * Caller-tagged issuance (P1-23.1). Identical to the {@link #issue(String, String, String) user
+   * path} in every security-relevant respect - the same settled-grant keystone, the same server-side
+   * device binding, the same sign-and-audit - and differs <b>only</b> in the {@code caller} label,
+   * which controls two non-authorization concerns:
+   *
+   * <ul>
+   *   <li>the {@code license_audit} row's {@code caller} field, so a batch pre-mint is distinguishable
+   *       from a user-driven unlock in the append-only log; and
+   *   <li>the {@link IssuanceRateLimiter} whitelist, so an authorized batch is not throttled as oracle
+   *       abuse (a {@linkplain IssuanceRateLimiter#CALLER_BATCH_PREMINT batch} caller is exempt).
+   * </ul>
+   *
+   * <p><b>This is not a second signing path.</b> {@link #requireSettledGrant} runs here exactly as it
+   * does on the user path, regardless of {@code caller}; a caller string can never make the Issuer
+   * sign a skill whose order has not settled. The continuity batch reuses this so its mints go through
+   * the one keystone, not around it.
+   *
+   * <p>Annotated {@code @Transactional} in its own right so a batch caller (which invokes this through
+   * the bean proxy, not via the 3-arg method) still gets the atomic insert-plus-audit; each batch mint
+   * is its own transaction, so one refused target never rolls back the licenses already signed.
+   */
+  @Transactional
+  public IssuedLicense issue(String userId, String skillId, String deviceId, String caller) {
     // Idempotent re-issue: an existing live license for this (user, skill, device) is returned as-is
     // (no new sign, no rate-budget consumed). Perpetual tokens are additive, so this is safe.
     Optional<License> existing =
@@ -83,14 +110,16 @@ public class LocalLicenseIssuer implements LicenseIssuerPort {
     }
 
     // (1) Authorization keystone: an active grant for the EXACT (user, skill) whose order settled.
+    // Runs on EVERY caller - the batch pre-mint is gated here identically to a user unlock.
     requireSettledGrant(userId, skillId);
 
     // (2) Device slot + server-derived binding.
     deviceSlot.assertActiveSlot(userId, deviceId);
     String binding = deviceSlot.fingerprintOf(deviceId);
 
-    // (3) Rate limit (primary per-sub, wide global backstop) - only gates real mints.
-    rateLimiter.check(userId);
+    // (3) Rate limit (primary per-sub, wide global backstop). A whitelisted caller (batch pre-mint,
+    // rolling-key re-issue) is exempt; a user caller is throttled exactly as before.
+    rateLimiter.check(userId, caller);
 
     // (4) Sign. license_id is embedded in the token AND is the license row's _id.
     String licenseId = Uuid7.prefixed("lic");
@@ -111,19 +140,26 @@ public class LocalLicenseIssuer implements LicenseIssuerPort {
       return new IssuedLicense(winner.getId(), winner.getToken(), winner.getSigningKeyId());
     }
 
-    // (5) Audit every sign.
+    // (5) Audit every sign, tagged with the caller so the batch is legible in the log.
     audits.save(
         LicenseAudit.of(
             Uuid7.generate(),
             licenseId,
             signed.kid(),
-            IssuanceRateLimiter.CALLER_ISSUE,
+            caller,
             userId,
             skillId,
             deviceId,
             Instant.now()));
 
-    log.info("issued license {} kid={} sub={} skill={} device={}", licenseId, signed.kid(), userId, skillId, deviceId);
+    log.info(
+        "issued license {} kid={} sub={} skill={} device={} caller={}",
+        licenseId,
+        signed.kid(),
+        userId,
+        skillId,
+        deviceId,
+        caller);
     return new IssuedLicense(licenseId, signed.token(), signed.kid());
   }
 

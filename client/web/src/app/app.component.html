@@ -42,6 +42,9 @@
         <button type="button" class="dev-btn" (click)="downloadLog()" title="Dev-only: download the in-memory JSONL session log (P0-06.1)">
           ⬇ session log
         </button>
+        <button type="button" class="dev-btn" (click)="replayOnboarding()" title="Dev-only: replay the first-run onboarding (P1-11.4)">
+          ▶ tour
+        </button>
       }
     </div>
   </header>
@@ -83,3 +86,7 @@
 
 <!-- Global in-app notification surface (SPEC §9.7 fallback) -->
 <app-toast-host></app-toast-host>
+
+<!-- First-run onboarding & guided tour (P1-11.4 · SPEC §16.1). Self-gates on
+     `onboarding.active()`; renders nothing once the flag is set. -->
+<app-onboarding-overlay></app-onboarding-overlay>

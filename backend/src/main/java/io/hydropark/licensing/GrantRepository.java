@@ -12,6 +12,13 @@ public interface GrantRepository extends MongoRepository<Grant, String> {
   /** Active grants for an exact {@code (user, skill)} - the Issuer walks these for a settled order. */
   List<Grant> findByUserIdAndSkillIdAndStatus(String userId, String skillId, String status);
 
+  /**
+   * Every grant in a given status - the P1-23.1 continuity batch enumerates {@code active} grants to
+   * derive the effective-entitlement targets to pre-mint. Ownership is still re-confirmed per pair by
+   * the Issuer's settled-order keystone, so this is only a candidate list, never an authorization.
+   */
+  List<Grant> findByStatus(String status);
+
   /** All grants tied to an order - {@code flipGrantsForOrder} touches only these. */
   List<Grant> findByOrderId(String orderId);
 

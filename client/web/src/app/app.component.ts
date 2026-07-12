@@ -9,6 +9,8 @@ import { PanelDockComponent } from './shared/panel-dock/panel-dock.component';
 import { ComposedPanelHostComponent } from './composition/composed-panel-host.component';
 import { MarketplaceViewComponent } from './marketplace/marketplace-view.component';
 import { ToastHostComponent } from './shared/notify/toast-host.component';
+import { OnboardingOverlayComponent } from './onboarding/onboarding-overlay.component';
+import { OnboardingService } from './onboarding/onboarding.service';
 import { SessionService } from './state/session.service';
 import { TelemetryService } from './state/telemetry.service';
 import { TimerSyncService } from './state/timer-sync.service';
@@ -33,6 +35,7 @@ type ShellView = 'assistant' | 'marketplace';
     ComposedPanelHostComponent,
     MarketplaceViewComponent,
     ToastHostComponent,
+    OnboardingOverlayComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -55,9 +58,17 @@ export class AppComponent implements OnInit {
     private readonly themeSvc: ThemeService,
     // Injected solely to activate its constructor side effects (timer event
     // subscriptions) at app start — see timer-sync.service.ts.
-    private readonly timerSync: TimerSyncService
+    private readonly timerSync: TimerSyncService,
+    // First-run onboarding (P1-11.4). Its constructor resolves the resettable
+    // first-run flag and auto-opens the overlay on a fresh install.
+    readonly onboarding: OnboardingService
   ) {
     this.isMock = ipc instanceof MockIpcService;
+  }
+
+  /** Dev affordance: replay the first-run onboarding (resettable flag). Mock-only. */
+  replayOnboarding(): void {
+    this.onboarding.restart();
   }
 
   toggleTheme(): void {
