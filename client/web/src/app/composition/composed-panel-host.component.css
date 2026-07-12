@@ -134,8 +134,7 @@
   min-height: 1px;
 }
 
-.ch-idle,
-.ch-no-renderer {
+.ch-idle {
   margin: 0;
   font-size: 0.82rem;
   color: var(--color-text-muted, #666);

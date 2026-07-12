@@ -12,6 +12,7 @@ mod deep_link;
 mod device;
 mod downloader;
 mod grammar;
+mod hpskill;
 mod inference;
 mod ipc;
 mod license_verify;
@@ -37,14 +38,16 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use backend_client::BackendClient;
+use hpskill::SkillInstaller;
 use ipc::{
     AuthCredentialsArgs, CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult,
     CmdError, DeviceEnsureResult, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
     HardwareProfile, InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult,
     NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
-    SkillDisableArgs, SkillEnableArgs, SkillEnableResult, StepUpAnswerArgs, StepUpAnswerResult,
-    TelemetryEvent, TimerControlArgs, TimerStateSnapshot, ToolCallError, ToolCallErrorCode,
-    ToolCallRequest, ToolCallResponse, ToolName,
+    SkillDisableArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs, SkillInstallResult,
+    SkillUninstallArgs, SkillUninstallResult, StepUpAnswerArgs, StepUpAnswerResult, TelemetryEvent,
+    TimerControlArgs, TimerStateSnapshot, ToolCallError, ToolCallErrorCode, ToolCallRequest,
+    ToolCallResponse, ToolName,
 };
 use session::SessionManager;
 use store::Store;
@@ -124,6 +127,39 @@ fn skill_enable(args: SkillEnableArgs) -> Result<SkillEnableResult, CmdError> {
 #[tauri::command]
 fn skill_disable(_args: SkillDisableArgs) -> Result<(), CmdError> {
     Ok(())
+}
+
+/// Install a downloaded `.hpskill` package (P1-03.2): the Rust core verifies its
+/// detached signature against the pinned trust set, re-validates the manifest, gates on
+/// host compatibility, extracts the sanitized assets to the app-data skills dir, and
+/// registers + persists the install. Fail-closed — a rejected package writes nothing.
+#[tauri::command]
+fn skill_install(
+    args: SkillInstallArgs,
+    installer: State<'_, SkillInstaller>,
+) -> Result<SkillInstallResult, CmdError> {
+    let outcome = installer
+        .install_from_path(std::path::Path::new(&args.path))
+        .map_err(|e| CmdError::Package(e.to_string()))?;
+    Ok(SkillInstallResult {
+        skill_id: outcome.id,
+        version: outcome.version,
+        dir: outcome.dir.to_string_lossy().into_owned(),
+        state: hpskill::state_label(outcome.state).to_string(),
+    })
+}
+
+/// Uninstall a skill package (P1-03.2): frees the disk + the persisted registry row,
+/// keeps ownership (a reinstall is free, §11.3).
+#[tauri::command]
+fn skill_uninstall(
+    args: SkillUninstallArgs,
+    installer: State<'_, SkillInstaller>,
+) -> Result<SkillUninstallResult, CmdError> {
+    let state = installer
+        .uninstall(&args.skill_id)
+        .map_err(|e| CmdError::Package(e.to_string()))?;
+    Ok(SkillUninstallResult { skill_id: args.skill_id, state: hpskill::state_label(state).to_string() })
 }
 
 /// Runs the deterministic, non-model allergen layer (P0-07.4) over ingredient
@@ -479,8 +515,18 @@ fn main() {
                 .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::other(e.to_string())) })?;
             let store = Arc::new(Mutex::new(store));
             let backend = app.state::<BackendClient>().inner().clone();
-            let session = SessionManager::new(store, backend);
+            let session = SessionManager::new(store.clone(), backend);
             app.manage(session.clone());
+
+            // P1-03.2: the .hpskill installer shares the same on-device store as the
+            // session (so installed skills + entitlements live in one database). Its
+            // package-signing trust set + host env are pinned from the environment
+            // (fail-closed: no pinned key ⇒ every install rejects). It rehydrates the
+            // installed-skill lifecycle from the store on construction.
+            let skills_root = app.path().app_data_dir()?.join("skills");
+            let installer =
+                SkillInstaller::from_env(hpskill::host_env_from_env(), skills_root, store);
+            app.manage(installer);
 
             // P1-01.2 deep-link: on a `hydropark://` purchase-callback, emit the
             // webview event `purchase://callback` { orderId } the purchase flow
@@ -523,6 +569,8 @@ fn main() {
             downloader::model_download_cancel,
             skill_enable,
             skill_disable,
+            skill_install,
+            skill_uninstall,
             allergen_scan,
             timer_pause,
             timer_resume,

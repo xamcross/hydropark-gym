@@ -50,6 +50,8 @@ export interface ManifestPanel {
   title?: string;
   region?: PanelRegion;
   priority?: number;
+  /** Minimum widget-library version this panel needs (`MAJOR.MINOR[.PATCH]`, widget-contract §1/§11). */
+  min_widget_version?: string;
   props?: Record<string, unknown>;
   binds_state?: string;
   binds_tool?: string;
@@ -129,6 +131,7 @@ export function panelsFromManifest(m: SkillManifest): PanelDescriptor[] {
     binding: p.binds_state,
     region: p.region ?? defaultRegionFor(p.type),
     priority: p.priority ?? DEFAULT_PRIORITY,
+    minWidgetVersion: p.min_widget_version,
     title: p.title,
     collapsible: p.collapsible,
     pinnable: p.pinnable,

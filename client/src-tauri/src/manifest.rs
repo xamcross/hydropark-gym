@@ -405,7 +405,11 @@ fn is_widget_version(s: &str) -> bool {
 }
 
 /// `$defs/skillId`: kebab-case `[a-z0-9]+(-[a-z0-9]+)*`, length 2..=64.
-fn is_skill_id(s: &str) -> bool {
+///
+/// `pub` because the `.hpskill` installer (`hpskill.rs`, P1-03.2) reuses it to
+/// guard a caller-supplied skill id before it is joined onto the skills dir path
+/// (an id is a single path-safe component — no `/`, `..`, or `.`).
+pub fn is_skill_id(s: &str) -> bool {
     let n = s.len();
     n >= 2
         && n <= 64
@@ -423,7 +427,11 @@ fn is_ident_name(s: &str) -> bool {
 }
 
 /// `$defs/localeCode`: `[a-z]{2}(-[A-Z]{2})?`.
-fn is_locale(s: &str) -> bool {
+///
+/// `pub` because the `.hpskill` installer (`hpskill.rs`, P1-03.2) reuses it to
+/// gate `strings/<locale>.json` entries against the same localized-string rule
+/// (P1-03.4) the manifest's `resources.strings` locales are checked with.
+pub fn is_locale(s: &str) -> bool {
     let b = s.as_bytes();
     match b.len() {
         2 => b[0].is_ascii_lowercase() && b[1].is_ascii_lowercase(),
@@ -440,7 +448,13 @@ fn is_locale(s: &str) -> bool {
 
 /// `$defs/svgAssetPath`: package-relative `*.svg` path; forbids remote URLs
 /// (no `://`), path traversal (`..`), and any non-`.svg` extension. Length ≤128.
-fn is_svg_asset_path(s: &str) -> bool {
+///
+/// `pub` because the `.hpskill` installer (`hpskill.rs`, P1-03.2) applies this
+/// exact "sanitized-SVG path" rule (P1-03.4) to every `.svg` archive entry, so
+/// the bytes extracted to disk obey the same shape the manifest validator pins.
+/// The segment charset (`[A-Za-z0-9_-]`) rejects `..`, absolute paths, and `:`,
+/// so it doubles as a traversal guard.
+pub fn is_svg_asset_path(s: &str) -> bool {
     if s.len() > 128 {
         return false;
     }

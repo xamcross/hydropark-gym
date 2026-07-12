@@ -77,7 +77,7 @@ pub enum StoreError {
 /// the end — never edit, remove, or reorder an existing step, or an already-migrated
 /// user's database would diverge from a fresh one (P1-10.4).
 const MIGRATIONS: &[fn(&Connection) -> Result<(), StoreError>] =
-    &[migrate_v0_to_v1, migrate_v1_to_v2];
+    &[migrate_v0_to_v1, migrate_v1_to_v2, migrate_v2_to_v3];
 
 /// The schema version this build targets — the number of migration steps.
 const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -154,6 +154,26 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// v2 → v3: the installed-skill registry (P1-03.2). One appended table (never
+/// editing v1/v2's steps) recording each `.hpskill` package that passed the full
+/// install gate (signature verify → manifest re-validate → compatibility). It is
+/// the on-disk source of truth the `SkillManager` rehydrates from at launch: the
+/// verified raw `manifest` JSON, the extraction `dir`, the resolved `version`, and
+/// the last enable/disable state, keyed by the skill id.
+fn migrate_v2_to_v3(conn: &Connection) -> Result<(), StoreError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS installed_skills (
+            skill_id     TEXT PRIMARY KEY,
+            version      TEXT NOT NULL,
+            manifest     TEXT NOT NULL,
+            dir          TEXT NOT NULL,
+            enabled      INTEGER NOT NULL DEFAULT 0,
+            installed_at INTEGER NOT NULL
+        );",
+    )?;
+    Ok(())
+}
+
 /// Run every pending migration in order. Forward-only and idempotent; leaves a
 /// newer-than-known database untouched (never downgrades).
 fn run_migrations(conn: &Connection) -> Result<(), StoreError> {
@@ -221,6 +241,20 @@ pub struct CachedEntitlement {
     pub status: String,
     /// When the entitlement set was last cached (epoch milliseconds).
     pub cached_at: i64,
+}
+
+/// One installed `.hpskill` package on disk (P1-03.2). The `manifest` is the
+/// verified raw manifest JSON exactly as it passed signature verification; `dir`
+/// is where its `manifest.json` + sanitized assets/strings were extracted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InstalledSkill {
+    pub skill_id: String,
+    pub version: String,
+    pub manifest: serde_json::Value,
+    pub dir: String,
+    pub enabled: bool,
+    /// When the package was installed (epoch milliseconds).
+    pub installed_at: i64,
 }
 
 /// One row of a chat transcript.
@@ -507,6 +541,85 @@ impl Store {
         Ok(rows)
     }
 
+    // ---- installed skills (.hpskill registry, P1-03.2) -------------------
+
+    /// Record (upsert) an installed skill package, keyed by skill id. `manifest`
+    /// is the verified raw manifest JSON; `dir` is its extraction directory.
+    /// Re-installing the same id replaces the row (a reinstall is free, §11.3).
+    pub fn save_installed_skill(
+        &self,
+        skill_id: &str,
+        version: &str,
+        manifest: &serde_json::Value,
+        dir: &str,
+        enabled: bool,
+    ) -> Result<(), StoreError> {
+        let manifest_json = serde_json::to_string(manifest)?;
+        self.conn.execute(
+            "INSERT INTO installed_skills (skill_id, version, manifest, dir, enabled, installed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(skill_id) DO UPDATE SET
+                 version      = excluded.version,
+                 manifest     = excluded.manifest,
+                 dir          = excluded.dir,
+                 enabled      = excluded.enabled,
+                 installed_at = excluded.installed_at",
+            params![skill_id, version, manifest_json, dir, enabled, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// Load one installed skill by id, or `None` if it is not installed.
+    pub fn load_installed_skill(
+        &self,
+        skill_id: &str,
+    ) -> Result<Option<InstalledSkill>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT skill_id, version, manifest, dir, enabled, installed_at
+                 FROM installed_skills WHERE skill_id = ?1",
+                params![skill_id],
+                installed_skill_from_row,
+            )
+            .optional()?;
+        row.transpose()
+    }
+
+    /// All installed skills, ordered by skill id (deterministic rehydration order).
+    pub fn list_installed_skills(&self) -> Result<Vec<InstalledSkill>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT skill_id, version, manifest, dir, enabled, installed_at
+             FROM installed_skills ORDER BY skill_id ASC",
+        )?;
+        let rows = stmt
+            .query_map([], installed_skill_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        // Each row parsed its manifest lazily (Result inside); surface any JSON error.
+        rows.into_iter().collect()
+    }
+
+    /// Flip the persisted enable/disable flag for an installed skill (no-op if the
+    /// skill id is not installed).
+    pub fn set_installed_skill_enabled(
+        &self,
+        skill_id: &str,
+        enabled: bool,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE installed_skills SET enabled = ?2 WHERE skill_id = ?1",
+            params![skill_id, enabled],
+        )?;
+        Ok(())
+    }
+
+    /// Remove an installed skill's row (the store half of uninstall). Idempotent.
+    pub fn remove_installed_skill(&self, skill_id: &str) -> Result<(), StoreError> {
+        self.conn
+            .execute("DELETE FROM installed_skills WHERE skill_id = ?1", params![skill_id])?;
+        Ok(())
+    }
+
     // ---- panel state (opaque per-agent UI layout) ------------------------
 
     /// Insert or replace the UI panel state for an agent.
@@ -579,6 +692,24 @@ impl Store {
     }
 }
 
+/// Map an `installed_skills` row into an [`InstalledSkill`]. The `manifest` column
+/// is JSON text, so parsing can fail: the outer `rusqlite::Result` covers the
+/// column reads and the inner `Result<_, StoreError>` covers the JSON decode, which
+/// the callers flatten (`transpose` / `collect`) into a single `StoreError`.
+fn installed_skill_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<InstalledSkill, StoreError>> {
+    let skill_id: String = row.get(0)?;
+    let version: String = row.get(1)?;
+    let manifest_json: String = row.get(2)?;
+    let dir: String = row.get(3)?;
+    let enabled: bool = row.get(4)?;
+    let installed_at: i64 = row.get(5)?;
+    Ok(serde_json::from_str(&manifest_json)
+        .map(|manifest| InstalledSkill { skill_id, version, manifest, dir, enabled, installed_at })
+        .map_err(StoreError::from))
+}
+
 /// Current wall-clock time in epoch milliseconds (metadata for `updated_at`).
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -613,15 +744,15 @@ mod tests {
     fn migrations_run_once_and_are_a_no_op_the_second_time() {
         let s = store();
         // A fresh open leaves the DB at the target version.
-        assert_eq!(SCHEMA_VERSION, 2);
-        assert_eq!(s.schema_version().unwrap(), 2);
+        assert_eq!(SCHEMA_VERSION, 3);
+        assert_eq!(s.schema_version().unwrap(), 3);
 
         // Seed data, then re-run the runner: it must not touch the version...
         let tpl = sample_template("Weeknight Chef");
         s.save_template(&tpl).unwrap();
 
         run_migrations(&s.conn).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 2, "no re-bump / no downgrade");
+        assert_eq!(s.schema_version().unwrap(), 3, "no re-bump / no downgrade");
 
         // ...and must not destroy existing offline data.
         assert_eq!(
@@ -775,6 +906,43 @@ mod tests {
         assert_eq!(rows.len(), 1, "wholesale replace drops garden-plants");
         assert_eq!(rows[0].status, "revoked");
         assert_eq!(rows[0].cached_at, 2_000);
+    }
+
+    // ---- installed skills: round-trip, enable flip, remove (P1-03.2) ---------
+
+    #[test]
+    fn installed_skill_round_trips_upserts_and_removes() {
+        let s = store();
+        assert_eq!(s.load_installed_skill("cooking-assistant").unwrap(), None);
+        assert!(s.list_installed_skills().unwrap().is_empty());
+
+        let manifest = json!({ "id": "cooking-assistant", "version": "1.2.0", "pricing": { "free": false } });
+        s.save_installed_skill("cooking-assistant", "1.2.0", &manifest, "/skills/cooking-assistant", false)
+            .unwrap();
+
+        let loaded = s.load_installed_skill("cooking-assistant").unwrap().unwrap();
+        assert_eq!(loaded.skill_id, "cooking-assistant");
+        assert_eq!(loaded.version, "1.2.0");
+        assert_eq!(loaded.manifest, manifest);
+        assert_eq!(loaded.dir, "/skills/cooking-assistant");
+        assert!(!loaded.enabled);
+
+        // Enable flip persists.
+        s.set_installed_skill_enabled("cooking-assistant", true).unwrap();
+        assert!(s.load_installed_skill("cooking-assistant").unwrap().unwrap().enabled);
+
+        // Re-installing the same id upserts (a new version replaces the row).
+        let v2 = json!({ "id": "cooking-assistant", "version": "1.3.0" });
+        s.save_installed_skill("cooking-assistant", "1.3.0", &v2, "/skills/cooking-assistant", false)
+            .unwrap();
+        let reloaded = s.load_installed_skill("cooking-assistant").unwrap().unwrap();
+        assert_eq!(reloaded.version, "1.3.0");
+        assert!(!reloaded.enabled, "upsert reset the enable flag to the new install's value");
+        assert_eq!(s.list_installed_skills().unwrap().len(), 1, "upsert, not a duplicate");
+
+        // Remove is the store half of uninstall.
+        s.remove_installed_skill("cooking-assistant").unwrap();
+        assert_eq!(s.load_installed_skill("cooking-assistant").unwrap(), None);
     }
 
     // ---- panel state: round-trip, per-agent ----------------------------------

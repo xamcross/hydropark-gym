@@ -38,6 +38,10 @@ import { MediaNoteComponent } from '../widgets/media-note/media-note.component';
 import { QuickActionsComponent } from '../widgets/quick-actions/quick-actions.component';
 import { SliderStepperComponent } from '../widgets/slider-stepper/slider-stepper.component';
 import { DateTimePickerComponent } from '../widgets/date-time-picker/date-time-picker.component';
+import {
+  PlaceholderReason,
+  WidgetPlaceholderComponent,
+} from '../widgets/widget-placeholder/widget-placeholder.component';
 
 /** How to mount one widget type. */
 export interface WidgetEntry {
@@ -88,4 +92,105 @@ export function widgetInputsFor(panel: ArrangedPanel): Record<string, unknown> {
 /** True when a widget type has a registered renderer. */
 export function hasRenderer(widgetType: string): boolean {
   return REGISTRY.has(widgetType);
+}
+
+/* =============================================================================
+   WIDGET-LIBRARY VERSIONING + GRACEFUL PLACEHOLDER  (P1-03.7 · SPEC §9.8 · contract §11)
+   -----------------------------------------------------------------------------
+   The widget library is versioned and ships WITH the app. Each composed panel may
+   declare a `min_widget_version`; a panel that either (a) names a widget type this
+   build has never heard of, or (b) needs a library newer than what's installed,
+   MUST degrade to a first-party PLACEHOLDER — never a crash, never a blank panel
+   (which is exactly why `type` is a shape-checked string and not a closed enum).
+   Resolving through {@link resolveWidget} means the rest of the composed agent
+   keeps rendering around the one panel that can't be drawn.
+   ============================================================================= */
+
+/**
+ * The installed widget-library version (`MAJOR.MINOR[.PATCH]`). Bump the MINOR
+ * when a new widget type or a backward-compatible widget capability ships; a
+ * panel whose `min_widget_version` exceeds this value renders the placeholder.
+ */
+export const WIDGET_LIBRARY_VERSION = '1.0';
+
+/** The outcome of resolving a panel: the concrete widget, or the placeholder. */
+export interface ResolvedWidget {
+  component: Type<unknown>;
+  inputs: Record<string, unknown>;
+}
+
+interface SemVer {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+/** Parse `MAJOR.MINOR[.PATCH]`; `null` when the string is absent/malformed. */
+function parseVersion(v: string | null | undefined): SemVer | null {
+  if (!v) return null;
+  const m = /^(\d+)\.(\d+)(?:\.(\d+))?$/.exec(v.trim());
+  if (!m) return null;
+  return { major: Number(m[1]), minor: Number(m[2]), patch: m[3] ? Number(m[3]) : 0 };
+}
+
+/** Total order on versions: MAJOR, then MINOR, then PATCH. */
+function compareVersions(a: SemVer, b: SemVer): number {
+  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+}
+
+/** The installed library version, parsed once (the constant is always well-formed). */
+const INSTALLED = parseVersion(WIDGET_LIBRARY_VERSION) ?? { major: 0, minor: 0, patch: 0 };
+
+/**
+ * True when a panel's declared `min_widget_version` is STRICTLY newer than the
+ * installed library. Absent/malformed versions are treated as compatible (the
+ * Rust core schema-validates the field upstream, so this only needs to be
+ * defensive, not a second validator) — the goal is "never wrongly hide a widget
+ * we can in fact render".
+ */
+function isTooNew(minWidgetVersion: string | undefined): boolean {
+  const req = parseVersion(minWidgetVersion);
+  return req !== null && compareVersions(req, INSTALLED) > 0;
+}
+
+function toPlaceholder(
+  reason: PlaceholderReason,
+  widgetType: string,
+  requiredVersion: string | null
+): ResolvedWidget {
+  return {
+    component: WidgetPlaceholderComponent,
+    inputs: {
+      reason,
+      widgetType,
+      requiredVersion,
+      libraryVersion: WIDGET_LIBRARY_VERSION,
+    },
+  };
+}
+
+/**
+ * Resolve a panel to the component the host should mount, applying the §11 gate:
+ *
+ *   1. widget type not in the registry     → PLACEHOLDER (`unknown`)
+ *   2. min_widget_version > installed lib   → PLACEHOLDER (`too_new`)
+ *   3. otherwise                            → the registered widget + its inputs
+ *
+ * The unknown check runs FIRST (mirrors the contract pseudocode), so a panel that
+ * is both unknown AND too-new reports as `unknown`. This ALWAYS returns a
+ * component — the host never has to handle a `null`, so a composed agent can
+ * never blank out on a single unrenderable panel.
+ */
+export function resolveWidget(panel: ArrangedPanel): ResolvedWidget {
+  const widgetType = panel.descriptor.widgetType;
+  const minVersion = panel.descriptor.minWidgetVersion;
+  const entry = REGISTRY.get(widgetType);
+
+  if (!entry) {
+    return toPlaceholder('unknown', widgetType, minVersion ?? null);
+  }
+  if (isTooNew(minVersion)) {
+    return toPlaceholder('too_new', widgetType, minVersion ?? null);
+  }
+  return { component: entry.component, inputs: entry.inputs ? entry.inputs(panel) : {} };
 }

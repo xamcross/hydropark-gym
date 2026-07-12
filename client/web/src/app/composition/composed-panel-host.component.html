@@ -78,11 +78,10 @@
       emptyLabel="This agent has no panels — it is chat-only."
     >
       <ng-template appPanelBody let-panel>
-        @if (componentFor(panel.descriptor.widgetType); as cmp) {
-          <ng-container *ngComponentOutlet="cmp; inputs: inputsFor(panel)"></ng-container>
-        } @else {
-          <p class="ch-no-renderer">No renderer for "{{ panel.descriptor.widgetType }}".</p>
-        }
+        <!-- Resolve once: a known+compatible widget, else a graceful placeholder
+             (unknown / too-new). Always a component, so a panel never blanks. -->
+        @let resolved = resolve(panel);
+        <ng-container *ngComponentOutlet="resolved.component; inputs: resolved.inputs"></ng-container>
       </ng-template>
     </app-layout-dock>
   </div>

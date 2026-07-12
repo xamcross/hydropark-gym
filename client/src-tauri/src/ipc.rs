@@ -699,6 +699,53 @@ pub struct StepUpAnswerResult {
 }
 
 // ---------------------------------------------------------------------------
+// .hpskill install / uninstall (P1-03.2). Same camelCase IPC family as the
+// marketplace commands above. The Rust core (`hpskill.rs`) opens a downloaded
+// `.hpskill` package from a local `path`, verifies its detached signature against
+// the pinned package-signing trust set, re-validates the manifest, gates on host
+// compatibility, extracts the sanitized assets to the app-data skills dir, and
+// registers + persists the install. Fail-closed: on any failure nothing is
+// written or registered and the command rejects with `CmdError::Package`.
+// ---------------------------------------------------------------------------
+
+/// `skill_install` args — the local filesystem path of the `.hpskill` archive the
+/// downloader already fetched (the webview never handles package bytes).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallArgs {
+    pub path: String,
+}
+
+/// `skill_install` result — the installed skill's id + resolved version, the
+/// on-disk extraction dir, and its resulting lifecycle state (normally
+/// `installed_disabled`; the composer enables it in a later step).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallResult {
+    pub skill_id: String,
+    pub version: String,
+    pub dir: String,
+    pub state: String,
+}
+
+/// `skill_uninstall` args — the skill id to remove (frees the disk, keeps
+/// ownership; §11.3 reinstall is free).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUninstallArgs {
+    pub skill_id: String,
+}
+
+/// `skill_uninstall` result — the id and its resulting lifecycle state (normally
+/// `owned_not_installed`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUninstallResult {
+    pub skill_id: String,
+    pub state: String,
+}
+
+// ---------------------------------------------------------------------------
 // Command errors
 // ---------------------------------------------------------------------------
 
@@ -733,6 +780,13 @@ pub enum CmdError {
     /// `downloader::DownloadError` message.
     #[error("model download failed: {0}")]
     Download(String),
+    /// A `.hpskill` install/uninstall (P1-03.2) failed — a malformed archive, an
+    /// unsigned / tampered / unknown-kid signature, a manifest that failed
+    /// re-validation, an incompatible host (min_app_version / min_model_tier), a
+    /// path-traversal or non-`.svg`/`.json` entry, or an on-disk error. Fail-closed:
+    /// nothing is registered or persisted. Carries the `hpskill::HpSkillError` message.
+    #[error("skill package error: {0}")]
+    Package(String),
 }
 
 impl From<std::io::Error> for CmdError {

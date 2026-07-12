@@ -66,6 +66,10 @@ getrandom = "0.2"
 # already needs for its linker.
 rusqlite = { version = "0.31", features = ["bundled"] }
 
+# .hpskill package/archive format (P1-03.2): a zip container (manifest + assets + localized strings +
+# signature). Pure-Rust deflate (miniz_oxide) - no zlib-ng C backend - so it builds under mock too.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 # Backend HTTP client (P1-08.6 / networking): the Rust core owns network egress (the webview CSP is
 # `connect-src 'self'`), so catalog / orders / entitlements / license / download calls cross the IPC
 # boundary as Tauri commands. rustls (ring) keeps it off a system OpenSSL.

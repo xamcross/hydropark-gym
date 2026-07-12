@@ -25,7 +25,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  Type,
   computed,
   effect,
   inject,
@@ -36,7 +35,7 @@ import { ArrangedPanel } from '../shared/layout/layout.model';
 import { LayoutDockComponent, PanelBodyDirective } from '../shared/layout/layout-dock.component';
 import { PanelTransitionDirective } from '../shared/panel-transition/panel-transition.directive';
 import { CompositionService } from './composition.service';
-import { widgetComponentFor, widgetInputsFor } from './widget-registry';
+import { ResolvedWidget, resolveWidget } from './widget-registry';
 
 @Component({
   selector: 'app-composed-panel-host',
@@ -81,12 +80,13 @@ export class ComposedPanelHostComponent {
 
   // --- dynamic mount (widget registry) -------------------------------------
 
-  componentFor(widgetType: string): Type<unknown> | null {
-    return widgetComponentFor(widgetType);
-  }
-
-  inputsFor(panel: ArrangedPanel): Record<string, unknown> {
-    return widgetInputsFor(panel);
+  /**
+   * Resolve a panel to the component + inputs the outlet mounts. Unknown or
+   * too-new widget types resolve to a graceful PLACEHOLDER (never `null`), so a
+   * single unrenderable panel can't blank the composed agent (SPEC §9.8).
+   */
+  resolve(panel: ArrangedPanel): ResolvedWidget {
+    return resolveWidget(panel);
   }
 
   // --- bus read side (proves tool→state routing is live) -------------------
