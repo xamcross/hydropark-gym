@@ -380,7 +380,9 @@ pub const TELEMETRY_SCHEMA_VERSION: u32 = 1;
 /// producer of telemetry envelopes (it knows the UI-side "why"), Rust is
 /// just the sink that appends a validated JSON line to the session's
 /// `.jsonl` file. `serde_json::Value` here (rather than a matching Rust
-/// enum of the 6 event shapes) avoids the two sides needing to release in
+/// enum of every event shape — the P0 session events plus the P1-25.1
+/// product metrics: `activation`, `composition`, `offline_usage`,
+/// `crash_free_session`) avoids the two sides needing to release in
 /// lockstep on every new event field — the schema is versioned
 /// (`schema_version`) precisely so this sink can validate/reject on that
 /// field without needing to know every variant.

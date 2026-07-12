@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { IPC_PORT } from '../ipc/ipc.port';
+import { TelemetryService } from '../state/telemetry.service';
 import {
   CatalogItem as IpcCatalogItem,
   EntitlementItem,
@@ -38,6 +39,7 @@ const USD = 'USD';
 @Injectable()
 export class CatalogIpcAdapter extends CatalogPort {
   private readonly ipc = inject(IPC_PORT);
+  private readonly telemetry = inject(TelemetryService);
 
   /** Fixed device tier the "runs on your PC" filter checks against (until hardware profiling threads through). */
   private readonly deviceTier = 'mid';
@@ -51,6 +53,9 @@ export class CatalogIpcAdapter extends CatalogPort {
   }
 
   async getCatalog(filters: CatalogFilters): Promise<CatalogPage> {
+    // Offline-usage share (P1-25.1): this adapter is the real backend path, so
+    // every call here means the session was NOT fully offline.
+    this.telemetry.noteBackendCall();
     const res = await this.ipc.invoke('catalog_list', {});
     const all = res.skills.map((s) => toModelItem(s));
 
@@ -74,11 +79,13 @@ export class CatalogIpcAdapter extends CatalogPort {
   }
 
   async getDetail(id: string): Promise<SkillDetail> {
+    this.telemetry.noteBackendCall();
     const d = await this.ipc.invoke('catalog_detail', { skillId: id });
     return toModelDetail(d);
   }
 
   async ownership(id: string): Promise<Ownership> {
+    this.telemetry.noteBackendCall();
     try {
       const res = await this.ipc.invoke('entitlements_get', { bearer: this.bearer() });
       const ent = res.skills.find((s) => s.skillId === id);

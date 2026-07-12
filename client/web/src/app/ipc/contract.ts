@@ -345,6 +345,69 @@ export interface OutcomeEvent extends TelemetryEventBase {
   detail?: string;
 }
 
+// --- product metrics (P1-25.1) ---------------------------------------------
+//
+// The four north-star product metrics, emitted through the SAME `telemetry_log`
+// sink as everything above. Each carries ONLY enums/booleans/counts/durations —
+// never a name, message, or any conversation content (SPEC §15, §25). They are
+// suppressed wholesale when the P1-10.3 opt-in toggle is off (see
+// telemetry.service.ts's consent guard).
+
+/**
+ * ACTIVATION — the user enabled a skill during a session. Emitted once per
+ * session, on the FIRST skill enabled that session (telemetry.service.ts owns
+ * the once-per-session bookkeeping). `first_session` marks the install's very
+ * first session (a best-effort local flag), so "activation in the first
+ * session" is computable from the log alone.
+ */
+export interface ActivationEvent extends TelemetryEventBase {
+  event: 'activation';
+  skill_id: SkillId;
+  /** True when the app has no local record of a prior session. */
+  first_session: boolean;
+}
+
+/**
+ * COMPOSITION RATE — the live agent is composed from more than one skill, or
+ * from an adopted template. Emitted once per composition-active transition
+ * (CompositionService), never per re-compose. Counts + a boolean only.
+ */
+export interface CompositionEvent extends TelemetryEventBase {
+  event: 'composition';
+  /** Skills active in the composed agent (≥ 2 for an ad-hoc composition). */
+  skills_active: number;
+  /** True when a saved template drove the composition (vs. ad-hoc toggling). */
+  via_template: boolean;
+}
+
+/**
+ * OFFLINE-USAGE SHARE — session-level: did the session run without touching the
+ * backend (pure on-device use)? `backend_calls` is the count of network-backed
+ * IPC calls made this session; `offline` is `backend_calls === 0`. No URLs, no
+ * payloads — just the count and the derived boolean.
+ */
+export interface OfflineUsageEvent extends TelemetryEventBase {
+  event: 'offline_usage';
+  /** True when the session made no backend/network call at all. */
+  offline: boolean;
+  /** Number of backend calls this session (0 ⇒ fully offline). */
+  backend_calls: number;
+}
+
+/**
+ * CRASH-FREE SESSION — session-level: did the session reach a clean end with no
+ * unhandled error? `errors` counts observed unhandled errors/rejections;
+ * `crash_free` is `errors === 0`. NEVER carries a message or stack (those can
+ * leak content) — a count and a boolean only.
+ */
+export interface CrashFreeSessionEvent extends TelemetryEventBase {
+  event: 'crash_free_session';
+  /** True when no unhandled error/rejection was observed this session. */
+  crash_free: boolean;
+  /** Number of unhandled errors observed (0 ⇒ crash-free). */
+  errors: number;
+}
+
 export type TelemetryEvent =
   | SkillEnabledEvent
   | SkillDisabledEvent
@@ -352,7 +415,11 @@ export type TelemetryEvent =
   | ListEditedEvent
   | UnitsFlippedEvent
   | TokPerSecEvent
-  | OutcomeEvent;
+  | OutcomeEvent
+  | ActivationEvent
+  | CompositionEvent
+  | OfflineUsageEvent
+  | CrashFreeSessionEvent;
 
 // ---------------------------------------------------------------------------
 // Marketplace + agent-composition commands (P1 live-flow wiring)

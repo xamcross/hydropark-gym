@@ -96,6 +96,13 @@ public class SecurityConfig {
                     // /internal/** (InternalAuthFilter-gated) if publishing writes ever land behind it.
                     .requestMatchers(HttpMethod.POST, "/v1/registry/**")
                     .authenticated()
+                    // P1-25 admin analytics (GET /v1/admin/**): read-only business rollups + the
+                    // gross-margin / Phase-1→2 gates. Same shape as registry: the chain rule stays
+                    // `.authenticated()` (a valid access token, never public); the admin restriction
+                    // itself is enforced at AnalyticsController, which reuses the config-driven
+                    // allowlist (hydropark.registry.admin-user-ids) and 403s any non-admin caller.
+                    .requestMatchers(HttpMethod.GET, "/v1/admin/**")
+                    .authenticated()
                     .anyRequest()
                     .authenticated())
         .addFilterBefore(internalAuthFilter, UsernamePasswordAuthenticationFilter.class)

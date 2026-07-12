@@ -24,6 +24,7 @@ import { ComposeError, ComposedAgentView } from '../ipc/contract';
 import { SlotDescriptor, ToolRoutingDecl } from '../shared/bus';
 import { PanelDescriptor } from '../shared/layout/layout.model';
 import { SessionService } from '../state/session.service';
+import { TelemetryService } from '../state/telemetry.service';
 import { CookingAssistantService } from '../skills/cooking-assistant/cooking-assistant.service';
 import { KITCHEN_TIMER_MANIFEST, COOKING_ASSISTANT_MANIFEST } from './manifest-registry';
 import {
@@ -41,6 +42,7 @@ const DEFAULT_N_CTX = 4096;
 export class CompositionService {
   private readonly ipc = inject(IPC_PORT);
   private readonly session = inject(SessionService);
+  private readonly telemetry = inject(TelemetryService);
   private readonly cooking = inject(CookingAssistantService);
 
   /**
@@ -60,6 +62,20 @@ export class CompositionService {
   readonly primaryHint = signal<string | null>(null);
   /** Model context window in tokens. */
   readonly nCtx = signal<number>(DEFAULT_N_CTX);
+
+  /**
+   * True when the current enabled set was adopted from a saved template rather
+   * than toggled ad-hoc. Drives the `via_template` dimension of the P1-25.1
+   * composition metric; the template-adoption path (P1 templates) sets it.
+   */
+  readonly viaTemplate = signal(false);
+
+  /**
+   * Dedupe latch for the P1-25.1 composition metric: emit once per
+   * composition-active transition, not on every re-compose. Reset when the
+   * agent drops back below the composition threshold.
+   */
+  private compositionReported = false;
 
   private readonly _composed = signal<ComposedAgentView | null>(null);
   /** The live composed agent, or `null` when nothing is composed / a compose failed. */
@@ -122,6 +138,7 @@ export class CompositionService {
       this._composed.set(null);
       this._error.set(null);
       this._composing.set(false);
+      this.reportComposition(0); // nothing composed ⇒ arm the latch for the next transition
       return;
     }
 
@@ -136,6 +153,9 @@ export class CompositionService {
       if (seq !== this.composeSeq) return; // superseded by a newer compose
       this._composed.set(view);
       this._error.set(null);
+      // PRODUCT METRIC — composition rate (P1-25.1): only on a SUCCESSFUL
+      // compose, so a failed/blocked compose isn't counted as an active agent.
+      this.reportComposition(manifests.length);
     } catch (e) {
       if (seq !== this.composeSeq) return;
       this._composed.set(null);
@@ -143,6 +163,25 @@ export class CompositionService {
     } finally {
       if (seq === this.composeSeq) this._composing.set(false);
     }
+  }
+
+  /**
+   * Emit the P1-25.1 composition metric once per composition-active transition.
+   * A composition is "active" when 2+ skills are composed OR a template drove
+   * it; dropping back below that arms the latch so the next transition re-emits.
+   * TelemetryService's own opt-in guard suppresses the actual emission when
+   * telemetry is off.
+   */
+  private reportComposition(skillsActive: number): void {
+    const viaTemplate = this.viaTemplate();
+    const isComposition = skillsActive >= 2 || viaTemplate;
+    if (!isComposition) {
+      this.compositionReported = false;
+      return;
+    }
+    if (this.compositionReported) return;
+    this.compositionReported = true;
+    this.telemetry.composition(skillsActive, viaTemplate);
   }
 }
 

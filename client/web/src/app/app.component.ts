@@ -79,5 +79,8 @@ export class AppComponent implements OnInit {
 
   endSession(): void {
     this.telemetry.outcome('session_end');
+    // Flush the session-level product metrics (offline-usage share + crash-free
+    // session). Idempotent with the `pagehide` flush inside TelemetryService.
+    this.telemetry.sessionEnded();
   }
 }
