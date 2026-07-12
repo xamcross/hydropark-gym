@@ -170,6 +170,58 @@ jobs:
         working-directory: deploy
         run: docker compose down -v
 
+  # ---------------------------------------------------------------------------------------------
+  # a11y: X-A11Y.2 contrast gate. Runs the dependency-free Node audit
+  # (scripts/a11y-contrast-audit.mjs) that parses client/web/src/styles/tokens.css, resolves the
+  # documented foreground/background token pairs for BOTH shipped themes (dark seed + derived light),
+  # computes the WCAG 2.1 relative-luminance contrast ratio for each, and EXITS NON-ZERO if any
+  # gated text pair is below AA (4.5:1 normal, 3.0:1 large/non-text UI). Because this job runs on
+  # every pull_request to main, a non-zero exit here BLOCKS THE MERGE - it is a hard gate, not
+  # advisory. No `npm ci` step: the script imports only Node built-ins, so setup-node is enough.
+  #
+  # The audit is a *static token* check. It cannot see runtime DOM state (focus-visible rings on a
+  # real element, disabled/placeholder text, aria wiring, reflow), so the commented axe-core step
+  # below is the intended companion dynamic gate. It stays a scaffold on purpose: axe-core needs the
+  # built Angular app actually SERVED and a headless browser to drive it, which is a heavier CI
+  # dependency than this tranche adds. Uncomment + wire it once the app has a stable served route.
+  # ---------------------------------------------------------------------------------------------
+  a11y:
+    name: a11y (token contrast gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: WCAG contrast audit (merge gate — non-zero exit fails the job)
+        run: node scripts/a11y-contrast-audit.mjs
+
+      # --- DYNAMIC a11y scaffold (axe-core against the BUILT, SERVED app) --------------------------
+      # Deliberately commented: axe-core evaluates the rendered DOM, so it needs the Angular bundle
+      # built, served on a local port, and a headless Chromium to load it. Enable when a stable
+      # served route exists in CI. Sketch of the intended steps:
+      #
+      # - uses: actions/setup-node@v4
+      #   with:
+      #     node-version: "22"
+      #     cache: npm
+      #     cache-dependency-path: client/web/package-lock.json
+      # - name: Build the Angular app
+      #   working-directory: client/web
+      #   run: npm ci && npm run build
+      # - name: Serve the built bundle
+      #   working-directory: client/web
+      #   run: npx --yes http-server dist -p 4200 &   # background the static server
+      # - name: Wait for the server
+      #   run: npx --yes wait-on http://localhost:4200
+      # - name: axe-core scan (fails on any violation)
+      #   run: npx --yes @axe-core/cli http://localhost:4200 --exit
+      #     # @axe-core/cli drives headless Chromium; ubuntu-latest ships one, but a browser action
+      #     # (e.g. browser-actions/setup-chrome) may be needed if the bundled binary is absent.
+      # ---------------------------------------------------------------------------------------------
+
   client-rust:
     name: client (cargo build)
     runs-on: windows-latest   # Tauri's Windows target is the one we ship; WebView2 ships with the runner

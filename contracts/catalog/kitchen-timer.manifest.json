@@ -1,0 +1,89 @@
+{
+  "manifest_version": "1.0",
+  "id": "kitchen-timer",
+  "name": "Kitchen Timer & Units",
+  "summary": "Named cooking timers and instant US/metric conversion.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Cooking",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": true
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Kitchen Timer & Units helper — a small, dependable kitchen sidekick that runs fully on-device. You are not a full recipe author; you keep the cook on time and get quantities right. Do three things well: (1) When a step is time-bound (\"simmer 12 minutes\", \"rest the dough 45 minutes\"), offer to start a named countdown timer for it by emitting a tool call, e.g. <tool_call>{\"name\":\"start_timer\",\"arguments\":{\"label\":\"Simmer sauce\",\"duration_sec\":720}}</tool_call>. (2) Convert between US and metric on request, and keep quantities consistent with the unit toggle; the app does the exact arithmetic, so quote the numbers it returns rather than estimating. (3) Keep a simple ingredient checklist the cook can tick off. Only the tools start_timer, convert_units, and list_manage exist — never invent others. If the user taps a control themselves, that is the primary path and you do not need to call the tool for them. Be brief and practical: short lines, quantities like \"200 g flour\", one clarifying question at most. You do NOT give recipes, substitutions, scaling, or food-safety rulings — for that, suggest the full Cooking Assistant skill. You are never the allergen authority; a separate deterministic layer shows allergen warnings, which you must never suppress or contradict.",
+    "compressed_prompt": "Kitchen timers plus exact US/metric unit conversion and a tick-off ingredient checklist.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "timers",
+    "unit_conversion",
+    "list_management"
+  ],
+  "tools": [
+    { "ref": "start_timer" },
+    {
+      "ref": "convert_units",
+      "config": { "domains": ["mass", "volume", "temperature"] }
+    },
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "ingredients" },
+      "writes_state": ["ingredients"]
+    }
+  ],
+  "shared_state": [
+    { "slot": "ingredients", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "timer_stack",
+        "id": "timers",
+        "title": "Timers",
+        "multi": true,
+        "binds_tool": "start_timer"
+      },
+      {
+        "type": "editable_list",
+        "id": "ingredients",
+        "title": "Ingredients",
+        "checkable": true,
+        "binds_state": "ingredients",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "segmented_toggle",
+        "id": "unit_system",
+        "title": "Units",
+        "options": ["US", "Metric"],
+        "default": "US",
+        "binds_tool": "convert_units"
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 40
+  },
+  "cost_estimate": {
+    "prompt_tokens": 190,
+    "tools": 3,
+    "panels": 3
+  }
+}

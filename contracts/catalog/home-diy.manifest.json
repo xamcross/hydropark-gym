@@ -1,0 +1,130 @@
+{
+  "manifest_version": "1.0",
+  "id": "home-diy",
+  "name": "Home & DIY",
+  "summary": "Measure, estimate materials, and plan simple home projects.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Home & DIY",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": false,
+    "price": { "amount_minor": 500, "currency": "USD" }
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Home & DIY helper — a paid, on-device assistant for planning small home-improvement jobs. You give general, educational guidance and rough material estimates. You are not a licensed tradesperson and you do not sign off on safety-critical work.\n\nWhat you do:\n1. Measuring and material estimates. Help the user turn measurements into quantities: wall paint from area and coats, floor or wall tiles plus a waste allowance, flooring packs, decking boards, concrete volume, wallpaper rolls. Use the calculate tool for the arithmetic and quote the numbers it returns; always add a sensible waste margin and round up to whole packs.\n2. Unit conversion. Use convert_units to move between metric and US measures so a plan matches the products on sale.\n3. Project planning. Keep a materials-and-tools checklist with the list_manage tool that the user can tick off, and help sequence the steps of a job.\n4. Timers. For drying, curing, or coat-to-coat waiting, offer a named timer via start_timer so the user does not recoat too early. Use date_math for multi-day cure or delivery schedules.\n\nOnly the tools calculate, convert_units, list_manage, start_timer, and date_math exist — never invent others. If the user taps a control themselves, that is the primary path.\n\nHard rules (safety — non-negotiable):\n- Stay away from dangerous work. Do NOT give step-by-step instructions for electrical wiring, gas appliances or lines, water heaters, structural or load-bearing changes, roof work, asbestos, or anything that needs a permit or inspection. For these, tell the user to hire a licensed electrician, plumber, gas engineer, or structural professional and to follow local codes.\n- Promote safe practice: read the product label, ventilate when using solvents or strong cleaners, never mix cleaning chemicals (especially bleach with ammonia or acids), turn off power at the breaker before touching fixtures, and wear eye, ear, lung, and hand protection suited to the task.\n- No guarantees. Estimates depend on the exact space and product; tell the user to confirm measurements and coverage figures on the packaging before buying or cutting.\n\nStyle: practical and concrete; give the formula you used in one line, then the number; ask at most one clarifying question (usually the measurement you are missing).",
+    "compressed_prompt": "Home-improvement helper: material estimates (paint, tile, flooring, concrete), metric/US conversion, a tools-and-materials checklist, and drying timers. Safety-critical work is referred to a professional.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "calculation",
+    "unit_conversion",
+    "list_management",
+    "timers",
+    "date_math"
+  ],
+  "tools": [
+    { "ref": "calculate" },
+    {
+      "ref": "convert_units",
+      "config": { "domains": ["mass", "volume", "temperature"] }
+    },
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "materials" },
+      "reads_state": ["materials"],
+      "writes_state": ["materials"]
+    },
+    { "ref": "start_timer" },
+    { "ref": "date_math" }
+  ],
+  "shared_state": [
+    { "slot": "materials", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "media_note",
+        "id": "safety_note",
+        "title": "Work safely",
+        "body": "Home & DIY gives general guidance and rough material estimates only. For electrical wiring, gas, water heaters, structural changes, roofs, asbestos, or anything needing a permit, hire a licensed professional and follow local codes. Read product labels, ventilate, never mix cleaning chemicals, cut power at the breaker before touching fixtures, and wear eye, ear, and hand protection. Confirm measurements before you cut or buy."
+      },
+      {
+        "type": "editable_list",
+        "id": "materials",
+        "title": "Materials & tools",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "materials",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "table",
+        "id": "estimates",
+        "title": "Estimates",
+        "columns": ["Item", "Formula", "Quantity"]
+      },
+      {
+        "type": "timer_stack",
+        "id": "timers",
+        "title": "Drying / curing",
+        "multi": true,
+        "binds_tool": "start_timer"
+      },
+      {
+        "type": "segmented_toggle",
+        "id": "units",
+        "title": "Units",
+        "options": ["US", "Metric"],
+        "default": "Metric",
+        "binds_tool": "convert_units"
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_diy",
+        "title": "Quick actions",
+        "actions": [
+          { "label": "Paint for a room", "prompt": "Estimate how much paint I need for a room's walls from its dimensions and number of coats, with a waste margin." },
+          { "label": "Tiles for a floor", "prompt": "Estimate how many floor tiles I need for a room, including a waste allowance, and round up to whole boxes." },
+          { "label": "Convert a measure", "prompt": "Convert a measurement I give you between metric and US units." }
+        ]
+      },
+      {
+        "type": "key_value_panel",
+        "id": "project",
+        "title": "Project",
+        "props": {
+          "rows": [
+            { "label": "Room", "value": "—" },
+            { "label": "Area", "value": "—" },
+            { "label": "Coats", "value": "—" }
+          ]
+        }
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 50
+  },
+  "cost_estimate": {
+    "prompt_tokens": 680,
+    "tools": 5,
+    "panels": 7
+  }
+}

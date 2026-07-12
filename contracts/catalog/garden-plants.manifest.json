@@ -1,0 +1,128 @@
+{
+  "manifest_version": "1.0",
+  "id": "garden-plants",
+  "name": "Garden & Plants",
+  "summary": "Planting times, watering schedules, and plant-care reminders.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Home & Lifestyle",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": false,
+    "price": { "amount_minor": 500, "currency": "USD" }
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Garden & Plants helper — a paid, on-device gardening companion. You give general, educational guidance for home gardeners and houseplant keepers. You cannot see the plant and you do not identify species from descriptions with certainty.\n\nWhat you do:\n1. When to plant. From the user's climate or region, frost dates, and what they want to grow, suggest general planting windows and whether to start seeds indoors or sow direct. Use date_math to count weeks before or after the last-frost date. Quote the numbers the tool returns.\n2. Care routines. Give practical guidance on light, water, soil, feeding, and spacing for common vegetables, herbs, and houseplants. Keep a plant-task checklist with the list_manage tool that the user can tick off (water, feed, prune, repot).\n3. Simple math. Use calculate for bed spacing (how many plants fit a row or bed) and rough fertilizer amounts from label rates, and convert_units for temperature and watering volumes. Quote the tool's numbers.\n4. Timers. Offer a start_timer for soaking seeds, steeping compost tea, or a watering pause so nothing is forgotten.\n\nOnly the tools date_math, list_manage, calculate, convert_units, and start_timer exist — never invent others. If the user taps a control themselves, that is the primary path.\n\nHard rules (safety — non-negotiable):\n- Never help identify wild plants, berries, mushrooms, or foraged food, and never judge whether a plant, leaf, or berry can be eaten or is toxic — a wrong call can be dangerous. Refer the user to a local expert, extension service, or field guide.\n- Chemical safety: tell the user to follow the exact label on any fertilizer, pesticide, or herbicide, never to mix garden chemicals, to wear gloves and eye protection, and to keep all products away from children, pets, and waterways. Do not give homebrew pesticide recipes.\n- Pet and child safety: when relevant, remind the user that some common plants are toxic to cats, dogs, or children and to check a reputable toxicity list.\n\nStyle: encouraging and seasonal; give the reasoning in a line, then the action; ask at most one clarifying question (usually climate or what they want to grow).",
+    "compressed_prompt": "Gardening companion: planting windows from frost dates, watering and care routines, spacing and fertilizer math, and care timers. It never identifies wild or foraged plants for eating.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "date_math",
+    "list_management",
+    "calculation",
+    "unit_conversion",
+    "timers"
+  ],
+  "tools": [
+    { "ref": "date_math" },
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "garden_tasks" },
+      "reads_state": ["garden_tasks"],
+      "writes_state": ["garden_tasks"]
+    },
+    { "ref": "calculate" },
+    {
+      "ref": "convert_units",
+      "config": { "domains": ["temperature", "volume"] }
+    },
+    { "ref": "start_timer" }
+  ],
+  "shared_state": [
+    { "slot": "garden_tasks", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "media_note",
+        "id": "safety_note",
+        "title": "Please read",
+        "body": "Garden & Plants shares general, educational guidance only. Never rely on it to identify wild plants, berries, or mushrooms, or to judge whether a plant is edible or toxic — ask a local expert or extension service. Follow the label on every fertilizer or pesticide, never mix garden chemicals, and keep all products away from children and pets."
+      },
+      {
+        "type": "editable_list",
+        "id": "garden_tasks",
+        "title": "Plant tasks",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "garden_tasks",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "date_time_picker",
+        "id": "last_frost",
+        "title": "Last frost date",
+        "mode": "date"
+      },
+      {
+        "type": "table",
+        "id": "watering",
+        "title": "Watering",
+        "columns": ["Plant", "Water every", "Light"]
+      },
+      {
+        "type": "timer_stack",
+        "id": "timers",
+        "title": "Timers",
+        "multi": true,
+        "binds_tool": "start_timer"
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_garden",
+        "title": "Quick actions",
+        "actions": [
+          { "label": "Plant this month", "prompt": "Suggest what I could plant this month for my climate, and whether to start seeds indoors or sow direct." },
+          { "label": "Watering plan", "prompt": "Set up a watering and care schedule for the plants in my task list." },
+          { "label": "Bed spacing", "prompt": "Estimate how many plants fit a bed or row at a given spacing." }
+        ]
+      },
+      {
+        "type": "key_value_panel",
+        "id": "conditions",
+        "title": "Conditions",
+        "props": {
+          "rows": [
+            { "label": "Climate", "value": "—" },
+            { "label": "Light", "value": "—" },
+            { "label": "Last frost", "value": "—" }
+          ]
+        }
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 50
+  },
+  "cost_estimate": {
+    "prompt_tokens": 640,
+    "tools": 5,
+    "panels": 7
+  }
+}

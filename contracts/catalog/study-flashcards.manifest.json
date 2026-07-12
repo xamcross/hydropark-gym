@@ -1,0 +1,117 @@
+{
+  "manifest_version": "1.0",
+  "id": "study-flashcards",
+  "name": "Study & Flashcards",
+  "summary": "Flashcards, active recall, spaced repetition, and focus timers.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Study & Reading",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": false,
+    "price": { "amount_minor": 500, "currency": "USD" }
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Study & Flashcards helper — a paid, on-device study coach. You help someone learn material THEY provide, using proven study techniques. You have no internet and no textbook of your own, so you work from the notes, terms, or passages the user gives you.\n\nWhat you do:\n1. Flashcards and active recall. Turn the user's notes into question-and-answer cards, kept in a deck with the list_manage tool that the user can tick as learned. Quiz them one card at a time, ask for the answer before revealing it, and give short, encouraging feedback.\n2. Spaced repetition. Use date_math to schedule reviews at growing intervals (for example the next day, then a few days, then a week and beyond) based on how well a card went, and show when each card is next due. Quote the dates the tool returns.\n3. Focus sessions. Offer Pomodoro-style focus and break timers with the start_timer tool, and track progress through a session.\n4. Study math. Use calculate for grade averages, weighted marks, and what score is still needed to hit a target.\n\nOnly the tools list_manage, date_math, start_timer, and calculate exist — never invent others. If the user taps a control themselves, that is the primary path.\n\nBoundaries and integrity:\n- Encourage genuine learning, not cheating. Do not help someone complete a live exam, graded test, or assessment in real time, and do not write work for a student to pass off as their own; instead help them understand, practise, and revise.\n- Work only from what the user gives you. If you are unsure of a fact in their material, say so rather than inventing an answer, and suggest they check their source.\n- Keep sessions humane: encourage breaks, sleep, and realistic goals over cramming.\n\nStyle: warm and motivating; keep quizzing brisk — one card at a time; celebrate progress; ask at most one clarifying question (usually the topic or the material to turn into cards).",
+    "compressed_prompt": "Study coach: turns your notes into flashcards, quizzes with active recall, schedules spaced-repetition reviews, runs focus timers, and does grade math. It works only from material you provide.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "list_management",
+    "date_math",
+    "timers",
+    "calculation"
+  ],
+  "tools": [
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "cards" },
+      "reads_state": ["cards"],
+      "writes_state": ["cards"]
+    },
+    { "ref": "date_math" },
+    { "ref": "start_timer" },
+    { "ref": "calculate" }
+  ],
+  "shared_state": [
+    { "slot": "cards", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "timer_stack",
+        "id": "timers",
+        "title": "Focus timers",
+        "multi": true,
+        "binds_tool": "start_timer"
+      },
+      {
+        "type": "editable_list",
+        "id": "cards",
+        "title": "Deck",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "cards",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "progress",
+        "id": "session",
+        "title": "Session progress",
+        "mode": "determinate"
+      },
+      {
+        "type": "table",
+        "id": "schedule",
+        "title": "Review schedule",
+        "columns": ["Card", "Last review", "Next due"]
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_study",
+        "title": "Quick actions",
+        "actions": [
+          { "label": "Make cards", "prompt": "Turn the notes I paste into question-and-answer flashcards and add them to my deck." },
+          { "label": "Quiz me", "prompt": "Quiz me on the cards in my deck one at a time, asking for my answer before revealing it." },
+          { "label": "Plan reviews", "prompt": "Plan a spaced-repetition review schedule for my deck and show when each card is next due." }
+        ]
+      },
+      {
+        "type": "key_value_panel",
+        "id": "stats",
+        "title": "Progress",
+        "props": {
+          "rows": [
+            { "label": "Cards", "value": "—" },
+            { "label": "Learned", "value": "—" },
+            { "label": "Due today", "value": "—" }
+          ]
+        }
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 50
+  },
+  "cost_estimate": {
+    "prompt_tokens": 620,
+    "tools": 4,
+    "panels": 6
+  }
+}

@@ -19,6 +19,34 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=Chivo:ital,wght@0,300..800;1,300..800&family=Martian+Mono:wght@300..700&display=swap" rel="stylesheet">
 
+<!-- ═══════════════════════ ANALYTICS (P1-24.2) ═══════════════════════
+     Privacy-friendly, cookieless product analytics for the funnel events
+     app.js ALREADY emits (lp_view · plate_added · plate_removed ·
+     plate_refused{reason} · lead_changed · lead_refused · bench_changed ·
+     preset_loaded · loadout_copied · download_click · checkout_click).
+     No new events are invented here; no PII or conversation content is ever
+     sent (SPEC §15). `track()` in app.js pushes each event to `dataLayer`
+     and forwards it to `window.plausible`.
+
+     The stub below is UNCONDITIONAL: it defines `dataLayer` + a queuing
+     `plausible()` before app.js runs, so events are captured (and never throw)
+     even if the remote script is blocked, slow, or not yet configured.
+
+     LAUNCH STEP (single, clearly-marked PLACEHOLDER — like DOWNLOAD/CHECKOUT):
+       1. set data-domain to the real Plausible property (REPLACE_ME_DOMAIN)
+       2. un-comment the loader <script> line below
+     Until then nothing is transmitted off-device — events only queue. This
+     mirrors the page's "don't fire until it's real" safety rule. -->
+<script>
+  window.dataLayer = window.dataLayer || [];
+  window.plausible = window.plausible || function () {
+    (window.plausible.q = window.plausible.q || []).push(arguments);
+  };
+</script>
+<!-- Enable at launch (P1-24.2): set the domain, then un-comment.
+<script defer data-domain="REPLACE_ME_DOMAIN" src="https://plausible.io/js/script.manual.js"></script>
+-->
+
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -147,16 +175,19 @@
           <button class="plate" type="button" aria-pressed="false"
             data-id="kitchen-timer" data-name="Kitchen Timer &amp; Units" data-price="0"
             data-role="primary_eligible" data-priority="20"
-            data-prompt="130" data-fewshot="0" data-compressed="30"
-            data-tools="start_timer,convert_units"
-            data-panels="timer_stack#timers,segmented_toggle#unit_system"
+            data-prompt="190" data-fewshot="0" data-compressed="30"
+            data-tools="start_timer,convert_units,list_manage"
+            data-panels="timer_stack#timers,editable_list#ingredients,segmented_toggle#unit_system"
+            data-writes="ingredients"
             data-conflicts="cooking-assistant"
-            data-snippet="Timers and unit conversion."
-            data-persona="You are a brisk kitchen helper. Answer in one or two lines and reach for a timer before you reach for a paragraph.">
+            data-snippet="Timers, unit conversion, and a tick-off ingredient checklist."
+            data-persona="You are a brisk kitchen helper. Answer in one or two lines and reach for a timer before you reach for a paragraph."
+            data-certified="true" data-cost-estimate="190"
+            data-cost-source="contracts/examples/kitchen-timer.manifest.json#/cost_estimate">
             <span class="plate__price plate__price--free">Free</span>
             <span class="plate__name">Kitchen Timer &amp; Units</span>
-            <span class="plate__blurb">Timers and a cups-to-grams switch. The free sample of the idea.</span>
-            <span class="plate__meta"><i>130 tok</i><i>2 tools</i><i>2 panels</i></span>
+            <span class="plate__blurb">Timers, a cups-to-grams switch, and a tick-off ingredient list. The free sample of the idea.</span>
+            <span class="plate__meta"><i>190 tok</i><i>3 tools</i><i>3 panels</i></span>
           </button>
         </li>
         <li>
@@ -168,7 +199,9 @@
             data-panels="editable_list#packing_list,date_time_picker#dates"
             data-writes="packing_list"
             data-snippet="Packing lists and trip dates."
-            data-persona="You are a calm packing assistant. Ask where and how long, then build the list.">
+            data-persona="You are a calm packing assistant. Ask where and how long, then build the list."
+            data-certified="false"
+            data-cost-source="PENDING — P1-22.2 not yet authored (contracts/catalog/packing-list.manifest.json)">
             <span class="plate__price plate__price--free">Free</span>
             <span class="plate__name">Packing List</span>
             <span class="plate__blurb">A checklist and a date picker. Writes the <code>packing_list</code> slot.</span>
@@ -179,17 +212,19 @@
           <button class="plate" type="button" aria-pressed="false"
             data-id="cooking-assistant" data-name="Cooking Assistant" data-price="5"
             data-role="primary_eligible" data-priority="60"
-            data-prompt="380" data-fewshot="120" data-compressed="45"
+            data-prompt="380" data-fewshot="0" data-compressed="45"
             data-tools="start_timer,convert_units,list_manage"
             data-panels="timer_stack#timers,editable_list#ingredients,segmented_toggle#unit_system"
             data-writes="ingredients"
             data-conflicts="kitchen-timer"
             data-snippet="Cooking specialist: recipes, substitutions, timers, units."
-            data-persona="You are a warm, practical cooking assistant. Explain substitutions. Never make authoritative allergen claims.">
+            data-persona="You are a warm, practical cooking assistant. Explain substitutions. Never make authoritative allergen claims."
+            data-certified="true" data-cost-estimate="380"
+            data-cost-source="contracts/examples/cooking-assistant.manifest.json#/cost_estimate">
             <span class="plate__price">$5</span>
             <span class="plate__name">Cooking Assistant</span>
             <span class="plate__blurb">Fills the ingredient list from a recipe, runs the timers, flips the units.</span>
-            <span class="plate__meta"><i>500 tok</i><i>3 tools</i><i>3 panels</i></span>
+            <span class="plate__meta"><i>380 tok</i><i>3 tools</i><i>3 panels</i></span>
           </button>
         </li>
         <li>
@@ -201,7 +236,9 @@
             data-panels="key_value_panel#nutrition"
             data-reads="ingredients"
             data-snippet="Nutrition: calories and macros for the current list. Informational only."
-            data-persona="">
+            data-persona=""
+            data-certified="false"
+            data-cost-source="PENDING — P1-22.5 not yet authored (contracts/catalog/nutrition-coach.manifest.json)">
             <span class="plate__price">$5</span>
             <span class="plate__name">Nutrition Coach</span>
             <span class="plate__blurb">Reads whatever is in <code>ingredients</code> and shows the macros. Never leads.</span>
@@ -217,7 +254,9 @@
             data-panels="editable_list#itinerary,date_time_picker#dates,table#bookings,key_value_panel#budget"
             data-writes="trip_dates" data-reads="packing_list"
             data-snippet="Travel planning: itineraries, dates, budgets."
-            data-persona="You are a seasoned trip planner. Work in days, not adjectives. Confirm dates before you commit to a plan.">
+            data-persona="You are a seasoned trip planner. Work in days, not adjectives. Confirm dates before you commit to a plan."
+            data-certified="false"
+            data-cost-source="PENDING — P1-22.4 not yet authored (contracts/catalog/travel-planner.manifest.json)">
             <span class="plate__price">$5</span>
             <span class="plate__name">Travel Planner</span>
             <span class="plate__blurb">The heaviest plate on the rack — it carries worked examples. Reads your packing list.</span>
@@ -233,7 +272,9 @@
             data-panels="editable_list#shopping_list,stepper#quantities,table#cut_list"
             data-writes="shopping_list"
             data-snippet="Home repair: measurements, materials, cut lists."
-            data-persona="You are a patient, safety-minded handyman. Measure twice in every answer.">
+            data-persona="You are a patient, safety-minded handyman. Measure twice in every answer."
+            data-certified="false"
+            data-cost-source="PENDING — P1-22.6 not yet authored (contracts/catalog/home-diy.manifest.json)">
             <span class="plate__price">$5</span>
             <span class="plate__name">Home &amp; DIY</span>
             <span class="plate__blurb">Cut lists, materials, quantities. Writes the <code>shopping_list</code> slot.</span>
@@ -249,7 +290,9 @@
             data-panels="editable_list#plants,date_time_picker#dates,media_note#care"
             data-reads="shopping_list"
             data-snippet="Garden care: watering schedules, seasons."
-            data-persona="You are an unhurried gardener. Think in seasons.">
+            data-persona="You are an unhurried gardener. Think in seasons."
+            data-certified="false"
+            data-cost-source="PENDING — P1-22.7 not yet authored (contracts/catalog/garden-plants.manifest.json)">
             <span class="plate__price">$5</span>
             <span class="plate__name">Garden &amp; Plants</span>
             <span class="plate__blurb">Watering schedules and season notes. Shares the date picker with Travel.</span>
@@ -265,7 +308,9 @@
             data-panels="table#service_log,date_time_picker#dates,key_value_panel#specs"
             data-reads="shopping_list"
             data-snippet="Car maintenance: schedules, fluids, service log."
-            data-persona="You are a methodical mechanic. Give intervals, not opinions.">
+            data-persona="You are a methodical mechanic. Give intervals, not opinions."
+            data-certified="false"
+            data-cost-source="PENDING — P1-22.8 not yet authored (contracts/catalog/car-care.manifest.json)">
             <span class="plate__price">$5</span>
             <span class="plate__name">Car Care</span>
             <span class="plate__blurb">Service intervals and a log that remembers what you did last spring.</span>
@@ -594,9 +639,9 @@
     <p class="foot__links">
       <a href="mailto:hello@hydropark.app">hello@hydropark.app</a>
       <span aria-hidden="true">/</span>
-      <a href="/privacy">Privacy</a>
+      <a href="privacy.html">Privacy</a>
       <span aria-hidden="true">/</span>
-      <a href="/terms">Terms &amp; the offline-forever commitment</a>
+      <a href="terms.html">Terms &amp; the offline-forever commitment</a>
     </p>
   </div>
 </footer>

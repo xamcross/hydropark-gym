@@ -58,6 +58,14 @@ buttons in `index.html` (`data-prompt`, `data-fewshot`, `data-compressed`,
 These are the app's **estimates**, and the footer says so. If the real capacity
 meter ever disagrees with this page, this page is wrong — change it.
 
+**Cost provenance (P1-24.3).** Each plate now declares `data-certified` and
+`data-cost-source`. A `certified="true"` plate's lead figure
+(`data-prompt` + `data-fewshot`) equals its manifest's `cost_estimate.prompt_tokens`,
+mirrored in `data-cost-estimate`; `app.js` asserts this at load and logs any drift, so
+a catalogue edit that forgets to re-sync a plate is caught in the console. A
+`certified="false"` plate is a design estimate whose skill is not yet authored under
+`contracts/catalog/` — shown, but never presented as a real certified cost.
+
 ## Shareable loadouts
 
 `?load=cooking-assistant,nutrition-coach&tier=minimum&lead=travel-planner`
@@ -67,12 +75,49 @@ throwing. This doubles as the way to screenshot a given state.
 
 ## Before it goes live
 
-1. Set `DOWNLOAD_URL` and `CHECKOUT_URL` at the top of `app.js`. While they still
-   say `REPLACE_ME` the buttons fire their analytics event, log a console warning,
-   and deliberately **do not navigate**, so a bad deploy cannot silently eat clicks.
-2. Point the footer at real `/privacy` and `/terms`. The Terms must carry the
-   business-continuity commitment (SPEC §28.2) — the offline section promises it.
-3. Set the support address (`hello@hydropark.app`).
+Three files still carry clearly-marked `REPLACE_ME`/PLACEHOLDER launch gates — by
+design, so a half-configured deploy fails loud, not silent:
+
+1. **`CHECKOUT_URL`** (top of `app.js`) — the payment-provider seam (P1-24.1). It is
+   the Merchant-of-Record hosted-checkout base URL; the provider is the seller of
+   record and derives the taxed price from `(skills, region)` server-side. While it
+   says `REPLACE_ME` the buy button fires `checkout_click`, logs a console warning,
+   and **does not navigate**. Swapping providers is a one-line change here. The live
+   MoR merchant account is a launch gate — do **not** point it at a test link.
+   **`DOWNLOAD_URL`** behaves the same for the download buttons.
+2. **Analytics** (`index.html` `<head>`, P1-24.2) — the cookieless Plausible/dataLayer
+   snippet is wired: the stub captures every funnel event `track()` already emits, on
+   all three pages. To go live, set `data-domain` (`REPLACE_ME_DOMAIN`) and un-comment
+   the one loader line. Until then events only queue — nothing leaves the device.
+3. **`/privacy` + `/terms`** are now real pages (`privacy.html`, `terms.html`) and the
+   footer points at them. The Terms carry the business-continuity commitment
+   (SPEC §28.2) verbatim-faithful, plus the AI-advice disclaimers (§28.1). The
+   seller-of-record / liability sections are marked PLACEHOLDER pending X-LEGAL.3.
+4. The support address is set to `hello@hydropark.app` (placeholder inbox).
+
+### ⚠ Two things P1-24.3 could not finish (blocked, not skipped)
+
+- **The certified launch catalog does not exist yet.** P1-24.3 wants the plate set to
+  equal the 8–10-paid certified catalog authored under `contracts/catalog/` (P1-22),
+  with costs from each manifest's `cost_estimate`. Only **two** manifests exist today
+  (`kitchen-timer`, `cooking-assistant`, in `contracts/examples/`). Those two plates
+  now carry `data-certified="true"` and trace their token figure to the manifest's
+  `cost_estimate.prompt_tokens` (190 and 380). The other six plates are
+  `data-certified="false"` design estimates — kept so the planner still demonstrates,
+  flagged so the page never *claims* a certification that has not happened. Skills #7–#8
+  are still "owner picks" (P1-22.9/.10). Finish P1-22 → author each `contracts/catalog/`
+  manifest → the plate `data-cost-estimate` copies straight from `cost_estimate`.
+- **The page's capacity math diverges from the shipped meter** (`client/src-tauri/src/
+  capacity.rs`). The real gate charges *every* enabled skill its full
+  `cost_estimate.prompt_tokens + tools*8 + panels*16` against a fixed model context
+  window with a working reserve — no lead discount, no tool-union costing, and the
+  budget does **not** change with the bench (hardware changes *speed*, not *what fits*).
+  This page still uses the older lead-heavy / secondary-light / tool-union / per-bench-
+  budget model. That is fine for the §8.3.1 prompt-**assembly** illustration (the bar,
+  the "system prompt this builds" panel), but the capacity **meter's arithmetic** must be
+  reconciled to `capacity.rs` to fully honour the "if they disagree, the page is wrong"
+  invariant. It needs the full certified catalog to land first, so it is left as tracked
+  follow-up rather than rewritten blind.
 
 ## Measuring
 

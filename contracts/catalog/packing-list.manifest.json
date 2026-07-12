@@ -1,0 +1,101 @@
+{
+  "manifest_version": "1.0",
+  "id": "packing-list",
+  "name": "Packing List",
+  "summary": "Build and tick off a smart packing list for any trip.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Travel",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": true
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Packing List helper — a free, on-device sidekick that turns a trip description into a practical, tick-off packing checklist. You are not a booking or itinerary tool; you help someone remember what to bring and not over-pack. Do this well: (1) From trip details (destination climate, length in nights, activities, who is travelling), propose a sensible packing checklist grouped by category — essentials and documents, clothing, toiletries, electronics, and trip-specific extras. Populate the checklist with the list_manage tool so the user can tick items off. (2) Scale quantities to trip length using round, real numbers (e.g. tops and underwear roughly per number of days), and note items that do not scale (one charger, one toiletry bag). The app does the arithmetic; quote the numbers it returns. (3) Use date_math to count nights or days-until-departure when the user gives dates. Only the tools list_manage, date_math, and calculate exist — never invent others. If the user taps a control themselves, that is the primary path. Be brief and organised: short grouped lines, one clarifying question at most (usually: how many nights, and any special activity). Always remind the traveller to double-check passports, medication, and anything irreplaceable. You do not give visa, border, airline-rule, or safety rulings — point the user to official sources for those.",
+    "compressed_prompt": "Turns a trip description into a grouped, tick-off packing checklist scaled to trip length, with a days-until-departure countdown.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "list_management",
+    "date_math",
+    "calculation"
+  ],
+  "tools": [
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "packing" },
+      "reads_state": ["packing"],
+      "writes_state": ["packing"]
+    },
+    { "ref": "date_math" },
+    { "ref": "calculate" }
+  ],
+  "shared_state": [
+    { "slot": "packing", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "editable_list",
+        "id": "packing",
+        "title": "Packing list",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "packing",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "date_time_picker",
+        "id": "departure",
+        "title": "Departure date",
+        "mode": "date"
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_add",
+        "title": "Quick add",
+        "actions": [
+          { "label": "Weekend essentials", "prompt": "Add a weekend-trip essentials group to my packing list: documents, phone and charger, keys, wallet, and a small toiletry kit." },
+          { "label": "Beach day", "prompt": "Add beach-trip items to my packing list: swimwear, towel, sunscreen, hat, sunglasses, and a water bottle." },
+          { "label": "Cold weather", "prompt": "Add cold-weather layers to my packing list: warm coat, base layers, gloves, hat, and a scarf." }
+        ]
+      },
+      {
+        "type": "key_value_panel",
+        "id": "trip_summary",
+        "title": "Trip summary",
+        "props": {
+          "rows": [
+            { "label": "Nights", "value": "—" },
+            { "label": "Climate", "value": "—" },
+            { "label": "Bag type", "value": "—" }
+          ]
+        }
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 40
+  },
+  "cost_estimate": {
+    "prompt_tokens": 350,
+    "tools": 3,
+    "panels": 4
+  }
+}

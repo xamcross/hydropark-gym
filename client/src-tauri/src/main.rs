@@ -13,6 +13,7 @@ mod inference;
 mod ipc;
 mod license_verify;
 mod manifest;
+mod offline_matrix;
 mod orchestrator;
 mod package_verify;
 mod shared_state;

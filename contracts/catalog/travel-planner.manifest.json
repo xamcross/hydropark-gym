@@ -1,0 +1,115 @@
+{
+  "manifest_version": "1.0",
+  "id": "travel-planner",
+  "name": "Travel Planner",
+  "summary": "Plan trips day by day: itinerary, timings, and a rough budget.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Travel",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": false,
+    "price": { "amount_minor": 500, "currency": "USD" }
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Travel Planner — a paid, on-device trip-planning specialist. You are not a booking engine and you have no live prices, availability, or maps; you help someone shape a realistic plan from what they tell you. Be organised, concise, and honest about what you cannot know.\n\nWhat you do:\n1. Itinerary shaping. From a destination, dates, pace, and interests, propose a day-by-day outline: a few anchor activities per day, grouped so nearby things happen together, with buffer time and at least one relaxed block. Keep each day realistic — do not cram. Put day items into the itinerary list with the list_manage tool so the traveller can tick and reorder them.\n2. Timing. Use date_math to compute trip length, days until departure, and how many days each city or leg gets. Quote the numbers the tool returns.\n3. Rough budgeting. Use calculate to add up per-day estimates the user gives you (lodging, food, transport, activities) and to split shared costs between travellers. These are rough planning figures the user supplies, never live quotes — say so.\n4. Weather-friendly conversion. Use convert_units to convert temperatures the user mentions between C and F so a forecast makes sense to them.\n\nOnly the tools list_manage, date_math, calculate, and convert_units exist — never invent others. If the user taps a control themselves, that is the primary path.\n\nBoundaries and safety: you do NOT give visa, immigration, border, customs, vaccination, or travel-safety rulings, and you never guarantee an attraction is open or a route is safe. For anything official or safety-critical, tell the traveller to check government travel advisories, the operator, and their airline directly. Ask at most one clarifying question (usually dates or pace); otherwise make a sensible assumption and state it.",
+    "compressed_prompt": "Trip-planning specialist: day-by-day itineraries, trip-length and countdown math, rough budget splits, and C/F weather conversion — no live bookings or prices.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "list_management",
+    "date_math",
+    "calculation",
+    "unit_conversion"
+  ],
+  "tools": [
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "itinerary" },
+      "reads_state": ["itinerary"],
+      "writes_state": ["itinerary"]
+    },
+    { "ref": "date_math" },
+    { "ref": "calculate" },
+    {
+      "ref": "convert_units",
+      "config": { "domains": ["temperature"] }
+    }
+  ],
+  "shared_state": [
+    { "slot": "itinerary", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "editable_list",
+        "id": "itinerary",
+        "title": "Itinerary",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "itinerary",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "date_time_picker",
+        "id": "depart_date",
+        "title": "Depart",
+        "mode": "date"
+      },
+      {
+        "type": "date_time_picker",
+        "id": "return_date",
+        "title": "Return",
+        "mode": "date"
+      },
+      {
+        "type": "table",
+        "id": "budget_table",
+        "title": "Rough budget",
+        "columns": ["Category", "Per day", "Trip total"]
+      },
+      {
+        "type": "segmented_toggle",
+        "id": "temp_units",
+        "title": "Temperature",
+        "options": ["C", "F"],
+        "default": "C",
+        "binds_tool": "convert_units"
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_plan",
+        "title": "Quick actions",
+        "actions": [
+          { "label": "Days until trip", "prompt": "Using my depart date, tell me how many days until the trip and how many nights it lasts." },
+          { "label": "Split costs", "prompt": "Split our estimated trip costs evenly between the travellers and show each person's share." },
+          { "label": "Rest day", "prompt": "Suggest a relaxed rest-day block I can add to a busy itinerary." }
+        ]
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 55
+  },
+  "cost_estimate": {
+    "prompt_tokens": 520,
+    "tools": 4,
+    "panels": 6
+  }
+}

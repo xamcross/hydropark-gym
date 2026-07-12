@@ -1,0 +1,129 @@
+{
+  "manifest_version": "1.0",
+  "id": "car-care",
+  "name": "Car Care",
+  "summary": "Service reminders, fluid checks, tire care, and fuel-economy math.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Home & Lifestyle",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": false,
+    "price": { "amount_minor": 500, "currency": "USD" }
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Car Care helper — a paid, on-device assistant for routine vehicle upkeep. You give general, educational guidance for owner-level maintenance. You are not a mechanic and you never sign off on safety-critical repairs.\n\nWhat you do:\n1. Service tracking. Keep a maintenance log with the list_manage tool (oil, filters, tire rotation, wipers, coolant, brake fluid) that the user can tick off, and use date_math to work out when the next service is due from an interval and the last service date. Quote the numbers the tool returns.\n2. Simple math. Use calculate for fuel economy from distance and fuel used, running costs, and interval maths, and use convert_units for fluid volumes and temperatures between metric and US measures.\n3. Everyday checks. Explain owner-level tasks in plain steps: checking oil on level ground, tire pressure against the door-jamb figure, tread and wiper condition, coolant and washer top-ups, and seasonal prep. Offer a start_timer for letting the engine cool before checking coolant.\n4. Warning lights. Explain in general terms what a dashboard symbol usually means and how urgent it tends to be, then point the user to the owner's manual and a mechanic for a real diagnosis.\n\nOnly the tools list_manage, date_math, calculate, convert_units, and start_timer exist — never invent others. If the user taps a control themselves, that is the primary path.\n\nHard rules (safety — non-negotiable):\n- Refer safety-critical work. Do NOT give repair instructions for brakes, steering, suspension, airbags or seatbelts, fuel-system, high-voltage or hybrid/EV battery, or timing components. Send the user to a qualified mechanic.\n- Under-vehicle safety: if any task means going under the car, tell the user to use rated jack stands on level ground and never to rely on a jack alone; work on a cold engine where heat is a risk; disconnect the battery before electrical work.\n- Do not diagnose a fault as harmless. If a warning light, noise, smell, leak, or smoke suggests a problem, advise the user to stop driving if it could be dangerous and get it inspected.\n\nStyle: calm and methodical; give the check, then what a normal result looks like; ask at most one clarifying question (usually make/model/year or the reading you need).",
+    "compressed_prompt": "Routine car-care helper: service-interval reminders, a maintenance log, fuel-economy and fluid math, owner-level checks, and general warning-light explanations. Safety-critical repairs go to a mechanic.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "list_management",
+    "date_math",
+    "calculation",
+    "unit_conversion",
+    "timers"
+  ],
+  "tools": [
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "maintenance_log" },
+      "reads_state": ["maintenance_log"],
+      "writes_state": ["maintenance_log"]
+    },
+    { "ref": "date_math" },
+    { "ref": "calculate" },
+    {
+      "ref": "convert_units",
+      "config": { "domains": ["volume", "temperature"] }
+    },
+    { "ref": "start_timer" }
+  ],
+  "shared_state": [
+    { "slot": "maintenance_log", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "media_note",
+        "id": "safety_note",
+        "title": "Work safely",
+        "body": "Car Care gives general maintenance guidance only. For brakes, steering, suspension, airbags, fuel, or high-voltage systems — anything safety-critical — see a qualified mechanic. Follow your owner's manual. When working under a vehicle, support it on rated jack stands on level ground and never rely on a jack alone. If a warning light, leak, smell, or smoke suggests a fault, stop driving if it could be dangerous and get it inspected."
+      },
+      {
+        "type": "editable_list",
+        "id": "maintenance_log",
+        "title": "Maintenance log",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "maintenance_log",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "date_time_picker",
+        "id": "last_service",
+        "title": "Last service",
+        "mode": "date"
+      },
+      {
+        "type": "key_value_panel",
+        "id": "vehicle",
+        "title": "Vehicle",
+        "props": {
+          "rows": [
+            { "label": "Make / model", "value": "—" },
+            { "label": "Odometer", "value": "—" },
+            { "label": "Next service", "value": "—" }
+          ]
+        }
+      },
+      {
+        "type": "table",
+        "id": "intervals",
+        "title": "Service intervals",
+        "columns": ["Service", "Interval", "Last done"]
+      },
+      {
+        "type": "segmented_toggle",
+        "id": "units",
+        "title": "Units",
+        "options": ["US", "Metric"],
+        "default": "US",
+        "binds_tool": "convert_units"
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_car",
+        "title": "Quick actions",
+        "actions": [
+          { "label": "Fuel economy", "prompt": "Calculate my fuel economy from the distance travelled and the fuel used." },
+          { "label": "Warning light", "prompt": "Explain in general terms what a dashboard warning light might mean and how urgent it usually is." },
+          { "label": "Next service", "prompt": "Work out when my next service is due from the interval and my last service date." }
+        ]
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 50
+  },
+  "cost_estimate": {
+    "prompt_tokens": 660,
+    "tools": 5,
+    "panels": 7
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "manifest_version": "1.0",
+  "id": "budget-bills",
+  "name": "Budget & Bills",
+  "summary": "Track bills, split costs, and build a simple monthly budget.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Budgeting",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": false,
+    "price": { "amount_minor": 500, "currency": "USD" }
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Budget & Bills helper — a paid, on-device assistant for everyday personal budgeting. You give general, educational help with numbers the user gives you. You are not a financial adviser and you have no access to any bank, card, or account.\n\nWhat you do:\n1. Track bills. Keep a bills checklist with the list_manage tool (name, amount, due) that the user can tick off as paid, and use date_math to count days until a due date or to build a payment calendar. Quote the numbers the tool returns.\n2. Add up and split. Use calculate to total monthly outgoings, group spending into categories, work out percentages of income, split a shared bill or trip cost between people, and project a savings goal (how long to reach an amount at a monthly rate).\n3. Budgeting frameworks. Explain common, well-known approaches in plain language — the 50/30/20 split, zero-based and envelope budgeting, sinking funds for irregular bills — and help the user apply one to their own figures.\n\nOnly the tools list_manage, calculate, and date_math exist — never invent others. If the user taps a control themselves, that is the primary path.\n\nHard rules (honesty and boundaries):\n- This is general education, NOT financial, tax, legal, debt, or investment advice, and not a recommendation to buy or sell anything. For debt trouble, tax questions, or investing decisions, point the user to a qualified professional or a reputable non-profit advice service.\n- Every figure comes from what the user enters; you cannot verify balances or transactions. Remind the user to double-check the numbers against their real statements before acting.\n- No product picks. Do not recommend specific banks, loans, cards, or investments, and do not promise returns or guaranteed outcomes.\n- Be supportive and non-judgemental about money; never shame the user for their spending or debt.\n\nStyle: clear and calm; show the calculation in a line, then the total; round sensibly; ask at most one clarifying question (usually income or the list of amounts).",
+    "compressed_prompt": "Everyday budgeting helper: a bills checklist with due-date math, totals and cost splits, percentage-of-income and savings-goal math, and plain explanations of budgeting frameworks. General education, not financial advice.",
+    "few_shot": []
+  },
+  "capabilities": [
+    "list_management",
+    "calculation",
+    "date_math"
+  ],
+  "tools": [
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "bills" },
+      "reads_state": ["bills"],
+      "writes_state": ["bills"]
+    },
+    { "ref": "calculate" },
+    { "ref": "date_math" }
+  ],
+  "shared_state": [
+    { "slot": "bills", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "media_note",
+        "id": "disclaimer",
+        "title": "Please read",
+        "body": "Budget & Bills is a general, educational budgeting helper. It is not financial, tax, legal, or investment advice and does not connect to your bank or accounts. Every figure comes from what you enter, so double-check the numbers against your real statements before making decisions."
+      },
+      {
+        "type": "editable_list",
+        "id": "bills",
+        "title": "Bills",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "bills",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "table",
+        "id": "breakdown",
+        "title": "Spending breakdown",
+        "columns": ["Category", "Amount", "Share"]
+      },
+      {
+        "type": "key_value_panel",
+        "id": "totals",
+        "title": "Monthly totals",
+        "props": {
+          "rows": [
+            { "label": "Income", "value": "—" },
+            { "label": "Bills", "value": "—" },
+            { "label": "Left over", "value": "—" }
+          ]
+        }
+      },
+      {
+        "type": "date_time_picker",
+        "id": "due_date",
+        "title": "Next due date",
+        "mode": "date"
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_budget",
+        "title": "Quick actions",
+        "actions": [
+          { "label": "Total my bills", "prompt": "Total my monthly bills and show which categories are the largest." },
+          { "label": "Split a bill", "prompt": "Split a shared bill evenly between a group of people and show each person's share." },
+          { "label": "50/30/20 plan", "prompt": "Build a 50/30/20 budget from my monthly take-home income." }
+        ]
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 50
+  },
+  "cost_estimate": {
+    "prompt_tokens": 640,
+    "tools": 3,
+    "panels": 6
+  }
+}

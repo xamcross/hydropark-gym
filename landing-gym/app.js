@@ -11,8 +11,20 @@
 
   /* -- Configuration -------------------------------------------------------- */
 
+  /* Launch GATES. While either still contains `REPLACE_ME`, its button fires the
+     analytics event, logs a console warning, and deliberately DOES NOT navigate,
+     so a bad deploy cannot silently eat clicks (see the handlers at the bottom).
+
+     CHECKOUT_URL is the payment-provider seam (P1-24.1). The buy button hands the
+     basket to a single hosted-checkout URL; the provider is a Merchant-of-Record
+     (MoR) hosted checkout that is the seller of record and derives the final,
+     tax-inclusive price from (target skills, region) server-side — the page only
+     passes which skills. Swapping providers is a ONE-LINE change here; nothing
+     downstream depends on the provider. The live MoR merchant account is a launch
+     gate: do NOT point this at a test link (that is exactly what P1-24.1 removes).
+     Keep the `REPLACE_ME` sentinel until the real MoR checkout base URL exists. */
   var DOWNLOAD_URL = 'https://hydropark.app/download/REPLACE_ME';
-  var CHECKOUT_URL = 'https://hydropark.app/checkout/REPLACE_ME';
+  var CHECKOUT_URL = 'https://hydropark.app/checkout/REPLACE_ME';   // MoR hosted-checkout seam — GATE
 
   // Prompt accounting, matching the app's capacity meter.
   var PREAMBLE = 150;      // base safety/formatting preamble, always present
@@ -83,6 +95,47 @@
 
   var byId = {};
   SKILLS.forEach(function (s) { byId[s.id] = s; });
+
+  /* -- Cost provenance (P1-24.3) -------------------------------------------- */
+  /* Plate costs must trace to the SHIPPED catalog's certified `cost_estimate`,
+     never a hand-tuned figure (README §Tuning; SPEC §8.5/§11.2). Each plate
+     declares `data-certified` and `data-cost-source`:
+       · certified="true"  — the plate's lead figure (`data-prompt` + `data-fewshot`)
+         equals the manifest's `cost_estimate.prompt_tokens`, mirrored in
+         `data-cost-estimate`. Today that is kitchen-timer (190) and
+         cooking-assistant (380), sourced from contracts/examples/*.manifest.json.
+       · certified="false" — a DESIGN ESTIMATE, shown so the planner still reads as
+         a full rack, but its skill is not yet authored/certified under
+         contracts/catalog/ (blocked on P1-22). Not presented as a real cost.
+     This block asserts the trace at load and logs any drift, so a future catalog
+     edit that forgets to update a plate is caught in the console rather than
+     shipping a page that lies about the meter (README invariant).
+
+     KNOWN DIVERGENCE (flagged for the P1-24.3 follow-up, not fixed here): the
+     shipped capacity gate (client/src-tauri/src/capacity.rs) charges EVERY enabled
+     skill its full `cost_estimate.prompt_tokens + tools*8 + panels*16` against a
+     fixed model context window with a working reserve — it does NOT discount
+     secondaries to a compressed line, does NOT union/dedupe tools for costing, and
+     does NOT vary the budget by hardware tier (hardware changes speed, not what
+     fits). This page still models §8.3.1 prompt-ASSEMBLY (lead-heavy) for the bar
+     and the assembled-prompt panel. Reconciling the METER's arithmetic with
+     capacity.rs is tracked work and needs the full certified catalog to land. */
+  (function verifyCostProvenance() {
+    SKILLS.forEach(function (s) {
+      var certified = s.el.getAttribute('data-certified') === 'true';
+      var est = Number(s.el.getAttribute('data-cost-estimate'));
+      var src = s.el.getAttribute('data-cost-source') || '(no data-cost-source)';
+      if (certified) {
+        if (!(est > 0) || (s.prompt + s.fewshot) !== est) {
+          console.warn('[hydropark] plate "' + s.id + '" is marked certified but its lead cost ' +
+            (s.prompt + s.fewshot) + ' does not equal cost_estimate.prompt_tokens ' + est +
+            ' — reconcile with ' + src);
+        }
+      } else {
+        console.info('[hydropark] plate "' + s.id + '" cost is a design estimate pending certification: ' + src);
+      }
+    });
+  })();
 
   /* -- State ---------------------------------------------------------------- */
 
