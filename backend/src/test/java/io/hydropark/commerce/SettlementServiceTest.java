@@ -111,4 +111,56 @@ class SettlementServiceTest {
     verify(grants).createGrants(eq("user-1"), anyString(), eq(GrantSource.STANDALONE), eq(List.of("skill-a")));
     verify(settlementLog).recordSettled(anyString(), eq("user-1"));
   }
+
+  /**
+   * SF10 hold-grant-until-clear - a high-risk settlement flips the order to paid but writes NO
+   * {@code settled_orders} row and creates NO grant, so the Issuer refuses offline issuance while
+   * held. The grant is deferred to {@link #clearingAHeldOrderReleasesTheGrant}.
+   */
+  @Test
+  void heldOrderSettlesPaidButProducesNoActiveGrant() {
+    Order order = skillOrder();
+    when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(Order.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null)); // pending -> paid, grant_held=true
+
+    boolean held = service.settleSkillOrBundleOnHold(order, succeeded(500));
+
+    assertTrue(held);
+    verify(settlementLog, never()).recordSettled(anyString(), anyString());
+    verify(grants, never()).createGrants(anyString(), anyString(), any(), any());
+  }
+
+  /** SF10 - clearing a still-held order runs the same settlement-log + grant writes as a normal settle. */
+  @Test
+  void clearingAHeldOrderReleasesTheGrant() {
+    Order order = skillOrder();
+    // Guard {status: paid, grant_held: true} matched the single held order.
+    when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(Order.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+    when(pricing.memberSkills(PurchaseKind.SKILL, "skill-a")).thenReturn(List.of("skill-a"));
+
+    boolean released = service.clearHeldOrder(order);
+
+    assertTrue(released);
+    verify(settlementLog, times(1)).recordSettled("order-1", "user-1");
+    verify(grants, times(1))
+        .createGrants("user-1", "order-1", GrantSource.STANDALONE, List.of("skill-a"));
+  }
+
+  /**
+   * A clear whose guard matches nothing (never held, already cleared, or moved terminal by a
+   * chargeback that landed first) grants nothing - the release is idempotent and cannot re-grant.
+   */
+  @Test
+  void clearingAnUnheldOrderGrantsNothing() {
+    Order order = skillOrder();
+    when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(Order.class)))
+        .thenReturn(UpdateResult.acknowledged(0L, 0L, null)); // guard matched zero rows
+
+    boolean released = service.clearHeldOrder(order);
+
+    assertFalse(released);
+    verify(settlementLog, never()).recordSettled(anyString(), anyString());
+    verify(grants, never()).createGrants(anyString(), anyString(), any(), any());
+  }
 }

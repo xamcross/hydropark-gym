@@ -76,7 +76,8 @@ pub enum StoreError {
 /// **Append only.** To evolve the schema, push a new `migrate_vN_to_vN1` fn onto
 /// the end — never edit, remove, or reorder an existing step, or an already-migrated
 /// user's database would diverge from a fresh one (P1-10.4).
-const MIGRATIONS: &[fn(&Connection) -> Result<(), StoreError>] = &[migrate_v0_to_v1];
+const MIGRATIONS: &[fn(&Connection) -> Result<(), StoreError>] =
+    &[migrate_v0_to_v1, migrate_v1_to_v2];
 
 /// The schema version this build targets — the number of migration steps.
 const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -119,6 +120,40 @@ fn migrate_v0_to_v1(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// v1 → v2: the account/licensing layer (P1-09.x). Three tables, all appended
+/// (never editing v1's step): the single-row `auth_session` (the persisted
+/// access+refresh token pair), the single-row `device_identity` (the stable
+/// install id + coarse fingerprint + Ed25519 device keypair), and the cached
+/// `entitlements` set. The two singletons pin their row with a `CHECK (id = 0)`
+/// so the upsert is a plain `ON CONFLICT(id)`.
+fn migrate_v1_to_v2(conn: &Connection) -> Result<(), StoreError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS auth_session (
+            id            INTEGER PRIMARY KEY CHECK (id = 0),
+            access_token  TEXT NOT NULL,
+            refresh_token TEXT NOT NULL,
+            email         TEXT,
+            access_exp_ms INTEGER,
+            updated_at    INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS device_identity (
+            id               INTEGER PRIMARY KEY CHECK (id = 0),
+            install_id       TEXT NOT NULL,
+            signing_key      BLOB NOT NULL,
+            fingerprint      TEXT,
+            server_device_id TEXT,
+            registered       INTEGER NOT NULL DEFAULT 0,
+            updated_at       INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS entitlements (
+            skill_id   TEXT PRIMARY KEY,
+            status     TEXT NOT NULL,
+            cached_at  INTEGER NOT NULL
+        );",
+    )?;
+    Ok(())
+}
+
 /// Run every pending migration in order. Forward-only and idempotent; leaves a
 /// newer-than-known database untouched (never downgrades).
 fn run_migrations(conn: &Connection) -> Result<(), StoreError> {
@@ -150,6 +185,41 @@ pub struct CachedLicense {
     /// The compact-JWS token, stored verbatim (this layer does not parse it).
     pub compact_jws: String,
     /// When it was cached (epoch milliseconds) — used to pick the newest.
+    pub cached_at: i64,
+}
+
+/// The persisted account session (P1-09.x): the access + refresh token pair the
+/// backend `/v1/auth` minted, plus the account email (when it has one) and the
+/// access token's decoded expiry (epoch ms) used to drive proactive refresh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredSession {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub email: Option<String>,
+    /// The access token's `exp` claim as epoch milliseconds, if it was decodable.
+    pub access_exp_ms: Option<i64>,
+}
+
+/// The persisted per-install device identity (P1-09.3 / .8): a stable install id,
+/// the Ed25519 device secret-key seed (32 bytes), the coarse fingerprint sent to
+/// `/v1/devices/register`, and whether the backend has accepted a registration
+/// (with the server-assigned device id when it has).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredDeviceIdentity {
+    pub install_id: String,
+    /// 32-byte Ed25519 seed; `device.rs` reconstitutes the `SigningKey` from it.
+    pub signing_key: Vec<u8>,
+    pub fingerprint: Option<String>,
+    pub server_device_id: Option<String>,
+    pub registered: bool,
+}
+
+/// One cached entitlement row (P1-09.7) — the local mirror of `GET /v1/entitlements`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachedEntitlement {
+    pub skill_id: String,
+    pub status: String,
+    /// When the entitlement set was last cached (epoch milliseconds).
     pub cached_at: i64,
 }
 
@@ -291,6 +361,152 @@ impl Store {
         Ok(row)
     }
 
+    // ---- account session (single row, P1-09.x) ---------------------------
+
+    /// Persist (upsert) the account's access + refresh token pair. `email` is the
+    /// account email when known; `access_exp_ms` is the access token's decoded
+    /// `exp` (epoch ms) or `None` when it could not be read.
+    pub fn save_session(
+        &self,
+        access_token: &str,
+        refresh_token: &str,
+        email: Option<&str>,
+        access_exp_ms: Option<i64>,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO auth_session (id, access_token, refresh_token, email, access_exp_ms, updated_at)
+             VALUES (0, ?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+                 access_token  = excluded.access_token,
+                 refresh_token = excluded.refresh_token,
+                 email         = excluded.email,
+                 access_exp_ms = excluded.access_exp_ms,
+                 updated_at    = excluded.updated_at",
+            params![access_token, refresh_token, email, access_exp_ms, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// The persisted session, or `None` if the user is signed out.
+    pub fn load_session(&self) -> Result<Option<StoredSession>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT access_token, refresh_token, email, access_exp_ms
+                 FROM auth_session WHERE id = 0",
+                [],
+                |row| {
+                    Ok(StoredSession {
+                        access_token: row.get(0)?,
+                        refresh_token: row.get(1)?,
+                        email: row.get(2)?,
+                        access_exp_ms: row.get(3)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Clear the persisted session (the local half of sign-out).
+    pub fn clear_session(&self) -> Result<(), StoreError> {
+        self.conn.execute("DELETE FROM auth_session", [])?;
+        Ok(())
+    }
+
+    // ---- device identity (single row, P1-09.3/.8) ------------------------
+
+    /// Persist (upsert) the device identity: stable install id, Ed25519 seed,
+    /// coarse fingerprint, and registration state.
+    pub fn save_device_identity(
+        &self,
+        install_id: &str,
+        signing_key: &[u8],
+        fingerprint: Option<&str>,
+        server_device_id: Option<&str>,
+        registered: bool,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO device_identity
+                 (id, install_id, signing_key, fingerprint, server_device_id, registered, updated_at)
+             VALUES (0, ?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                 install_id       = excluded.install_id,
+                 signing_key      = excluded.signing_key,
+                 fingerprint      = excluded.fingerprint,
+                 server_device_id = excluded.server_device_id,
+                 registered       = excluded.registered,
+                 updated_at       = excluded.updated_at",
+            params![install_id, signing_key, fingerprint, server_device_id, registered, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// The persisted device identity, or `None` before first run.
+    pub fn load_device_identity(&self) -> Result<Option<StoredDeviceIdentity>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT install_id, signing_key, fingerprint, server_device_id, registered
+                 FROM device_identity WHERE id = 0",
+                [],
+                |row| {
+                    Ok(StoredDeviceIdentity {
+                        install_id: row.get(0)?,
+                        signing_key: row.get(1)?,
+                        fingerprint: row.get(2)?,
+                        server_device_id: row.get(3)?,
+                        registered: row.get(4)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    // ---- entitlements cache (P1-09.7) ------------------------------------
+
+    /// Replace the cached entitlement set wholesale with `items` (`(skill_id,
+    /// status)` pairs) stamped `cached_at`. Wholesale replace (in one transaction)
+    /// so a skill that dropped off the server's list does not linger locally.
+    pub fn cache_entitlements(
+        &self,
+        items: &[(String, String)],
+        cached_at: i64,
+    ) -> Result<(), StoreError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM entitlements", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO entitlements (skill_id, status, cached_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(skill_id) DO UPDATE SET
+                     status = excluded.status, cached_at = excluded.cached_at",
+            )?;
+            for (skill_id, status) in items {
+                stmt.execute(params![skill_id, status, cached_at])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The cached entitlement set, ordered by skill id.
+    pub fn load_entitlements(&self) -> Result<Vec<CachedEntitlement>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT skill_id, status, cached_at FROM entitlements ORDER BY skill_id ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(CachedEntitlement {
+                    skill_id: row.get(0)?,
+                    status: row.get(1)?,
+                    cached_at: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     // ---- panel state (opaque per-agent UI layout) ------------------------
 
     /// Insert or replace the UI panel state for an agent.
@@ -397,15 +613,15 @@ mod tests {
     fn migrations_run_once_and_are_a_no_op_the_second_time() {
         let s = store();
         // A fresh open leaves the DB at the target version.
-        assert_eq!(SCHEMA_VERSION, 1);
-        assert_eq!(s.schema_version().unwrap(), 1);
+        assert_eq!(SCHEMA_VERSION, 2);
+        assert_eq!(s.schema_version().unwrap(), 2);
 
         // Seed data, then re-run the runner: it must not touch the version...
         let tpl = sample_template("Weeknight Chef");
         s.save_template(&tpl).unwrap();
 
         run_migrations(&s.conn).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 1, "no re-bump / no downgrade");
+        assert_eq!(s.schema_version().unwrap(), 2, "no re-bump / no downgrade");
 
         // ...and must not destroy existing offline data.
         assert_eq!(
@@ -472,6 +688,93 @@ mod tests {
         let newest = s.newest_license("cooking-assistant").unwrap().unwrap();
         assert_eq!(newest.compact_jws, "jws.newer");
         assert_eq!(newest.cached_at, 3_000);
+    }
+
+    // ---- account session: round-trip + clear (P1-09.x) -----------------------
+
+    #[test]
+    fn session_round_trips_then_clears() {
+        let s = store();
+        assert_eq!(s.load_session().unwrap(), None, "signed out before any save");
+
+        s.save_session("acc-1", "ref-1", Some("chef@example.com"), Some(1_770_000_000_000))
+            .unwrap();
+        assert_eq!(
+            s.load_session().unwrap(),
+            Some(StoredSession {
+                access_token: "acc-1".into(),
+                refresh_token: "ref-1".into(),
+                email: Some("chef@example.com".into()),
+                access_exp_ms: Some(1_770_000_000_000),
+            })
+        );
+
+        // Re-saving upserts the single row (rotated tokens, unknown expiry).
+        s.save_session("acc-2", "ref-2", None, None).unwrap();
+        let loaded = s.load_session().unwrap().unwrap();
+        assert_eq!(loaded.access_token, "acc-2");
+        assert_eq!(loaded.email, None);
+        assert_eq!(loaded.access_exp_ms, None);
+
+        s.clear_session().unwrap();
+        assert_eq!(s.load_session().unwrap(), None, "cleared on sign-out");
+    }
+
+    // ---- device identity: round-trip, single row -----------------------------
+
+    #[test]
+    fn device_identity_round_trips_and_upserts() {
+        let s = store();
+        assert_eq!(s.load_device_identity().unwrap(), None);
+
+        let seed = vec![9u8; 32];
+        s.save_device_identity("inst-1", &seed, Some("fp1-abc"), None, false).unwrap();
+        assert_eq!(
+            s.load_device_identity().unwrap(),
+            Some(StoredDeviceIdentity {
+                install_id: "inst-1".into(),
+                signing_key: seed.clone(),
+                fingerprint: Some("fp1-abc".into()),
+                server_device_id: None,
+                registered: false,
+            })
+        );
+
+        // Marking it registered preserves install id + key, flips the flag.
+        s.save_device_identity("inst-1", &seed, Some("fp1-abc"), Some("srv-dev-7"), true)
+            .unwrap();
+        let d = s.load_device_identity().unwrap().unwrap();
+        assert_eq!(d.install_id, "inst-1");
+        assert!(d.registered);
+        assert_eq!(d.server_device_id.as_deref(), Some("srv-dev-7"));
+    }
+
+    // ---- entitlements cache: wholesale replace -------------------------------
+
+    #[test]
+    fn entitlements_cache_replaces_wholesale() {
+        let s = store();
+        assert!(s.load_entitlements().unwrap().is_empty());
+
+        s.cache_entitlements(
+            &[
+                ("cooking-assistant".into(), "owned".into()),
+                ("garden-plants".into(), "owned".into()),
+            ],
+            1_000,
+        )
+        .unwrap();
+        let rows = s.load_entitlements().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].skill_id, "cooking-assistant"); // ordered by skill id
+
+        // A later refresh replaces the set — a dropped skill does not linger.
+        s.cache_entitlements(&[("cooking-assistant".into(), "revoked".into())], 2_000)
+            .unwrap();
+        let rows = s.load_entitlements().unwrap();
+        assert_eq!(rows.len(), 1, "wholesale replace drops garden-plants");
+        assert_eq!(rows[0].status, "revoked");
+        assert_eq!(rows[0].cached_at, 2_000);
     }
 
     // ---- panel state: round-trip, per-agent ----------------------------------

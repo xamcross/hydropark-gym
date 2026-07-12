@@ -1,16 +1,22 @@
 import { Injectable } from '@angular/core';
 import {
+  AuthState,
   ComposedAgentView,
   ComposedRouteView,
   ComposedToolView,
+  DownloadUrlResult,
+  EntitlementsGetResult,
   HardwareProfile,
   IngredientItem,
   IpcCommand,
   IpcCommandMap,
   IpcEvent,
   IpcEventMap,
+  LicenseFetchResult,
   ListManageArgs,
   ListManageResult,
+  OrderCheckoutResult,
+  OrderGetResult,
   StartTimerArgs,
   TelemetryEvent,
   TimerStateSnapshot,
@@ -62,6 +68,13 @@ export class MockIpcService extends IpcPort {
   private readonly telemetryLog: TelemetryEvent[] = [];
   private itemSeq = 0;
 
+  // --- simulated account + commerce state (P1-08/09) ---------------------
+  private mockAuth: AuthState = { status: 'anonymous' };
+  /** Seeded owned skills so "Restore purchases" has material to restore in the demo. */
+  private readonly ownedSkills = new Set<string>(['packing-list', 'budget-planner']);
+  /** In-flight orders → when they settle (so order_get flips pending→settled). */
+  private readonly orders = new Map<string, { skillId: string; settleAt: number }>();
+
   // ---- IpcPort ------------------------------------------------------------
 
   async invoke<K extends IpcCommand>(cmd: K, args: IpcCommandMap[K]['args']): Promise<IpcCommandMap[K]['result']> {
@@ -96,6 +109,42 @@ export class MockIpcService extends IpcPort {
         return undefined as IpcCommandMap[K]['result'];
       case 'compose_agent':
         return this.mockCompose(args as IpcCommandMap['compose_agent']['args']) as IpcCommandMap[K]['result'];
+
+      // --- account / auth (P1-09.1/.2) ---
+      case 'auth_status':
+        return this.mockAuth as IpcCommandMap[K]['result'];
+      case 'device_ensure':
+        return this.ensureDevice() as IpcCommandMap[K]['result'];
+      case 'auth_register': {
+        const a = args as IpcCommandMap['auth_register']['args'];
+        return this.authenticate(a.email, a.password) as IpcCommandMap[K]['result'];
+      }
+      case 'auth_login': {
+        const a = args as IpcCommandMap['auth_login']['args'];
+        return this.authenticate(a.email, a.password) as IpcCommandMap[K]['result'];
+      }
+      case 'step_up_answer':
+        return this.answerStepUp() as IpcCommandMap[K]['result'];
+      case 'auth_logout':
+        return this.logoutAuth() as IpcCommandMap[K]['result'];
+
+      // --- commerce (P1-08.5/.6/.8) ---
+      case 'entitlements_get':
+      case 'entitlements_refresh':
+        return this.entitlements() as IpcCommandMap[K]['result'];
+      case 'order_checkout':
+        return this.orderCheckout(args as IpcCommandMap['order_checkout']['args']) as IpcCommandMap[K]['result'];
+      case 'order_get':
+        return this.orderGet(args as IpcCommandMap['order_get']['args']) as IpcCommandMap[K]['result'];
+      case 'license_fetch':
+        return this.licenseFetch(args as IpcCommandMap['license_fetch']['args']) as IpcCommandMap[K]['result'];
+      case 'download_url':
+        return this.downloadUrl(args as IpcCommandMap['download_url']['args']) as IpcCommandMap[K]['result'];
+      case 'open_external':
+        // No system browser to hand off to in the mock — the SystemBrowserService
+        // uses window.open in the web build and never reaches this.
+        return undefined as IpcCommandMap[K]['result'];
+
       default:
         throw new Error(`MockIpcService: unhandled command "${String(cmd)}"`);
     }
@@ -270,6 +319,119 @@ export class MockIpcService extends IpcPort {
       persona_injected: true,
       tools_registered: ['start_timer', 'convert_units', 'list_manage'],
       panels: ['timer_stack', 'editable_list', 'segmented_toggle'],
+    };
+  }
+
+  // ---- simulated account + commerce (P1-08/09) --------------------------
+  //
+  // A minimal in-memory stand-in for the Rust auth/commerce commands so the full
+  // purchase + restore loop runs under `ng serve` with no backend. The Rust core
+  // replaces every method here.
+
+  private token(prefix: string): string {
+    return `${prefix}_${crypto.randomUUID().slice(0, 12)}`;
+  }
+
+  /** No-email identity: mint/return a device-scoped account that can buy. */
+  private ensureDevice(): AuthState {
+    const deviceId = this.mockAuth.deviceId ?? this.token('dev');
+    if (this.mockAuth.status === 'anonymous') {
+      this.mockAuth = { status: 'device', deviceId, accessToken: this.token('tok'), email: null, stepUp: null };
+    } else {
+      this.mockAuth = { ...this.mockAuth, deviceId };
+    }
+    return this.mockAuth;
+  }
+
+  /** Email account: authenticate — or raise a step-up challenge for `+2fa` emails. */
+  private authenticate(email: string | undefined, _password: string | undefined): AuthState {
+    const deviceId = this.mockAuth.deviceId ?? this.token('dev');
+    if (email && /\+2fa@/i.test(email)) {
+      this.mockAuth = {
+        status: this.mockAuth.status === 'anonymous' ? 'device' : this.mockAuth.status,
+        deviceId,
+        email,
+        accessToken: this.mockAuth.accessToken ?? this.token('tok'),
+        stepUp: {
+          challengeId: this.token('ch'),
+          kind: 'email_code',
+          prompt: 'Enter the 6-digit code we emailed you (any digits work in this demo).',
+        },
+      };
+      return this.mockAuth;
+    }
+    this.mockAuth = {
+      status: 'authenticated',
+      deviceId,
+      userId: this.token('usr'),
+      email: email ?? null,
+      accessToken: this.token('tok'),
+      stepUp: null,
+    };
+    return this.mockAuth;
+  }
+
+  private answerStepUp(): AuthState {
+    this.mockAuth = {
+      status: 'authenticated',
+      deviceId: this.mockAuth.deviceId ?? this.token('dev'),
+      userId: this.mockAuth.userId ?? this.token('usr'),
+      email: this.mockAuth.email ?? null,
+      accessToken: this.mockAuth.accessToken ?? this.token('tok'),
+      stepUp: null,
+    };
+    return this.mockAuth;
+  }
+
+  /** Logout drops the account but keeps the device identity (purchases stay reachable). */
+  private logoutAuth(): AuthState {
+    this.mockAuth = this.mockAuth.deviceId
+      ? { status: 'device', deviceId: this.mockAuth.deviceId, accessToken: this.token('tok'), email: null, stepUp: null }
+      : { status: 'anonymous' };
+    return this.mockAuth;
+  }
+
+  private entitlements(): EntitlementsGetResult {
+    return { skills: [...this.ownedSkills].map((skillId) => ({ skillId, state: 'owned', version: '1.0.0' })) };
+  }
+
+  private orderCheckout(args: IpcCommandMap['order_checkout']['args']): OrderCheckoutResult {
+    const orderId = this.token('ord');
+    this.orders.set(orderId, { skillId: args.targetId, settleAt: Date.now() + 1400 });
+    // Simulate the buyer finishing in the system browser: the deep-link callback
+    // returns ~1.5s later, racing the client's order_get poll — either settles it.
+    setTimeout(() => {
+      this.ownedSkills.add(args.targetId);
+      this.emit('purchase://callback', {
+        orderId,
+        skillId: args.targetId,
+        status: 'settled',
+        raw: `purchase://callback?orderId=${orderId}&status=settled`,
+      });
+    }, 1500);
+    return { orderId, checkoutUrl: `https://checkout.hydropark.app/session/${orderId}` };
+  }
+
+  private orderGet(args: IpcCommandMap['order_get']['args']): OrderGetResult {
+    const order = this.orders.get(args.orderId);
+    if (!order) return { orderId: args.orderId, status: 'unknown' };
+    if (Date.now() >= order.settleAt) {
+      this.ownedSkills.add(order.skillId);
+      return { orderId: args.orderId, status: 'settled' };
+    }
+    return { orderId: args.orderId, status: 'pending' };
+  }
+
+  private licenseFetch(args: IpcCommandMap['license_fetch']['args']): LicenseFetchResult {
+    // A structurally-plausible compact-JWS placeholder — never a real signature.
+    return { compactJws: `eyJhbGciOiJFUzI1NiJ9.${this.token('lic')}.${this.token('sig')}` };
+  }
+
+  private downloadUrl(args: IpcCommandMap['download_url']['args']): DownloadUrlResult {
+    return {
+      url: `https://cdn.hydropark.app/skills/${args.skillId}/${args.version}.hpskill`,
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      watermark: this.token('wm'),
     };
   }
 

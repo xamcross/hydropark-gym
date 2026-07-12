@@ -46,13 +46,14 @@
             </div>
           </div>
 
-          <!-- Ownership state machine (§11.3). -->
-          @if (ownState(); as st) {
+          <!-- Ownership state machine (§11.3) — live purchase state wins over baseline. -->
+          @if (displayState(); as st) {
             <app-ownership-button
               class="head-own"
               [state]="st"
               [price]="d.price"
               [isFree]="d.is_free"
+              [error]="ownError()"
               (action)="onAction($event)"
             ></app-ownership-button>
           }

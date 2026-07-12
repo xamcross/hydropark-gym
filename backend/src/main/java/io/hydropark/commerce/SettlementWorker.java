@@ -55,6 +55,7 @@ public class SettlementWorker {
   private final PaymentProvider provider;
   private final SettlementService settlement;
   private final PricingPort pricing;
+  private final AntiFraudService antiFraud;
 
   private final int batchSize;
   private final int maxAttempts;
@@ -67,10 +68,11 @@ public class SettlementWorker {
       PaymentProvider provider,
       SettlementService settlement,
       PricingPort pricing,
+      AntiFraudService antiFraud,
       int batchSize,
       int maxAttempts,
       long staleProcessingMs) {
-    this(mongo, provider, settlement, pricing, batchSize, maxAttempts, staleProcessingMs,
+    this(mongo, provider, settlement, pricing, antiFraud, batchSize, maxAttempts, staleProcessingMs,
         TelemetryMetrics.noop());
   }
 
@@ -80,6 +82,7 @@ public class SettlementWorker {
       PaymentProvider provider,
       SettlementService settlement,
       PricingPort pricing,
+      AntiFraudService antiFraud,
       @Value("${hydropark.worker.batch-size:50}") int batchSize,
       @Value("${hydropark.worker.max-attempts:5}") int maxAttempts,
       @Value("${hydropark.worker.stale-processing-ms:300000}") long staleProcessingMs,
@@ -88,6 +91,7 @@ public class SettlementWorker {
     this.provider = provider;
     this.settlement = settlement;
     this.pricing = pricing;
+    this.antiFraud = antiFraud;
     this.batchSize = batchSize;
     this.maxAttempts = maxAttempts;
     this.staleProcessingMs = staleProcessingMs;
@@ -174,13 +178,9 @@ public class SettlementWorker {
     }
 
     // 3. Correlate on OUR order id.
-    if (ev.ourOrderId() == null) {
-      deadLetter(row.getId(), "event carried no order correlation");
-      return;
-    }
-    Order order = mongo.findById(ev.ourOrderId(), Order.class);
+    Order order = correlate(ev);
     if (order == null) {
-      deadLetter(row.getId(), "unknown order " + ev.ourOrderId());
+      deadLetter(row.getId(), "no correlated order for event " + ev.providerEventId());
       return;
     }
 
@@ -203,6 +203,8 @@ public class SettlementWorker {
       case PaymentProvider.SUCCEEDED -> {
         if (isTopup) {
           settlement.settleTopup(order, ev);
+          metrics.orderSettled(); // P1-21.4: hydropark.orders.checkout.settled
+          metrics.webhookSettled(); // P1-21.4: hydropark.webhook.settled
         } else {
           // 4. Amount check: under-payment never settles.
           Money required = order.money();
@@ -212,10 +214,30 @@ public class SettlementWorker {
           }
           // 5. Region cross-check (N9).
           assertRegionAcceptable(order, ev);
-          settlement.settleSkillOrBundle(order, ev);
+          // 5b. SF10 per-instrument velocity: one card must not farm many accounts.
+          if (antiFraud.isPaymentFingerprintOverVelocity(order.getUserId(), ev.paymentFingerprint())) {
+            throw new ParkException(
+                "fingerprint_velocity: instrument reused across too many accounts for order "
+                    + order.getId());
+          }
+          // 5c. SF10 hold-grant-until-clear: a high-risk order settles as paid but withholds the
+          // grant until a clear event releases it, so it emits no settled metric yet.
+          if (antiFraud.isHighRisk(order, ev)) {
+            settlement.settleSkillOrBundleOnHold(order, ev);
+          } else {
+            settlement.settleSkillOrBundle(order, ev);
+            metrics.orderSettled();
+            metrics.webhookSettled();
+          }
         }
-        metrics.orderSettled(); // P1-21.4: hydropark.orders.checkout.settled
-        metrics.webhookSettled(); // P1-21.4: hydropark.webhook.settled
+      }
+      case PaymentProvider.CLEARED -> {
+        // SF10 release: the provider cleared the risk review on a held order. Only skill/bundle
+        // orders are ever held; a clear for a top-up is a no-op.
+        if (!isTopup && settlement.clearHeldOrder(order)) {
+          metrics.orderSettled();
+          metrics.webhookSettled();
+        }
       }
       case PaymentProvider.REFUNDED -> {
         if (isTopup) {
@@ -236,6 +258,26 @@ public class SettlementWorker {
         /* ignored already handled */
       }
     }
+  }
+
+  /**
+   * Correlate an event to one of our orders. Preferred: our own {@code orders.id} echoed back in the
+   * MoR {@code custom_data}/{@code metadata} (never the provider's id - a grant is only ever created
+   * off this trusted echo). Fallback, only when no echo is present (e.g. a Stripe {@code
+   * review.closed} clear, whose Review object carries no metadata): match the provider order id
+   * against the {@code mor_order_id} we ourselves stored from the earlier signature-verified {@code
+   * succeeded} event. That fallback can only reach {@link SettlementService#clearHeldOrder}, which
+   * releases an already-paid held order - it can never mint a grant for an order that never settled.
+   */
+  private Order correlate(ProviderEvent ev) {
+    if (ev.ourOrderId() != null) {
+      return mongo.findById(ev.ourOrderId(), Order.class);
+    }
+    if (ev.providerOrderId() != null) {
+      return mongo.findOne(
+          Query.query(Criteria.where("morOrderId").is(ev.providerOrderId())), Order.class);
+    }
+    return null;
   }
 
   /**

@@ -555,6 +555,60 @@ pub struct DownloadUrlResult {
 }
 
 // ---------------------------------------------------------------------------
+// Accounts / licensing (P1-09.x) + step-up (P1-09.8). Same camelCase IPC family
+// as the marketplace commands above. The Rust core owns the session: it persists
+// the access+refresh token pair (T2 SQLite store) and re-attaches the bearer to
+// every authed backend call, so the webview never handles a raw token. `deviceId`
+// is the STABLE local install id (always present, even signed-out / offline).
+// ---------------------------------------------------------------------------
+
+/// `auth_register` / `auth_login` args — email + password.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthCredentialsArgs {
+    pub email: String,
+    pub password: String,
+}
+
+/// The account+device status the webview hydrates from (`auth_status`, and the
+/// return of register/login/logout). `email` is present only for an authenticated
+/// account that has one; `deviceId` is the stable install id.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStatus {
+    pub authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    pub device_id: String,
+}
+
+/// `device_ensure` result — the stable install id + whether the backend registry
+/// has accepted this device (needs a session; false when signed out).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceEnsureResult {
+    pub device_id: String,
+    pub registered: bool,
+}
+
+/// `step_up_answer` args — the server-issued step-up challenge string to sign
+/// (P1-09.8 client half).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepUpAnswerArgs {
+    pub challenge: String,
+}
+
+/// `step_up_answer` result — the base64 Ed25519 signature over the challenge, plus
+/// the signing device's stable install id.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepUpAnswerResult {
+    pub signature: String,
+    pub device_id: String,
+}
+
+// ---------------------------------------------------------------------------
 // Command errors
 // ---------------------------------------------------------------------------
 
@@ -579,6 +633,11 @@ pub enum CmdError {
     /// `backend_client::BackendError`'s message; see that module for the taxonomy.
     #[error("backend request failed: {0}")]
     Backend(String),
+    /// A local account/session/device store operation failed (P1-09.x): the
+    /// on-device SQLite session/device tables, or device-key handling. Carries the
+    /// `store::StoreError` / `device::DeviceError` message.
+    #[error("account store error: {0}")]
+    Account(String),
 }
 
 impl From<std::io::Error> for CmdError {

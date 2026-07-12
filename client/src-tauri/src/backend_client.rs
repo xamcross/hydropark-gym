@@ -124,6 +124,28 @@ fn download_route(base: &str, skill_id: &str, version: &str) -> String {
     join(base, &format!("/v1/download/skills/{skill_id}/{version}"))
 }
 
+// --- accounts / devices (P1-09.x) ------------------------------------------
+
+fn auth_register_route(base: &str) -> String {
+    join(base, "/v1/auth/register")
+}
+
+fn auth_login_route(base: &str) -> String {
+    join(base, "/v1/auth/login")
+}
+
+fn auth_refresh_route(base: &str) -> String {
+    join(base, "/v1/auth/refresh")
+}
+
+fn auth_logout_route(base: &str) -> String {
+    join(base, "/v1/auth/logout")
+}
+
+fn device_register_route(base: &str) -> String {
+    join(base, "/v1/devices/register")
+}
+
 /// Human-readable hardware badge derived from a skill's required model tier
 /// (mirrors the tier vocabulary in `skill_manager.rs`). Unknown/absent tiers
 /// read as "runs anywhere" so an unrecognised value never *over*states the
@@ -157,11 +179,10 @@ fn checkout_body<'a>(target_id: &'a str, region: &'a str) -> CheckoutBody<'a> {
     CheckoutBody { kind: "skill", target_id, payment_source: "mor", region }
 }
 
-/// `POST /v1/licenses/issue` body: `{ skill_id, device_id }`. Device binding
-/// (and the `X-Step-Up-Token` the backend also requires) come from a later
-/// tranche; `device_id` is sourced from `HYDROPARK_DEVICE_ID` for now so the
-/// request is well-formed. This plumbs the call end-to-end without inventing a
-/// device-registration flow here.
+/// `POST /v1/licenses/issue` body: `{ skill_id, device_id }`. `device_id` is the
+/// caller-supplied stable install id from `device.rs` (bound at issuance, never
+/// re-derived offline to verify — §13.12), falling back to `HYDROPARK_DEVICE_ID`
+/// only before a local identity has been minted.
 #[derive(Debug, Serialize)]
 struct LicenseBody<'a> {
     skill_id: &'a str,
@@ -172,8 +193,34 @@ fn license_body<'a>(skill_id: &'a str, device_id: &'a str) -> LicenseBody<'a> {
     LicenseBody { skill_id, device_id }
 }
 
-fn device_id() -> String {
+/// Legacy fallback device id (pre-`device.rs`): the persisted install id is now
+/// the real source (passed in by the command layer). Kept only for the case where
+/// no local identity has been minted yet.
+fn env_device_id() -> String {
     std::env::var("HYDROPARK_DEVICE_ID").unwrap_or_default()
+}
+
+// --- accounts / devices (P1-09.x) — snake_case request bodies --------------
+
+/// `POST /v1/auth/register` and `/v1/auth/login` both take `{ email, password }`.
+#[derive(Debug, Serialize)]
+struct CredentialsBody<'a> {
+    email: &'a str,
+    password: &'a str,
+}
+
+/// `POST /v1/auth/refresh` and `/v1/auth/logout` both take `{ refresh_token }`.
+#[derive(Debug, Serialize)]
+struct RefreshTokenBody<'a> {
+    refresh_token: &'a str,
+}
+
+/// `POST /v1/devices/register` body: `{ name, fingerprint }`. The coarse
+/// fingerprint is stored server-side as-is and never re-derived offline (§13.12).
+#[derive(Debug, Serialize)]
+struct DeviceRegisterBody<'a> {
+    name: &'a str,
+    fingerprint: &'a str,
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +349,40 @@ mod wire {
         pub expires_at: String,
         pub watermark: String,
     }
+
+    /// The `user` sub-object of an `AuthResponse` (register/login).
+    #[derive(Debug, Deserialize)]
+    pub struct AuthUser {
+        #[allow(dead_code)]
+        pub id: String,
+        #[serde(default)]
+        pub email: Option<String>,
+    }
+
+    /// `POST /v1/auth/register|login` (AuthResponse). `recovery_code` is present
+    /// only for a device-only registration; we do not surface it here.
+    #[derive(Debug, Deserialize)]
+    pub struct AuthResponse {
+        pub access_jwt: String,
+        pub refresh_token: String,
+        #[serde(default)]
+        pub user: Option<AuthUser>,
+    }
+
+    /// `POST /v1/auth/refresh` (TokenPair) — rotated tokens, no user echo.
+    #[derive(Debug, Deserialize)]
+    pub struct TokenPair {
+        pub access_jwt: String,
+        pub refresh_token: String,
+    }
+
+    /// `POST /v1/devices/register` (DeviceView) — the client-facing slot. Omits
+    /// the fingerprint (server-side only); we surface id + status.
+    #[derive(Debug, Deserialize)]
+    pub struct DeviceView {
+        pub id: String,
+        pub status: String,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +485,43 @@ fn decode_download(json: &str) -> Result<DownloadUrlResult, BackendError> {
     Ok(DownloadUrlResult { url: w.url, expires_at: w.expires_at, watermark: w.watermark })
 }
 
+// --- accounts / devices (P1-09.x) ------------------------------------------
+
+/// A freshly-issued (or rotated) session token pair. `email` is carried through
+/// on register/login (from the response's `user`); a bare refresh yields `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthSession {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub email: Option<String>,
+}
+
+/// The outcome of a device registration: the server-assigned device id + status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredDevice {
+    pub device_id: String,
+    pub status: String,
+}
+
+fn decode_auth_response(json: &str) -> Result<AuthSession, BackendError> {
+    let w: wire::AuthResponse = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(AuthSession {
+        access_token: w.access_jwt,
+        refresh_token: w.refresh_token,
+        email: w.user.and_then(|u| u.email),
+    })
+}
+
+fn decode_token_pair(json: &str) -> Result<AuthSession, BackendError> {
+    let w: wire::TokenPair = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(AuthSession { access_token: w.access_jwt, refresh_token: w.refresh_token, email: None })
+}
+
+fn decode_device(json: &str) -> Result<RegisteredDevice, BackendError> {
+    let w: wire::DeviceView = serde_json::from_str(json).map_err(BackendError::decode)?;
+    Ok(RegisteredDevice { device_id: w.id, status: w.status })
+}
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -501,9 +619,16 @@ impl BackendClient {
         &self,
         skill_id: &str,
         bearer: Option<&str>,
+        device_id: Option<&str>,
     ) -> Result<LicenseResult, BackendError> {
         let url = license_route(&self.base);
-        let device = device_id();
+        // Prefer the persisted install id (passed by the command layer); fall back
+        // to the legacy env var only when no local identity has been minted yet.
+        let device = device_id
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(env_device_id);
         let req = with_bearer(
             self.http.post(&url).json(&license_body(skill_id, &device)),
             bearer,
@@ -526,6 +651,92 @@ impl BackendClient {
             .map_err(BackendError::network)?;
         let body = read_ok(resp).await?;
         decode_download(&body)
+    }
+
+    // --- accounts / devices (P1-09.x) --------------------------------------
+
+    pub async fn auth_register(
+        &self,
+        email: &str,
+        password: &str,
+    ) -> Result<AuthSession, BackendError> {
+        let url = auth_register_route(&self.base);
+        let resp = self
+            .http
+            .post(&url)
+            .json(&CredentialsBody { email, password })
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_auth_response(&body)
+    }
+
+    pub async fn auth_login(
+        &self,
+        email: &str,
+        password: &str,
+    ) -> Result<AuthSession, BackendError> {
+        let url = auth_login_route(&self.base);
+        let resp = self
+            .http
+            .post(&url)
+            .json(&CredentialsBody { email, password })
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_auth_response(&body)
+    }
+
+    pub async fn auth_refresh(&self, refresh_token: &str) -> Result<AuthSession, BackendError> {
+        let url = auth_refresh_route(&self.base);
+        let resp = self
+            .http
+            .post(&url)
+            .json(&RefreshTokenBody { refresh_token })
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_token_pair(&body)
+    }
+
+    /// `POST /v1/auth/logout` — revokes the refresh token server-side (204 body).
+    pub async fn auth_logout(&self, refresh_token: &str) -> Result<(), BackendError> {
+        let url = auth_logout_route(&self.base);
+        let resp = self
+            .http
+            .post(&url)
+            .json(&RefreshTokenBody { refresh_token })
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        read_ok(resp).await?; // 2xx (204) → empty body; non-2xx → Status error
+        Ok(())
+    }
+
+    /// `POST /v1/devices/register`. Requires a bearer; the first device an account
+    /// binds is trusted-on-first-use server-side, so `step_up_token` is normally
+    /// `None` and only supplied for a later device (BE §8).
+    pub async fn device_register(
+        &self,
+        name: &str,
+        fingerprint: &str,
+        bearer: Option<&str>,
+        step_up_token: Option<&str>,
+    ) -> Result<RegisteredDevice, BackendError> {
+        let url = device_register_route(&self.base);
+        let mut req = with_bearer(
+            self.http.post(&url).json(&DeviceRegisterBody { name, fingerprint }),
+            bearer,
+        );
+        if let Some(token) = step_up_token.map(str::trim).filter(|t| !t.is_empty()) {
+            req = req.header("X-Step-Up-Token", token);
+        }
+        let resp = req.send().await.map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_device(&body)
     }
 }
 
@@ -785,5 +996,70 @@ mod tests {
     fn decode_reports_error_on_garbage() {
         assert!(matches!(decode_catalog("not json"), Err(BackendError::Decode(_))));
         assert!(matches!(decode_order("{}"), Err(BackendError::Decode(_))));
+    }
+
+    // --- accounts / devices (P1-09.x) --------------------------------------
+
+    #[test]
+    fn auth_and_device_routes_are_built_correctly() {
+        assert_eq!(auth_register_route(BASE), "http://api.example/v1/auth/register");
+        assert_eq!(auth_login_route(BASE), "http://api.example/v1/auth/login");
+        assert_eq!(auth_refresh_route(BASE), "http://api.example/v1/auth/refresh");
+        assert_eq!(auth_logout_route(BASE), "http://api.example/v1/auth/logout");
+        assert_eq!(device_register_route(BASE), "http://api.example/v1/devices/register");
+    }
+
+    #[test]
+    fn credentials_and_device_bodies_are_snake_case() {
+        let c = serde_json::to_value(CredentialsBody { email: "a@b.c", password: "hunter2!" }).unwrap();
+        assert_eq!(c["email"], "a@b.c");
+        assert_eq!(c["password"], "hunter2!");
+
+        let d = serde_json::to_value(DeviceRegisterBody { name: "Chef PC", fingerprint: "fp1-x" }).unwrap();
+        assert_eq!(d["name"], "Chef PC");
+        assert_eq!(d["fingerprint"], "fp1-x");
+
+        let r = serde_json::to_value(RefreshTokenBody { refresh_token: "rt-1" }).unwrap();
+        assert_eq!(r["refresh_token"], "rt-1");
+    }
+
+    #[test]
+    fn decode_auth_response_carries_tokens_and_email() {
+        let json = r#"{
+            "access_jwt": "eyJ.aaa.sig",
+            "refresh_token": "rt-abc",
+            "user": { "id": "usr_1", "email": "chef@example.com", "email_verified": true },
+            "recovery_code": null
+        }"#;
+        let s = decode_auth_response(json).unwrap();
+        assert_eq!(s.access_token, "eyJ.aaa.sig");
+        assert_eq!(s.refresh_token, "rt-abc");
+        assert_eq!(s.email.as_deref(), Some("chef@example.com"));
+    }
+
+    #[test]
+    fn decode_auth_response_tolerates_a_device_only_account() {
+        // Device-only registration: no user email echoed.
+        let json = r#"{"access_jwt":"a.b.c","refresh_token":"rt","user":{"id":"usr_2"}}"#;
+        let s = decode_auth_response(json).unwrap();
+        assert_eq!(s.email, None);
+    }
+
+    #[test]
+    fn decode_token_pair_has_no_email() {
+        let json = r#"{"access_jwt":"a.b.c","refresh_token":"rt-2"}"#;
+        let s = decode_token_pair(json).unwrap();
+        assert_eq!(s.access_token, "a.b.c");
+        assert_eq!(s.refresh_token, "rt-2");
+        assert_eq!(s.email, None);
+    }
+
+    #[test]
+    fn decode_device_extracts_id_and_status() {
+        let json = r#"{"id":"dev_7","name":"Chef PC","status":"active",
+            "last_seen_at":"2026-07-12T00:00:00Z","created_at":"2026-07-12T00:00:00Z"}"#;
+        let d = decode_device(json).unwrap();
+        assert_eq!(d.device_id, "dev_7");
+        assert_eq!(d.status, "active");
     }
 }

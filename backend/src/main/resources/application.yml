@@ -139,6 +139,7 @@ hydropark:
     success-url: ${HP_CHECKOUT_SUCCESS_URL:hydropark://purchase/callback}
     cancel-url: ${HP_CHECKOUT_CANCEL_URL:hydropark://purchase/cancel}
     max-purchases-per-user-per-day: 10
+    max-accounts-per-fingerprint-per-day: 3
 
   devices:
     max-active-slots: 5

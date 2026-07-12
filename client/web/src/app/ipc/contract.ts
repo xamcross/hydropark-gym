@@ -621,6 +621,112 @@ export interface ComposeAgentArgs {
 }
 
 // ---------------------------------------------------------------------------
+// Account / auth (P1-09.1/.2) + purchase deep-link (P1-08.6/.8)
+// ---------------------------------------------------------------------------
+//
+// Email-OPTIONAL identity (SPEC §12 / §13). The app is fully usable with NO
+// account; identity only becomes necessary to BUY. Three escalating states:
+//   - `anonymous`     — no identity yet (default; the app still works fully).
+//   - `device`        — a device-scoped identity (`device_ensure`) that CAN buy
+//                       but is not portable; the no-email "continue on this
+//                       device" path.
+//   - `authenticated` — an email/password account, so entitlements restore on
+//                       another install (`entitlements_refresh`).
+//
+// camelCase wire names, same cross-agent convention as the marketplace block:
+// the Rust half builds `#[serde(rename_all = "camelCase")]` commands to match.
+// Network-backed calls take an OPTIONAL device/account `bearer`; the webview
+// never talks HTTP directly.
+
+export type AuthStatusKind = 'anonymous' | 'device' | 'authenticated';
+
+/**
+ * A pending step-up challenge (SPEC §13.4) — e.g. an emailed code or TOTP the
+ * backend demands before a sensitive action completes. While set, the identity
+ * is NOT yet `authenticated`; the webview renders `prompt` and answers with
+ * `step_up_answer`.
+ */
+export interface StepUpChallenge {
+  challengeId: string;
+  /** e.g. "email_code" | "totp". */
+  kind: string;
+  /** Human-readable instruction to render verbatim. */
+  prompt: string;
+}
+
+/** The whole client-visible identity state — the result of every auth command. */
+export interface AuthState {
+  status: AuthStatusKind;
+  /** Stable device identity id, present once `device_ensure` has run. */
+  deviceId?: string | null;
+  /** Account id, present when `status === 'authenticated'`. */
+  userId?: string | null;
+  /** Linked email, if any (optional even when authenticated in some flows). */
+  email?: string | null;
+  /** Bearer access token for the authed order/entitlement/license/download calls. */
+  accessToken?: string | null;
+  /** Set when the last command raised a step-up challenge that must be answered. */
+  stepUp?: StepUpChallenge | null;
+}
+
+/** Check/hydrate current identity. Optional `bearer` re-validates a stored token. */
+export interface AuthStatusArgs {
+  bearer?: string;
+}
+
+/** Create an email account. Email/password are OPTIONAL here only so the Rust side can 400 with a structured error the UI renders — the UI itself requires them for this path. */
+export interface AuthRegisterArgs {
+  email?: string;
+  password?: string;
+  region?: string;
+}
+
+export interface AuthLoginArgs {
+  email: string;
+  password: string;
+}
+
+export interface AuthLogoutArgs {
+  bearer?: string;
+}
+
+/** Mint (or return the existing) device-scoped identity — the no-email buy path. */
+export interface DeviceEnsureArgs {
+  region?: string;
+}
+
+export interface StepUpAnswerArgs {
+  challengeId: string;
+  answer: string;
+}
+
+/** Restore purchases (P1-08.8): re-pull the authed entitlement set. */
+export interface EntitlementsRefreshArgs {
+  bearer?: string;
+}
+
+/** Hand a URL to the OS default browser (Rust owns the actual `open`). */
+export interface OpenExternalArgs {
+  url: string;
+}
+
+/**
+ * The purchase deep-link return (P1-08.6). After the buyer completes checkout in
+ * the system browser, the backend redirects to the app's `purchase://callback`
+ * custom scheme; the OS routes that to the Tauri shell, which re-emits it here.
+ * The webview treats it as ONE of two settle signals (the other is polling
+ * `order_get`) — whichever arrives first wins.
+ */
+export interface PurchaseCallbackEvent {
+  orderId?: string | null;
+  skillId?: string | null;
+  /** e.g. "settled" | "cancelled" | "failed". */
+  status: string;
+  /** The raw deep-link URL, for diagnostics. */
+  raw?: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
 // ---------------------------------------------------------------------------
 
@@ -647,6 +753,16 @@ export interface IpcCommandMap {
   license_fetch: { args: LicenseFetchArgs; result: LicenseFetchResult };
   download_url: { args: DownloadUrlArgs; result: DownloadUrlResult };
   compose_agent: { args: ComposeAgentArgs; result: ComposedAgentView };
+
+  // --- P1 account / auth (P1-09.1/.2) + commerce handoff (P1-08.6/.8) ---
+  auth_status: { args: AuthStatusArgs; result: AuthState };
+  auth_register: { args: AuthRegisterArgs; result: AuthState };
+  auth_login: { args: AuthLoginArgs; result: AuthState };
+  auth_logout: { args: AuthLogoutArgs; result: AuthState };
+  device_ensure: { args: DeviceEnsureArgs; result: AuthState };
+  step_up_answer: { args: StepUpAnswerArgs; result: AuthState };
+  entitlements_refresh: { args: EntitlementsRefreshArgs; result: EntitlementsGetResult };
+  open_external: { args: OpenExternalArgs; result: void };
 }
 
 export type IpcCommand = keyof IpcCommandMap;
@@ -662,6 +778,8 @@ export interface IpcEventMap {
   'timer://tick': TimerTickEvent;
   'timer://finished': TimerFinishedEvent;
   'timer://updated': TimerStateSnapshot;
+  /** Deep-link return from the system-browser checkout (P1-08.6). */
+  'purchase://callback': PurchaseCallbackEvent;
 }
 
 export type IpcEvent = keyof IpcEventMap;

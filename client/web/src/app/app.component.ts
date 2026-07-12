@@ -8,6 +8,7 @@ import { UnlockComponent } from './unlock/unlock.component';
 import { PanelDockComponent } from './shared/panel-dock/panel-dock.component';
 import { ComposedPanelHostComponent } from './composition/composed-panel-host.component';
 import { MarketplaceViewComponent } from './marketplace/marketplace-view.component';
+import { AccountMenuComponent } from './account/account-menu.component';
 import { ToastHostComponent } from './shared/notify/toast-host.component';
 import { OnboardingOverlayComponent } from './onboarding/onboarding-overlay.component';
 import { OnboardingService } from './onboarding/onboarding.service';
@@ -34,6 +35,7 @@ type ShellView = 'assistant' | 'marketplace';
     PanelDockComponent,
     ComposedPanelHostComponent,
     MarketplaceViewComponent,
+    AccountMenuComponent,
     ToastHostComponent,
     OnboardingOverlayComponent,
   ],

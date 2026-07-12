@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { IPC_PORT } from '../ipc/ipc.port';
+import { AuthService } from '../account/auth.service';
 import { TelemetryService } from '../state/telemetry.service';
 import {
   CatalogItem as IpcCatalogItem,
@@ -39,17 +40,19 @@ const USD = 'USD';
 @Injectable()
 export class CatalogIpcAdapter extends CatalogPort {
   private readonly ipc = inject(IPC_PORT);
+  private readonly auth = inject(AuthService);
   private readonly telemetry = inject(TelemetryService);
 
   /** Fixed device tier the "runs on your PC" filter checks against (until hardware profiling threads through). */
   private readonly deviceTier = 'mid';
 
   /**
-   * Access token for the authed calls. The client auth flow that mints it is a
-   * later tranche; until then this returns `undefined` and the bearer is omitted.
+   * Access token for the authed calls — sourced from {@link AuthService} (the
+   * device/account identity). Omitted (`undefined`) while anonymous, so the
+   * public catalog calls stay bearer-less.
    */
   private bearer(): string | undefined {
-    return undefined;
+    return this.auth.bearer();
   }
 
   async getCatalog(filters: CatalogFilters): Promise<CatalogPage> {

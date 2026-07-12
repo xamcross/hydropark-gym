@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, ou
 import { CATALOG_PORT } from '../catalog.port';
 import { OwnershipAction, OwnershipState, SkillDetail, formatPrice, formatSize, runsOnThisPc } from '../catalog.model';
 import { OwnershipButtonComponent } from '../ownership-button/ownership-button.component';
+import { PurchaseService } from '../purchase.service';
 
 type Phase = 'loading' | 'ready' | 'error';
 
@@ -17,11 +18,12 @@ type Phase = 'loading' | 'ready' | 'error';
  * and never rendered.
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Data comes only through {@link CATALOG_PORT}. The ownership button's intents
- * are re-emitted via {@link action} for the host to route; for the standalone
- * stub we ALSO advance a local ownership state through the SPEC §11.3 machine
- * (including the transient purchasing/installing/enabling windows) so the flow
- * is demonstrable with no HTTP/IPC wired.
+ * Data comes only through {@link CATALOG_PORT}, which supplies the BASELINE
+ * ownership state ({@link ownState}). Ownership-button intents are routed to
+ * {@link PurchaseService} — the real §11.3/§13 commerce loop (checkout in the
+ * system browser, settle via poll + `purchase://callback`, license + download,
+ * enable) — whose live per-skill override, when present, wins over the baseline
+ * ({@link displayState}). The `action` output is still emitted for the host.
  */
 @Component({
   selector: 'app-skill-detail',
@@ -33,6 +35,7 @@ type Phase = 'loading' | 'ready' | 'error';
 })
 export class SkillDetailComponent {
   private readonly port = inject(CATALOG_PORT);
+  private readonly purchase = inject(PurchaseService);
 
   readonly skillId = input.required<string>();
   readonly deviceTier = input<string>('mid');
@@ -45,7 +48,15 @@ export class SkillDetailComponent {
   readonly phase = signal<Phase>('loading');
   readonly detail = signal<SkillDetail | null>(null);
   readonly errorMsg = signal<string | null>(null);
+  /** Baseline ownership from the catalog port (before any live purchase this session). */
   readonly ownState = signal<OwnershipState | null>(null);
+
+  /** The live purchase override, when present, wins over the port baseline (§11.3/§13). */
+  readonly displayState = computed<OwnershipState | null>(
+    () => this.purchase.stateFor(this.skillId()) ?? this.ownState()
+  );
+  /** Recoverable purchase error to surface non-destructively on the button. */
+  readonly ownError = computed(() => this.purchase.errorFor(this.skillId()));
 
   readonly priceLabel = computed(() => {
     const d = this.detail();
@@ -53,8 +64,6 @@ export class SkillDetailComponent {
   });
   readonly sizeLabel = computed(() => formatSize(this.detail()?.current_version?.size ?? null));
   readonly canRun = computed(() => runsOnThisPc(this.detail()?.requirements, this.deviceTier()));
-
-  private advanceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     // Reload whenever the selected skill changes (initial run included).
@@ -67,7 +76,6 @@ export class SkillDetailComponent {
   async load(id: string): Promise<void> {
     this.phase.set('loading');
     this.errorMsg.set(null);
-    if (this.advanceTimer) clearTimeout(this.advanceTimer);
     try {
       const [detail, ownership] = await Promise.all([this.port.getDetail(id), this.port.ownership(id)]);
       this.detail.set(detail);
@@ -83,38 +91,11 @@ export class SkillDetailComponent {
     this.back.emit();
   }
 
-  /** Re-emit the intent, then simulate the §11.3 transition locally (stub demo). */
+  /** Re-emit the intent for the host, then drive the real commerce flow. */
   onAction(action: OwnershipAction): void {
+    const d = this.detail();
+    if (!d) return;
     this.action.emit({ skillId: this.skillId(), action });
-    this.simulate(action);
-  }
-
-  private simulate(action: OwnershipAction): void {
-    const s = this.ownState();
-    if (!s) return;
-    if (this.advanceTimer) clearTimeout(this.advanceTimer);
-
-    const step = (transient: OwnershipState, settled: OwnershipState, ms: number): void => {
-      this.ownState.set(transient);
-      this.advanceTimer = setTimeout(() => this.ownState.set(settled), ms);
-    };
-
-    switch (action) {
-      case 'buy':
-        if (s === 'not-owned') step('purchasing', 'owned-not-installed', 900);
-        break;
-      case 'install':
-        if (s === 'owned-not-installed' || s === 'not-owned') step('installing', 'installed', 900);
-        break;
-      case 'enable':
-        if (s === 'installed') step('enabling', 'active', 500);
-        break;
-      case 'disable':
-        if (s === 'active') this.ownState.set('installed');
-        break;
-      case 'uninstall':
-        this.ownState.set('owned-not-installed');
-        break;
-    }
+    this.purchase.dispatch(d, action);
   }
 }

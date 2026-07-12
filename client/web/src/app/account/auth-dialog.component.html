@@ -1,0 +1,159 @@
+@if (auth.promptOpen()) {
+  <div class="auth-backdrop" (click)="close()">
+    <div
+      #dialog
+      class="auth-dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="titleId"
+      [attr.aria-describedby]="descId"
+      (click)="$event.stopPropagation()"
+      (keydown)="onKeydown($event)"
+    >
+      <header class="auth-head">
+        <span class="auth-kicker" aria-hidden="true">Hydropark account</span>
+        <h2 [id]="titleId" class="auth-title">{{ title() }}</h2>
+        <button type="button" class="auth-close" (click)="close()" aria-label="Close">
+          <span aria-hidden="true">✕</span>
+        </button>
+      </header>
+
+      <div class="auth-body">
+        <!-- ── AUTHENTICATED: account panel ─────────────────────────────── -->
+        @if (auth.isAuthenticated()) {
+          <p [id]="descId" class="auth-lead">
+            @if (auth.email()) {
+              Signed in as <strong>{{ auth.email() }}</strong>.
+            } @else {
+              You’re signed in.
+            }
+            Your purchases follow you to any install.
+          </p>
+          <div class="auth-actions">
+            <button
+              type="button"
+              class="auth-btn auth-btn--primary"
+              [disabled]="purchase.restoring()"
+              [attr.aria-busy]="purchase.restoring() ? 'true' : null"
+              (click)="restore()"
+            >
+              @if (purchase.restoring()) {
+                <span class="auth-spinner" aria-hidden="true"></span>
+              }
+              <span>Restore purchases</span>
+            </button>
+            <button type="button" class="auth-btn" [disabled]="auth.busy()" (click)="signOut()">Sign out</button>
+          </div>
+          <p class="auth-fineprint">
+            Restoring re-checks your entitlements and marks owned skills so you can re-download and
+            enable them here.
+          </p>
+        }
+
+        <!-- ── STEP-UP challenge (SPEC §13.4) ───────────────────────────── -->
+        @else if (auth.stepUp()) {
+          <p [id]="descId" class="auth-lead">{{ auth.stepUp()?.prompt }}</p>
+          <form class="auth-form" (submit)="$event.preventDefault(); submit()">
+            <label class="auth-field">
+              <span class="auth-label">Verification code</span>
+              <input
+                #firstField
+                class="auth-input"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                [value]="code()"
+                (input)="onCode($any($event.target).value)"
+              />
+            </label>
+            <button type="submit" class="auth-btn auth-btn--primary" [disabled]="!canSubmit()">
+              @if (auth.busy()) {
+                <span class="auth-spinner" aria-hidden="true"></span>
+              }
+              <span>Verify</span>
+            </button>
+          </form>
+        }
+
+        <!-- ── SIGN IN / CREATE form ────────────────────────────────────── -->
+        @else {
+          <p [id]="descId" class="auth-lead">
+            @if (auth.promptReason() === 'purchase') {
+              You need an account to buy skills. Hydropark itself stays free and runs fully on your
+              device — an account only unlocks buying and syncs purchases across installs.
+            } @else {
+              Optional. The app works fully without one — an account only unlocks buying and syncs
+              your purchases across installs.
+            }
+          </p>
+
+          <div class="auth-tabs" role="tablist" aria-label="Account">
+            <button
+              type="button"
+              class="auth-tab"
+              role="tab"
+              [class.on]="mode() === 'signin'"
+              [attr.aria-selected]="mode() === 'signin'"
+              (click)="setMode('signin')"
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              class="auth-tab"
+              role="tab"
+              [class.on]="mode() === 'create'"
+              [attr.aria-selected]="mode() === 'create'"
+              (click)="setMode('create')"
+            >
+              Create account
+            </button>
+          </div>
+
+          <form class="auth-form" (submit)="$event.preventDefault(); submit()">
+            <label class="auth-field">
+              <span class="auth-label">Email</span>
+              <input
+                #firstField
+                class="auth-input"
+                type="email"
+                autocomplete="email"
+                [attr.aria-invalid]="email().length > 0 && !emailValid() ? 'true' : null"
+                [value]="email()"
+                (input)="onEmail($any($event.target).value)"
+              />
+            </label>
+            <label class="auth-field">
+              <span class="auth-label">Password</span>
+              <input
+                class="auth-input"
+                type="password"
+                [attr.autocomplete]="mode() === 'create' ? 'new-password' : 'current-password'"
+                [value]="password()"
+                (input)="onPassword($any($event.target).value)"
+              />
+            </label>
+            <button type="submit" class="auth-btn auth-btn--primary" [disabled]="!canSubmit()">
+              @if (auth.busy()) {
+                <span class="auth-spinner" aria-hidden="true"></span>
+              }
+              <span>{{ mode() === 'create' ? 'Create account' : 'Sign in' }}</span>
+            </button>
+          </form>
+
+          <div class="auth-divider"><span>or</span></div>
+
+          <button type="button" class="auth-btn auth-device" [disabled]="auth.busy()" (click)="continueOnDevice()">
+            <span class="auth-device-main">Continue on this device</span>
+            <span class="auth-device-sub">No email — buy and use skills on this PC. Add an email later to sync.</span>
+          </button>
+        }
+
+        <!-- error region (shared) -->
+        @if (auth.error(); as err) {
+          <p class="auth-error" role="alert">{{ err }}</p>
+        }
+      </div>
+    </div>
+  </div>
+}

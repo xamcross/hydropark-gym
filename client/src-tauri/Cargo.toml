@@ -29,6 +29,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"
+# P1-01.2 purchase-callback deep link: registers the `hydropark://` scheme so the
+# hosted-checkout redirect routes the OS back into the app (see tauri.conf.json
+# `plugins.deep-link` + capabilities `deep-link:default`).
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
@@ -50,6 +54,12 @@ serde_jcs = "0.1"
 # `alg` header (ADR-001). Pure-Rust (no C), so it builds under `mock-inference` too.
 p256 = { version = "0.13", features = ["ecdsa"] }
 sha2 = "0.10"
+
+# Device identity (P1-09.3/.8): a persisted Ed25519 device keypair (via `ed25519-dalek`
+# above) whose 32-byte seed comes from the OS RNG, plus a coarse SHA-256 hardware
+# fingerprint. `getrandom` is a direct dep only for the key seed; it is already in
+# the tree transitively (uuid/ring), so this adds no new crate to compile.
+getrandom = "0.2"
 
 # On-device store (P1-10.1/.4): local SQLite (offline; unrelated to the cloud Atlas store).
 # `bundled` compiles SQLite from vendored C via `cc` - the same MSVC toolchain the mock build

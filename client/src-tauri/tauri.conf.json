@@ -28,6 +28,13 @@
     },
     "withGlobalTauri": false
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["hydropark"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

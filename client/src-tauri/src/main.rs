@@ -8,6 +8,8 @@
 mod backend_client;
 mod capacity;
 mod composition;
+mod deep_link;
+mod device;
 mod grammar;
 mod inference;
 mod ipc;
@@ -16,6 +18,7 @@ mod manifest;
 mod offline_matrix;
 mod orchestrator;
 mod package_verify;
+mod session;
 mod shared_state;
 mod skill_manager;
 mod skills;
@@ -28,17 +31,22 @@ mod tools;
 mod turn;
 mod unlock;
 
-use tauri::{AppHandle, Manager, State};
+use std::sync::{Arc, Mutex};
+
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use backend_client::BackendClient;
 use ipc::{
-    CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult, CmdError,
-    DownloadUrlArgs, DownloadUrlResult, EntitlementsGetArgs, EntitlementsResult, HardwareProfile,
-    InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult, NotifyArgs,
-    OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SkillDetail, SkillDisableArgs,
-    SkillEnableArgs, SkillEnableResult, TelemetryEvent, TimerControlArgs, TimerStateSnapshot,
-    ToolCallError, ToolCallErrorCode, ToolCallRequest, ToolCallResponse, ToolName,
+    AuthCredentialsArgs, CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult,
+    CmdError, DeviceEnsureResult, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
+    HardwareProfile, InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult,
+    NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
+    SkillDisableArgs, SkillEnableArgs, SkillEnableResult, StepUpAnswerArgs, StepUpAnswerResult,
+    TelemetryEvent, TimerControlArgs, TimerStateSnapshot, ToolCallError, ToolCallErrorCode,
+    ToolCallRequest, ToolCallResponse, ToolName,
 };
+use session::SessionManager;
+use store::Store;
 
 // ---------------------------------------------------------------------------
 // Commands — one per entry in client/web/src/app/ipc/contract.ts's
@@ -258,59 +266,195 @@ async fn catalog_detail(
     Ok(client.catalog_detail(&args.skill_id).await?)
 }
 
+// The authed commerce commands (orders / entitlements / license / download) now
+// attach the STORED bearer automatically via the `SessionManager` — the caller's
+// `args.bearer` from T3 is optional and ignored (the session is the source of
+// truth). `bearer()` transparently refreshes a near-expiry access token first.
+
 #[tauri::command]
 async fn order_checkout(
     args: OrderCheckoutArgs,
-    client: State<'_, BackendClient>,
+    session: State<'_, SessionManager>,
 ) -> Result<CheckoutResult, CmdError> {
-    let client = client.inner().clone();
-    Ok(client
-        .order_checkout(&args.target_id, &args.region, args.bearer.as_deref())
+    let session = session.inner().clone();
+    let bearer = session.bearer().await;
+    Ok(session
+        .client()
+        .order_checkout(&args.target_id, &args.region, bearer.as_deref())
         .await?)
 }
 
 #[tauri::command]
 async fn order_get(
     args: OrderGetArgs,
-    client: State<'_, BackendClient>,
+    session: State<'_, SessionManager>,
 ) -> Result<OrderStatusResult, CmdError> {
-    let client = client.inner().clone();
-    Ok(client.order_get(&args.order_id, args.bearer.as_deref()).await?)
+    let session = session.inner().clone();
+    let bearer = session.bearer().await;
+    Ok(session.client().order_get(&args.order_id, bearer.as_deref()).await?)
 }
 
+// `entitlements_get` no longer needs the T3 `bearer` arg (the session supplies it),
+// so it takes no data parameter — any `{ args: {} }` the webview still sends is
+// ignored by Tauri's per-argument binding.
 #[tauri::command]
 async fn entitlements_get(
-    args: EntitlementsGetArgs,
-    client: State<'_, BackendClient>,
+    session: State<'_, SessionManager>,
 ) -> Result<EntitlementsResult, CmdError> {
-    let client = client.inner().clone();
-    let skills = client.entitlements_get(args.bearer.as_deref()).await?;
+    let session = session.inner().clone();
+    let bearer = session.bearer().await;
+    let skills = session.client().entitlements_get(bearer.as_deref()).await?;
     Ok(EntitlementsResult { skills })
 }
 
 #[tauri::command]
 async fn license_fetch(
     args: LicenseFetchArgs,
-    client: State<'_, BackendClient>,
+    session: State<'_, SessionManager>,
 ) -> Result<LicenseResult, CmdError> {
-    let client = client.inner().clone();
-    Ok(client.license_fetch(&args.skill_id, args.bearer.as_deref()).await?)
+    let session = session.inner().clone();
+    let bearer = session.bearer().await;
+    // Bind the license to this install's stable device id (issuance-time binding;
+    // never re-derived offline to verify — see license_verify.rs / §13.12).
+    let device_id = device::ensure_identity(session.store())?.install_id;
+    Ok(session
+        .client()
+        .license_fetch(&args.skill_id, bearer.as_deref(), Some(&device_id))
+        .await?)
 }
 
 #[tauri::command]
 async fn download_url(
     args: DownloadUrlArgs,
-    client: State<'_, BackendClient>,
+    session: State<'_, SessionManager>,
 ) -> Result<DownloadUrlResult, CmdError> {
-    let client = client.inner().clone();
-    Ok(client
-        .download_url(&args.skill_id, &args.version, args.bearer.as_deref())
+    let session = session.inner().clone();
+    let bearer = session.bearer().await;
+    Ok(session
+        .client()
+        .download_url(&args.skill_id, &args.version, bearer.as_deref())
         .await?)
+}
+
+// ---------------------------------------------------------------------------
+// Accounts / licensing (P1-09) + step-up (P1-09.8). The Rust core owns the
+// session: register/login/refresh/logout hit `/v1/auth` and persist the token
+// pair in the T2 SQLite store; `auth_status` reports it. `device_ensure` mints
+// the stable install id + keypair and registers with `/v1/devices`;
+// `entitlements_refresh` caches `/v1/entitlements` locally; `step_up_answer`
+// signs a server challenge with the persisted device key.
+// ---------------------------------------------------------------------------
+
+/// Assemble the account+device status the webview hydrates from. Always resolves
+/// the stable install id (minting the local identity on first call), so `deviceId`
+/// is present even when signed out.
+fn session_status(session: &SessionManager) -> Result<SessionStatus, CmdError> {
+    let identity = device::ensure_identity(session.store())?;
+    let current = session.current();
+    Ok(SessionStatus {
+        authenticated: current.is_some(),
+        email: current.and_then(|s| s.email),
+        device_id: identity.install_id,
+    })
+}
+
+#[tauri::command]
+async fn auth_register(
+    args: AuthCredentialsArgs,
+    session: State<'_, SessionManager>,
+) -> Result<SessionStatus, CmdError> {
+    let session = session.inner().clone();
+    session.register(&args.email, &args.password).await?;
+    session_status(&session)
+}
+
+#[tauri::command]
+async fn auth_login(
+    args: AuthCredentialsArgs,
+    session: State<'_, SessionManager>,
+) -> Result<SessionStatus, CmdError> {
+    let session = session.inner().clone();
+    session.login(&args.email, &args.password).await?;
+    session_status(&session)
+}
+
+#[tauri::command]
+async fn auth_logout(session: State<'_, SessionManager>) -> Result<SessionStatus, CmdError> {
+    let session = session.inner().clone();
+    session.logout().await?;
+    session_status(&session)
+}
+
+#[tauri::command]
+fn auth_status(session: State<'_, SessionManager>) -> Result<SessionStatus, CmdError> {
+    session_status(session.inner())
+}
+
+#[tauri::command]
+async fn device_ensure(
+    session: State<'_, SessionManager>,
+) -> Result<DeviceEnsureResult, CmdError> {
+    let session = session.inner().clone();
+    // Always ensure a local identity exists (install id + keypair + fingerprint).
+    let identity = device::ensure_identity(session.store())?;
+    let mut registered = identity.registered;
+
+    // Register with the backend device registry when we have a session (it needs a
+    // bearer; the FIRST device is trusted-on-first-use, so no step-up token). A
+    // network failure is non-fatal — the local identity is what the app needs; the
+    // webview can retry.
+    if !registered {
+        if let Some(bearer) = session.bearer().await {
+            let name = device::default_device_name();
+            let fingerprint = device::fingerprint(&identity);
+            match session
+                .client()
+                .device_register(&name, &fingerprint, Some(&bearer), None)
+                .await
+            {
+                Ok(dev) => {
+                    device::mark_registered(session.store(), &dev.device_id)?;
+                    registered = true;
+                }
+                Err(_) => { /* leave registered = false; caller may retry */ }
+            }
+        }
+    }
+
+    Ok(DeviceEnsureResult { device_id: identity.install_id, registered })
+}
+
+#[tauri::command]
+async fn entitlements_refresh(
+    session: State<'_, SessionManager>,
+) -> Result<EntitlementsResult, CmdError> {
+    let session = session.inner().clone();
+    let skills = session.refresh_entitlements().await?;
+    Ok(EntitlementsResult { skills })
+}
+
+#[tauri::command]
+fn step_up_answer(
+    args: StepUpAnswerArgs,
+    session: State<'_, SessionManager>,
+) -> Result<StepUpAnswerResult, CmdError> {
+    let signed = device::sign_challenge(session.inner().store(), &args.challenge)?;
+    Ok(StepUpAnswerResult { signature: signed.signature, device_id: signed.device_id })
+}
+
+/// Open (creating + migrating) the on-device SQLite store under the app-data dir.
+fn open_app_store(app: &AppHandle) -> Result<Store, Box<dyn std::error::Error>> {
+    let dir = app.path().app_data_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    Ok(Store::open(dir.join("hydropark.db"))?)
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        // P1-01.2: register the `hydropark://` scheme (see tauri.conf.json /
+        // capabilities). The purchase-callback handler is wired in `setup` below.
+        .plugin(tauri_plugin_deep_link::init())
         .manage(tools::AppState::new())
         .manage(inference::CancelRegistry::new())
         .manage(BackendClient::new())
@@ -325,6 +469,46 @@ fn main() {
             let sink = telemetry::TelemetrySink::new(handle)
                 .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::other(e.to_string())) })?;
             app.manage(sink);
+
+            // On-device SQLite store (P1-10) — resolved from the app-data dir — and
+            // the account session manager built over it, sharing the managed backend
+            // client (same reqwest connection pool).
+            let store = open_app_store(app.handle())
+                .map_err(|e| -> Box<dyn std::error::Error> { Box::new(std::io::Error::other(e.to_string())) })?;
+            let store = Arc::new(Mutex::new(store));
+            let backend = app.state::<BackendClient>().inner().clone();
+            let session = SessionManager::new(store, backend);
+            app.manage(session.clone());
+
+            // P1-01.2 deep-link: on a `hydropark://` purchase-callback, emit the
+            // webview event `purchase://callback` { orderId } the purchase flow
+            // listens for. Non-callback links are ignored.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                // Dev convenience: claim the scheme at runtime (the NSIS installer
+                // registers it for production). Best-effort; a failure is harmless.
+                #[cfg(debug_assertions)]
+                let _ = app.deep_link().register(deep_link::SCHEME);
+
+                let emit_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        if let Some(order_id) = deep_link::parse_purchase_callback(url.as_str()) {
+                            let _ = emit_handle
+                                .emit("purchase://callback", serde_json::json!({ "orderId": order_id }));
+                        }
+                    }
+                });
+            }
+
+            // P1-09.7: refresh entitlements once at startup if a session exists,
+            // off the main thread so launch is never blocked on the network.
+            if session.current().is_some() {
+                let bg = session.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = bg.refresh_entitlements().await;
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -348,6 +532,13 @@ fn main() {
             entitlements_get,
             license_fetch,
             download_url,
+            auth_register,
+            auth_login,
+            auth_logout,
+            auth_status,
+            device_ensure,
+            entitlements_refresh,
+            step_up_answer,
             unlock::unlock_redeem,
             unlock::unlock_status,
         ])

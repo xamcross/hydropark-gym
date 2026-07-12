@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Core permissions for the Hydropark Phase-0 main window. App-defined commands (tool_call, inference_*, timer_*, telemetry_log, notify, …) are not ACL-gated in Tauri v2; this grants the core defaults the webview needs to boot and to listen for the Rust-emitted event channels (timer://*, inference://*).",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "deep-link:default"]
 }

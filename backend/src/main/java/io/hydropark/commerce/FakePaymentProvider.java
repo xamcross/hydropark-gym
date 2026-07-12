@@ -98,7 +98,11 @@ public class FakePaymentProvider implements PaymentProvider {
         text(n, "provider_order_id"),
         type,
         amount,
-        text(n, "buyer_country"));
+        text(n, "buyer_country"),
+        // SF10 signals: the dev envelope surfaces them explicitly so the whole per-instrument
+        // velocity + hold-grant-until-clear flow is exercisable without any Stripe keys.
+        text(n, "card_fingerprint"),
+        text(n, "risk_level"));
   }
 
   private static String normalize(String rawType) {
@@ -109,6 +113,7 @@ public class FakePaymentProvider implements PaymentProvider {
       case "succeeded", "payment.succeeded" -> SUCCEEDED;
       case "refunded", "payment.refunded" -> REFUNDED;
       case "chargeback", "dispute", "chargeback.created" -> CHARGEBACK;
+      case "cleared", "review.approved", "payment.cleared" -> CLEARED;
       default -> IGNORED; // subscription.* and anything unknown
     };
   }

@@ -265,6 +265,14 @@ public class AppProperties {
     /** §3.4 SF10 - velocity limit per new/unverified account. */
     private int maxPurchasesPerUserPerDay = 10;
 
+    /**
+     * §3.4 SF10 - the per-payment-instrument velocity limit: how many <em>distinct accounts</em> a
+     * single card fingerprint / hashed instrument may settle across in a rolling day before the
+     * settlement worker parks the payment. Complements {@link #maxPurchasesPerUserPerDay} (which
+     * bounds one account) by bounding one instrument fanned out across many farmed accounts.
+     */
+    private int maxAccountsPerFingerprintPerDay = 3;
+
     public String getProvider() {
       return provider;
     }
@@ -311,6 +319,14 @@ public class AppProperties {
 
     public void setMaxPurchasesPerUserPerDay(int v) {
       this.maxPurchasesPerUserPerDay = v;
+    }
+
+    public int getMaxAccountsPerFingerprintPerDay() {
+      return maxAccountsPerFingerprintPerDay;
+    }
+
+    public void setMaxAccountsPerFingerprintPerDay(int v) {
+      this.maxAccountsPerFingerprintPerDay = v;
     }
   }
 
