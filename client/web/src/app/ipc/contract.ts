@@ -847,6 +847,76 @@ export interface ModelDownloadStatus {
 }
 
 // ---------------------------------------------------------------------------
+// .hpskill install / uninstall (P1-03.2) — mirrors ipc.rs SkillInstall*/SkillUninstall*
+// ---------------------------------------------------------------------------
+//
+// camelCase wire names, same P1 convention as the marketplace block. The Rust core
+// (`hpskill.rs`) verifies the downloaded `.hpskill` package's signature against the
+// pinned trust set, re-validates the manifest, gates on host compatibility, extracts
+// the sanitized assets to the app-data skills dir, and registers + persists the
+// install. Fail-closed: on any failure nothing is written and the command REJECTS
+// (surfaced as the rejected-promise `CmdError` string). The webview never handles
+// package bytes — it passes the local `path` the downloader already fetched.
+
+/** `skill_install` args — the local filesystem path of the fetched `.hpskill` archive. */
+export interface SkillInstallArgs {
+  path: string;
+}
+
+/**
+ * `skill_install` result — the installed skill's id + resolved version, the on-disk
+ * extraction dir, and its resulting lifecycle `state` (normally `"installed_disabled"`;
+ * the composer enables it in a later step). `state` is the snake_case lifecycle label
+ * from the Rust `state_label` (e.g. `"owned_not_installed"` | `"installed_disabled"` |
+ * `"enabled_active"`).
+ */
+export interface SkillInstallResult {
+  skillId: string;
+  version: string;
+  dir: string;
+  state: string;
+}
+
+/** `skill_uninstall` args — the skill id to remove (frees disk, keeps ownership; §11.3). */
+export interface SkillUninstallArgs {
+  skillId: string;
+}
+
+/** `skill_uninstall` result — the id and its resulting lifecycle state (normally `"owned_not_installed"`). */
+export interface SkillUninstallResult {
+  skillId: string;
+  state: string;
+}
+
+// ---------------------------------------------------------------------------
+// App auto-update (P1-11.2) — mirrors ipc.rs UpdatePhase / UpdateCheckResult
+// ---------------------------------------------------------------------------
+//
+// `check_for_update` asks the Rust core (which owns `tauri-plugin-updater`) whether a
+// newer SIGNED build is published at the configured endpoint and returns this typed
+// status the update surface renders. camelCase wire names, same P1 convention.
+//
+// OFFLINE-SAFE (§18): the command NEVER rejects — a check that can't complete
+// (offline, an unreachable endpoint, or the PLACEHOLDER endpoint/pubkey that ships
+// until the update server + signing key are provisioned) resolves to `phase: 'error'`,
+// so an update check can never block offline use. `args` is `void` (no input).
+
+/** Which update state to render. `'error'` = the check couldn't complete (non-blocking, §18). */
+export type UpdatePhase = 'upToDate' | 'updateAvailable' | 'downloading' | 'error';
+
+export interface UpdateCheckResult {
+  phase: UpdatePhase;
+  /** The running app version — always present. */
+  currentVersion: string;
+  /** The newer version, set only when `phase === 'updateAvailable'` (or `'downloading'`). */
+  availableVersion?: string;
+  /** Optional release notes for the available update. */
+  notes?: string;
+  /** Diagnostic set only when `phase === 'error'` (rendered quietly, never alarmingly). */
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
 // ---------------------------------------------------------------------------
 
@@ -873,6 +943,13 @@ export interface IpcCommandMap {
   license_fetch: { args: LicenseFetchArgs; result: LicenseFetchResult };
   download_url: { args: DownloadUrlArgs; result: DownloadUrlResult };
   compose_agent: { args: ComposeAgentArgs; result: ComposedAgentView };
+
+  // --- P1 .hpskill install / uninstall (P1-03.2) ---
+  skill_install: { args: SkillInstallArgs; result: SkillInstallResult };
+  skill_uninstall: { args: SkillUninstallArgs; result: SkillUninstallResult };
+
+  // --- P1 app auto-update (P1-11.2) — offline-safe, never rejects (§18) ---
+  check_for_update: { args: void; result: UpdateCheckResult };
 
   // --- P1 account / auth (P1-09.1/.2) + commerce handoff (P1-08.6/.8) ---
   auth_status: { args: AuthStatusArgs; result: AuthState };

@@ -33,6 +33,14 @@ tauri-plugin-notification = "2"
 # hosted-checkout redirect routes the OS back into the app (see tauri.conf.json
 # `plugins.deep-link` + capabilities `deep-link:default`).
 tauri-plugin-deep-link = "2"
+# P1-11.2 app auto-update SEAM: checks a signed-build endpoint and (later) applies
+# a verified update. GATED — the update SERVER + minisign signing key are not yet
+# provisioned, so `tauri.conf.json` `plugins.updater` ships a clearly-marked
+# PLACEHOLDER endpoint + pubkey and every real check fails CLOSED and SILENT
+# (offline-safe, §18). The seam + the `check_for_update` command compile now; wiring
+# a real endpoint/key is all that's left to make it live. Pure-Rust (reqwest/rustls
+# already in-tree), so it builds under the toolchain-free `mock-inference` feature too.
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }

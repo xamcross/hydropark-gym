@@ -28,6 +28,9 @@
     </nav>
 
     <div class="topbar-actions">
+      <!-- App auto-update affordance (P1-11.2): checks for a newer signed build;
+           silent/non-blocking on failure so it never breaks offline use (§18). -->
+      <app-update-check></app-update-check>
       <!-- Account affordance (P1-09.1): PROMPTS login/register; never required. -->
       <app-account-menu></app-account-menu>
       <button

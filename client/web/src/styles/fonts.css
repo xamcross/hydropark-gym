@@ -8,15 +8,26 @@
    The three brand families are therefore wired here to LOCAL, self-hosted
    variable-font binaries served from the app origin at /fonts/. Angular copies
    client/web/public into the dist root, so a file dropped in public/fonts is
-   served at /fonts/ in both ng serve and the packaged Tauri app.
+   served at /fonts/ in both ng serve and the packaged Tauri app. If a binary is
+   ever missing the src 404s and the stack falls back gracefully to the system UI
+   fonts named in each --font- token in tokens.css; the app stays fully legible
+   and AA-correct and only the brand typography is deferred. The local() source
+   is listed first so a machine that already has the font installed uses it with
+   zero network.
 
-   TODO P1-01.4 follow-up: drop the actual variable-font binaries into
-   client/web/public/fonts/ - see that folder README for the exact filenames and
-   the SIL Open Font License note. Until then these font-face rules resolve to a
-   404 and the stack falls back gracefully to the system UI fonts named in each
-   --font- token in tokens.css; the app stays fully legible and AA-correct and
-   only the brand typography is deferred. The local() source is listed first so a
-   machine that already has the font installed uses it with zero network.
+   SUBSET (P1-01.8): each binary is subset to a shared 212-glyph repertoire -
+   Latin + standard typographic punctuation + the symbols this English UI renders
+   in the brand fonts (see the unicode-range below and scripts/subset-fonts.mjs,
+   the repeatable pyftsubset pipeline; all three families are SIL OFL 1.1, which
+   permits subsetting + redistribution). The FULL variable design space is kept
+   (no axis pinning) so the weight AND width axes below still resolve.
+
+   The unicode-range is deliberately the intersection of what all three fonts
+   contain AND what the UI uses, so it is tofu-free: any codepoint outside it
+   (arrows -> , math >= != , geometric shapes, box drawing, emoji) is not in
+   these Latin text families at all and falls through to the system UI stack -
+   exactly as before this subset. Keep this range in sync with the UNICODE_RANGES
+   list in scripts/subset-fonts.mjs.
 
    Root-relative url(/fonts/...) is intentional: it is an app-origin absolute
    reference, so the bundler leaves it untouched at build time and it resolves at
@@ -32,6 +43,10 @@
   font-stretch: 62% 125%;
   font-style: normal;
   font-display: swap;
+  /* shared subset repertoire - see header note + scripts/subset-fonts.mjs */
+  unicode-range: U+0020-007E, U+00A0-00FF, U+2011, U+2013-2014, U+2018-201A,
+    U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC,
+    U+20BD, U+2122, U+2212;
 }
 
 /* Chivo - body (variable: wght 100-900) */
@@ -42,6 +57,10 @@
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
+  /* shared subset repertoire - see header note + scripts/subset-fonts.mjs */
+  unicode-range: U+0020-007E, U+00A0-00FF, U+2011, U+2013-2014, U+2018-201A,
+    U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC,
+    U+20BD, U+2122, U+2212;
 }
 
 /* Martian Mono - mono (variable: wght 100-800, wdth 75-112.5) */
@@ -53,4 +72,8 @@
   font-stretch: 75% 112.5%;
   font-style: normal;
   font-display: swap;
+  /* shared subset repertoire - see header note + scripts/subset-fonts.mjs */
+  unicode-range: U+0020-007E, U+00A0-00FF, U+2011, U+2013-2014, U+2018-201A,
+    U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC,
+    U+20BD, U+2122, U+2212;
 }

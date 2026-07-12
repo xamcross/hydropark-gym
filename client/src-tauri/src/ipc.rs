@@ -754,6 +754,96 @@ pub struct SkillUninstallResult {
 }
 
 // ---------------------------------------------------------------------------
+// App auto-update (P1-11.2). Same camelCase IPC family as the marketplace
+// commands above. `tauri-plugin-updater` owns the actual signed-build check (and,
+// later, download+apply) against the configured endpoint; the `check_for_update`
+// command maps that to this typed status the update surface renders. See
+// `updater.rs` for the pure classifier + the plugin call.
+//
+// OFFLINE-SAFE (§18): a check that can't complete — offline, an unreachable
+// endpoint, or the PLACEHOLDER endpoint/pubkey that ships until the update server +
+// signing key are provisioned (the release GATE) — resolves to `Error`, NEVER a
+// rejected promise, so an update check can never block offline use.
+// ---------------------------------------------------------------------------
+
+/// The phase the update surface renders. `UpToDate` = no newer build; `UpdateAvailable`
+/// = a newer signed build is published at the endpoint; `Downloading` = an apply is in
+/// progress; `Error` = the check couldn't complete (treated as non-blocking, §18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdatePhase {
+    UpToDate,
+    UpdateAvailable,
+    Downloading,
+    Error,
+}
+
+/// `check_for_update` result — the typed status the webview's update surface renders.
+/// `available_version`/`notes` are set only when `phase == UpdateAvailable`
+/// (or `Downloading`); `error` carries a diagnostic only when `phase == Error`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub phase: UpdatePhase,
+    /// The running app version (always present) — the "current" the UI shows.
+    pub current_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl UpdateCheckResult {
+    /// No newer build than the one running.
+    pub fn up_to_date(current: impl Into<String>) -> Self {
+        Self {
+            phase: UpdatePhase::UpToDate,
+            current_version: current.into(),
+            available_version: None,
+            notes: None,
+            error: None,
+        }
+    }
+
+    /// A newer signed build is published at the endpoint.
+    pub fn available(current: impl Into<String>, version: impl Into<String>, notes: Option<String>) -> Self {
+        Self {
+            phase: UpdatePhase::UpdateAvailable,
+            current_version: current.into(),
+            available_version: Some(version.into()),
+            notes,
+            error: None,
+        }
+    }
+
+    /// An update is being downloaded/applied.
+    pub fn downloading(current: impl Into<String>, version: impl Into<String>) -> Self {
+        Self {
+            phase: UpdatePhase::Downloading,
+            current_version: current.into(),
+            available_version: Some(version.into()),
+            notes: None,
+            error: None,
+        }
+    }
+
+    /// The check could not complete — offline, unreachable endpoint, or the
+    /// placeholder-gate config. Non-blocking (§18): the UI treats it as "couldn't
+    /// check", never a failure that stops the app.
+    pub fn error(current: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            phase: UpdatePhase::Error,
+            current_version: current.into(),
+            available_version: None,
+            notes: None,
+            error: Some(message.into()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Command errors
 // ---------------------------------------------------------------------------
 

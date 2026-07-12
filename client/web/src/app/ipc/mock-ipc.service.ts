@@ -30,6 +30,7 @@ import {
   ToolCallRequest,
   ToolCallResponse,
   ToolName,
+  UpdateCheckResult,
 } from './contract';
 import { IpcPort, Unlisten } from './ipc.port';
 import { convertUnitsExact, UnitConversionError } from '../tools/unit-math';
@@ -169,6 +170,14 @@ export class MockIpcService extends IpcPort {
       case 'model_download_cancel':
         this.modelDownloadCancel((args as { modelId: string }).modelId);
         return undefined as IpcCommandMap[K]['result'];
+
+      // --- app auto-update (P1-11.2) ---
+      case 'check_for_update': {
+        // No update server in the browser mock; report a stable "up to date" so the
+        // surface renders its resting state. The Rust core runs the real signed check.
+        const status: UpdateCheckResult = { phase: 'upToDate', currentVersion: '0.1.0' };
+        return status as IpcCommandMap[K]['result'];
+      }
 
       default:
         throw new Error(`MockIpcService: unhandled command "${String(cmd)}"`);

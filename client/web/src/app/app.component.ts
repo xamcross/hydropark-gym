@@ -9,6 +9,7 @@ import { PanelDockComponent } from './shared/panel-dock/panel-dock.component';
 import { ComposedPanelHostComponent } from './composition/composed-panel-host.component';
 import { MarketplaceViewComponent } from './marketplace/marketplace-view.component';
 import { AccountMenuComponent } from './account/account-menu.component';
+import { UpdateCheckComponent } from './update-check/update-check.component';
 import { ToastHostComponent } from './shared/notify/toast-host.component';
 import { HardwareWarningComponent } from './hardware-warning/hardware-warning.component';
 import { OnboardingOverlayComponent } from './onboarding/onboarding-overlay.component';
@@ -37,6 +38,7 @@ type ShellView = 'assistant' | 'marketplace';
     ComposedPanelHostComponent,
     MarketplaceViewComponent,
     AccountMenuComponent,
+    UpdateCheckComponent,
     ToastHostComponent,
     HardwareWarningComponent,
     OnboardingOverlayComponent,

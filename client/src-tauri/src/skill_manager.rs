@@ -303,10 +303,12 @@ impl std::error::Error for SkillError {}
 #[derive(Debug, Clone, Deserialize)]
 pub struct SkillView {
     pub id: String,
-    /// Free vs paid (§11.2). Absent ⇒ paid (the conservative default: a skill
-    /// without an explicit `free: true` is treated as needing an entitlement).
+    /// Pricing block (§8.2 `pricing`). The `free` flag lives at `pricing.free` in the
+    /// canonical schema (contracts/skill-manifest.schema.json) — NOT at the manifest
+    /// top level. Absent ⇒ default (`free = false`), the conservative "treat as paid /
+    /// needs an entitlement" fallback.
     #[serde(default)]
-    pub free: bool,
+    pub pricing: Pricing,
     /// Minimum app version (§8.6). Absent ⇒ `0.0.0` (no floor).
     #[serde(default = "default_min_app_version")]
     pub min_app_version: SemVer,
@@ -319,6 +321,16 @@ fn default_min_app_version() -> SemVer {
     SemVer::new(0, 0, 0)
 }
 
+/// The `pricing` block's governance subset (§8.2 `pricing`). Only `free` matters to
+/// the lifecycle; `price_usd` / `price` (the amount) are the marketplace's concern and
+/// are ignored here (no `deny_unknown_fields`, so a paid skill's price fields pass through).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Pricing {
+    /// True for the onboarding free skills (§26.4); false (or absent) ⇒ paid.
+    #[serde(default)]
+    pub free: bool,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Requirements {
     #[serde(default)]
@@ -327,7 +339,7 @@ pub struct Requirements {
 
 impl From<SkillView> for SkillEntry {
     fn from(v: SkillView) -> Self {
-        SkillEntry::new(v.id, v.free, v.min_app_version, v.requirements.min_model_tier)
+        SkillEntry::new(v.id, v.pricing.free, v.min_app_version, v.requirements.min_model_tier)
     }
 }
 
@@ -758,12 +770,13 @@ mod tests {
 
     #[test]
     fn parses_governance_subset_from_a_manifest() {
-        // The §8.2 example manifest, plus fields the lifecycle ignores.
+        // The §8.2 example manifest, plus fields the lifecycle ignores. `free` lives
+        // under `pricing` per the canonical schema — a paid skill also carries a price.
         let manifest = json!({
             "id": "cooking-assistant",
             "version": "1.2.0",
             "status": "published",
-            "free": false,
+            "pricing": { "free": false, "price_usd": 5 },
             "min_app_version": "1.0.0",
             "requirements": { "min_params_b": 3, "min_ram_gb": 8, "min_model_tier": "small" },
             "persona": { "role": "primary_eligible" }
@@ -780,13 +793,38 @@ mod tests {
     }
 
     #[test]
+    fn free_flag_is_read_from_pricing_not_top_level() {
+        // REGRESSION (F3): `free` is at `pricing.free` in the §8.2 schema, not the
+        // manifest top level. A FREE skill must parse as free/owned; a stray top-level
+        // `free` (not in the schema) must be ignored, never win over `pricing.free`.
+        let manifest = json!({
+            "id": "kitchen-timer",
+            "version": "1.0.0",
+            "status": "published",
+            "pricing": { "free": true },
+            "min_app_version": "1.0.0",
+            // A decoy top-level `free: false` — the OLD code read this and mis-flagged
+            // the free skill as paid; the fix reads `pricing.free` and ignores this.
+            "free": false,
+            "persona": { "role": "primary_eligible" }
+        });
+        let mut mgr = SkillManager::new(env("1.0.0", ModelTier::Small));
+        mgr.insert_from_manifest(manifest).unwrap();
+
+        let e = mgr.get("kitchen-timer").unwrap();
+        assert!(e.free); // read from pricing.free (true), not the decoy top-level field
+        assert_eq!(e.ownership, Ownership::Free);
+        assert_eq!(e.state(), LifecycleState::OwnedNotInstalled); // implicitly owned, never NotOwned
+    }
+
+    #[test]
     fn manifest_defaults_apply_when_governance_fields_absent() {
         let manifest = json!({ "id": "bare" });
         let mut mgr = SkillManager::new(env("1.0.0", ModelTier::Small));
         mgr.insert_from_manifest(manifest).unwrap();
 
         let e = mgr.get("bare").unwrap();
-        assert!(!e.free); // absent free -> paid (conservative)
+        assert!(!e.free); // absent pricing -> free defaults false -> paid (conservative)
         assert_eq!(e.min_app_version, SemVer::new(0, 0, 0)); // no floor
         assert_eq!(e.min_model_tier, ModelTier::Small); // default tier
     }

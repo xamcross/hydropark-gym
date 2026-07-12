@@ -32,6 +32,7 @@ mod tool_routing;
 mod tools;
 mod turn;
 mod unlock;
+mod updater;
 
 use std::sync::{Arc, Mutex};
 
@@ -47,7 +48,7 @@ use ipc::{
     SkillDisableArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs, SkillInstallResult,
     SkillUninstallArgs, SkillUninstallResult, StepUpAnswerArgs, StepUpAnswerResult, TelemetryEvent,
     TimerControlArgs, TimerStateSnapshot, ToolCallError, ToolCallErrorCode, ToolCallRequest,
-    ToolCallResponse, ToolName,
+    ToolCallResponse, ToolName, UpdateCheckResult,
 };
 use session::SessionManager;
 use store::Store;
@@ -274,6 +275,20 @@ fn compose_agent(
     composition::compose_agent_view(&manifests, primary_hint.as_deref(), n_ctx.unwrap_or(4096))
 }
 
+/// P1-11.2 app auto-update seam. Asks `tauri-plugin-updater` whether a newer *signed*
+/// build is published at the configured endpoint and returns the typed status the
+/// webview's update surface renders ("Up to date" / "Update available" / "Updating…").
+///
+/// OFFLINE-SAFE (§18): `updater::check` swallows every failure — offline, an
+/// unreachable endpoint, or the PLACEHOLDER endpoint/pubkey that ships until the
+/// update server + signing key are provisioned (the release GATE) — into a benign,
+/// typed status, so this command NEVER rejects and an update check can never block
+/// offline use.
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> Result<UpdateCheckResult, CmdError> {
+    Ok(updater::check(&app).await)
+}
+
 // ---------------------------------------------------------------------------
 // Marketplace / live-flow commands (P1-08.x). The Rust core owns network egress
 // (the webview CSP is `connect-src 'self'`), so catalog / orders / entitlements
@@ -492,6 +507,12 @@ fn main() {
         // P1-01.2: register the `hydropark://` scheme (see tauri.conf.json /
         // capabilities). The purchase-callback handler is wired in `setup` below.
         .plugin(tauri_plugin_deep_link::init())
+        // P1-11.2 app auto-update seam. Reads `plugins.updater` (endpoint + minisign
+        // pubkey) from tauri.conf.json — both PLACEHOLDERS until the update server +
+        // signing key are provisioned, so `check_for_update` fails closed and silent
+        // (offline-safe, §18). Config is parsed lazily at `app.updater()`, so
+        // registering here with the placeholder config never blocks launch.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(tools::AppState::new())
         .manage(inference::CancelRegistry::new())
         .manage(downloader::DownloadManager::new())
@@ -562,6 +583,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             tool_call,
             compose_agent,
+            check_for_update,
             inference_start,
             inference_cancel,
             downloader::model_download_start,
