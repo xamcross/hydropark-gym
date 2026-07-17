@@ -37,6 +37,13 @@ describe('StubCatalogPort#getPreview — curated real-model transcripts (Task 17
     expect(assistantLines.some((t) => /9:00/.test(t) && /Cook pasta/.test(t))).toBe(true);
   });
 
+  it('kitchen-timer: never shows the paid Cooking Assistant substitutions capability (SPEC §11.2 fix)', async () => {
+    const preview = await port.getPreview('kitchen-timer');
+    const allText = preview.transcript.map((l) => l.text).join(' | ');
+    expect(allText).not.toContain('buttermilk');
+    expect(preview.transcript.length).toBe(5); // system banner + 2 in-scope exchanges (2 msgs each)
+  });
+
   it('packing-list: returns a non-empty, no_purchase transcript with no raw tool-call fragment', async () => {
     const preview = await port.getPreview('packing-list');
 
@@ -47,6 +54,14 @@ describe('StubCatalogPort#getPreview — curated real-model transcripts (Task 17
       expect(line.text).not.toContain('{"name":');
       expect(line.text).not.toMatch(/set_all:\s*\[op=/);
     }
+  });
+
+  it('packing-list: never shows the paid Travel Planner visa/border-ruling capability (SPEC §11.2 fix)', async () => {
+    const preview = await port.getPreview('packing-list');
+    const allText = preview.transcript.map((l) => l.text).join(' | ');
+    expect(allText.toLowerCase()).not.toContain('visa');
+    expect(allText).not.toContain('Japan');
+    expect(preview.transcript.length).toBe(5); // system banner + 2 in-scope exchanges (2 msgs each)
   });
 
   it('cooking-assistant: returns a non-empty, no_purchase transcript with no raw tool-call fragment', async () => {
@@ -120,13 +135,25 @@ describe('StubCatalogPort#getDetail — curated sample prompts & screenshots (Ta
     port = new StubCatalogPort();
   });
 
-  it('kitchen-timer: sample_prompts are the real captured user turns', async () => {
+  it('kitchen-timer: sample_prompts are the real captured user turns, and never leak the paid Cooking Assistant substitutions capability (SPEC §11.2)', async () => {
     const detail = await port.getDetail('kitchen-timer');
+    // Only 2: the captured buttermilk-substitution turn was dropped from
+    // preview-transcripts.ts — kitchen-timer is FREE and its own manifest marks
+    // substitutions out of scope, redirecting to the PAID Cooking Assistant.
+    expect(detail.sample_prompts).toEqual(['Set a 9 minute timer for the pasta.', "What's 350F in Celsius?"]);
+    expect(detail.sample_prompts).not.toContain('What can I use instead of buttermilk?');
+  });
+
+  it('packing-list: sample_prompts are the real captured user turns, and never leak the paid Travel Planner visa/border-ruling capability (SPEC §11.2)', async () => {
+    const detail = await port.getDetail('packing-list');
+    // Only 2: the captured Japan-visa turn was dropped from preview-transcripts.ts
+    // — packing-list is FREE and its own manifest marks visa/border rulings out
+    // of scope, redirecting to the PAID Travel Planner.
     expect(detail.sample_prompts).toEqual([
-      'Set a 9 minute timer for the pasta.',
-      "What's 350F in Celsius?",
-      'What can I use instead of buttermilk?',
+      'Beach weekend, 2 nights — start my list.',
+      'I leave on 2026-05-03 for 5 nights — when do I come back?',
     ]);
+    expect(detail.sample_prompts).not.toContain('Do I need a visa for Japan?');
   });
 
   it('cooking-assistant: sample_prompts are the real captured user turns', async () => {

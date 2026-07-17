@@ -31,9 +31,15 @@
  *       transcript template renders `text` as plain, unstyled text) but
  *       otherwise verbatim.
  * Nothing here introduces a fact, price, or health/nutrition number the model
- * did not itself produce (or the user did not themselves supply). One exchange
- * (nutrition-coach's diabetes-management turn) was dropped outright rather than
- * curated — see the report.
+ * did not itself produce (or the user did not themselves supply). Three
+ * exchanges were dropped outright rather than curated — see the report:
+ * nutrition-coach's diabetes-management turn (a hard-safety-rule violation),
+ * and (Task 18 fix) kitchen-timer's buttermilk-substitution turn and
+ * packing-list's Japan-visa turn — both FREE skills whose manifests list that
+ * exact category as explicitly out of scope with an instruction to redirect
+ * to the corresponding PAID skill (Cooking Assistant / Travel Planner); the
+ * captured model answered directly instead of redirecting, which would leak
+ * paid-category capability from a free skill (SPEC §11.2) if shipped.
  *
  * NOT the full `SkillPreview` shape on its own: this module stores the
  * curated `{ name, panelTitles, messages }` per skill; {@link buildCuratedPreview}
@@ -70,6 +76,16 @@ export const CURATED_PREVIEWS: Readonly<Record<string, CuratedPreview>> = {
   'kitchen-timer': {
     name: 'Kitchen Timer & Units',
     panelTitles: ['Timer stack', 'Ingredient list', 'Units toggle'],
+    // Task 18 fix: only 2 exchanges. The raw capture's 3rd turn ("What can I use
+    // instead of buttermilk?") is a substitution question — this skill's own
+    // manifest lists substitutions as explicitly OUT of scope ("Out of scope: you
+    // do not give recipes, ingredient substitutions... point the user to the
+    // Cooking Assistant skill"), and kitchen-timer is FREE while Cooking Assistant
+    // is the PAID skill that owns substitutions. The captured model answered it
+    // anyway instead of redirecting — shipping that would show a free skill doing
+    // a paid skill's job, leaking paid-category capability (SPEC §11.2: free
+    // skills must not give away paid categories). Dropped rather than curated,
+    // same policy as nutrition-coach's dropped turn above.
     messages: [
       U('Set a 9 minute timer for the pasta.'),
       // Curated: raw capture was `>{"name":"start_timer","arguments":{"label":"Cook pasta","duration_sec":540}}`
@@ -77,14 +93,21 @@ export const CURATED_PREVIEWS: Readonly<Record<string, CuratedPreview>> = {
       A('Starting a 9:00 timer labeled "Cook pasta". ⏱'),
       U("What's 350F in Celsius?"),
       A('350F is approximately 176.67C.'),
-      U('What can I use instead of buttermilk?'),
-      A('You can use plain yogurt mixed with a bit of lemon juice or vinegar to replace buttermilk.'),
     ],
   },
 
   'packing-list': {
     name: 'Packing List',
     panelTitles: ['Checklist', 'Category groups'],
+    // Task 18 fix: only 2 exchanges. The raw capture's 3rd turn ("Do I need a visa
+    // for Japan?") is a visa/border ruling — this skill's own manifest lists visa
+    // rulings as explicitly OUT of scope ("Out of scope: you do not give visa,
+    // border, customs... Point those to official sources or the Travel Planner
+    // skill"), and packing-list is FREE while Travel Planner is the PAID skill
+    // that owns trip/itinerary guidance. The captured model answered the visa
+    // question directly instead of declining/redirecting — shipping that would
+    // leak paid-category capability from a free skill (SPEC §11.2). Dropped
+    // rather than curated, same policy as nutrition-coach's dropped turn above.
     messages: [
       U('Beach weekend, 2 nights — start my list.'),
       // Curated: raw capture was `- set_all: [op="add", item={"name":"Passport"}]` — wire-syntax leak.
@@ -92,11 +115,6 @@ export const CURATED_PREVIEWS: Readonly<Record<string, CuratedPreview>> = {
       U('I leave on 2026-05-03 for 5 nights — when do I come back?'),
       // Raw capture was the bare string "2026-05-08" (correct: 05-03 + 5 days). Lightly reworded as a sentence.
       A("You'd be back on 2026-05-08."),
-      U('Do I need a visa for Japan?'),
-      A(
-        "For Japan, you generally don't need a visa for stays up to 90 days. Check the latest immigration rules " +
-          'as they can change.'
-      ),
     ],
   },
 
