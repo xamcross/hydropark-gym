@@ -14,6 +14,7 @@ import java.util.List;
  *   wallet     implements WalletPort
  *   devices    implements DeviceSlotPort
  *   auth       implements StepUpPort
+ *   download   implements BlobStorePort
  * </pre>
  *
  * <p>All port methods that mutate money or ownership are invoked from inside a single
@@ -245,5 +246,16 @@ public final class Ports {
      */
     WalletPurchaseResult payWithWallet(
         String userId, PurchaseKind kind, String targetId, String region, String idempotencyKey);
+  }
+
+  /**
+   * Implemented by {@code download} (both blobstore adapters). The write half of artifact delivery,
+   * exposed so publishing tools in other packages (e.g. {@code packaging}'s dev catalog publisher)
+   * can store artifacts without importing the {@code download} domain directly. Reading/serving
+   * stays download-internal - signed-URL minting is not a cross-package concern.
+   */
+  public interface BlobStorePort {
+    /** Persists {@code content} under {@code objectKey}, overwriting any existing object. */
+    void store(String objectKey, byte[] content);
   }
 }
