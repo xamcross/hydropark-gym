@@ -132,6 +132,11 @@ pub enum DownloadError {
     Verify(#[from] ModelVerifyError),
     #[error("download cancelled")]
     Cancelled,
+    /// F04: `args.url` (or a delta part path resolved against it) failed the
+    /// `fetch_guard::allowed_fetch_url` scheme/host check — rejected before any
+    /// network call was made. See [`guarded_url`].
+    #[error("fetch URL rejected: {0}")]
+    DisallowedUrl(String),
 }
 
 impl From<DownloadError> for CmdError {
@@ -159,6 +164,26 @@ pub fn part_url(base: &str, part_path: &str) -> String {
     } else {
         join_url(base, part_path)
     }
+}
+
+/// F04: check a webview-supplied absolute URL (`args.url` for the single-blob
+/// path, or a `part_url(args.url, part.path)` result for the delta path)
+/// against the shared [`crate::fetch_guard::allowed_fetch_url`] guard before
+/// `download_blob`/`download_delta` make any network call. `args.url` and
+/// every `parts[i].path` arrive over IPC straight from the webview (Tauri
+/// commands here are not ACL-gated), so an absolute URL on an arbitrary host
+/// — including loopback/internal addresses — must never reach `self.http`
+/// unvalidated; see `crate::fetch_guard` for why the configured backend
+/// origin is the only legitimate target.
+///
+/// Pure aside from the parse itself — the base is passed in, nothing is read
+/// from the environment or the filesystem here — so it is directly
+/// unit-testable without an `AppHandle` or a mock server, matching this
+/// module's existing pure-helper/thin-async-wrapper split (see the module
+/// doc).
+fn guarded_url(raw: &str, base: &str) -> Result<reqwest::Url, DownloadError> {
+    crate::fetch_guard::allowed_fetch_url(raw, base)
+        .map_err(|e| DownloadError::DisallowedUrl(e.to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +577,11 @@ impl DownloadManager {
             ResumeDecision::Fresh => 0,
         };
 
-        let mut req = self.http.get(&args.url);
+        // F04: guard BEFORE any network call — a rejected `args.url` never reaches
+        // `self.http`, regardless of resume state.
+        let checked_url = guarded_url(&args.url, &crate::backend_client::base_url())?;
+
+        let mut req = self.http.get(checked_url);
         if offset > 0 {
             req = req.header("Range", range_header(offset));
         }
@@ -600,10 +629,15 @@ impl DownloadManager {
             if cancel.load(Ordering::SeqCst) {
                 return Err(DownloadError::Cancelled);
             }
-            let url = part_url(&args.url, &p.path);
+            // F04: guard BEFORE any network call — a part path is just as
+            // webview-controllable as `args.url` itself (an absolute
+            // `parts[i].path` bypasses the `args.url` base entirely, see
+            // `part_url`).
+            let raw_url = part_url(&args.url, &p.path);
+            let checked_url = guarded_url(&raw_url, &crate::backend_client::base_url())?;
             let resp = self
                 .http
-                .get(&url)
+                .get(checked_url)
                 .send()
                 .await
                 .map_err(|e| DownloadError::Network(e.to_string()))?;
@@ -799,6 +833,43 @@ mod tests {
             "https://cdn/p/0.bin",
             "an absolute part path is used verbatim"
         );
+    }
+
+    // --- F04: fetch guard (applied before `download_blob`/`download_delta` ever
+    // touch the network — see `guarded_url` and `crate::fetch_guard`) ---------
+
+    const GUARD_BASE: &str = "http://localhost:8080";
+
+    #[test]
+    fn guarded_url_allows_the_configured_base_host() {
+        assert!(guarded_url("http://localhost:8080/blobs/models/qwen.gguf", GUARD_BASE).is_ok());
+    }
+
+    #[test]
+    fn guarded_url_rejects_a_different_host_without_a_network_call() {
+        // A malicious/absolute delta-part path (`part_url` uses it verbatim) or a
+        // tampered `args.url` pointing off-origin must be rejected — and since
+        // `guarded_url` is pure (no `self.http` involved at all), a passing test
+        // here IS proof no network call happened, not just an inference from it.
+        let err = guarded_url("http://evil.example/steal.gguf", GUARD_BASE).unwrap_err();
+        assert!(matches!(err, DownloadError::DisallowedUrl(_)), "expected DisallowedUrl, got {err:?}");
+    }
+
+    #[test]
+    fn guarded_url_rejects_a_non_http_scheme() {
+        let err = guarded_url("file:///etc/passwd", GUARD_BASE).unwrap_err();
+        assert!(matches!(err, DownloadError::DisallowedUrl(_)), "expected DisallowedUrl, got {err:?}");
+    }
+
+    #[test]
+    fn guarded_url_rejects_an_absolute_delta_part_path_on_a_disallowed_host() {
+        // Exercises the exact call shape `download_delta` uses: `part_url` resolves
+        // an absolute part path verbatim (bypassing `args.url`/base entirely), and
+        // THAT result is what must be checked, not the manifest's declared base.
+        let resolved = part_url(GUARD_BASE, "https://attacker.example/p/0.bin");
+        assert_eq!(resolved, "https://attacker.example/p/0.bin");
+        let err = guarded_url(&resolved, GUARD_BASE).unwrap_err();
+        assert!(matches!(err, DownloadError::DisallowedUrl(_)), "expected DisallowedUrl, got {err:?}");
     }
 
     // --- range math + resume decision -------------------------------------

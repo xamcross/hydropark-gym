@@ -868,7 +868,12 @@ mod tests {
         let zip = build_zip(&[("manifest.json", &to_vec(&m))]);
 
         let url = crate::backend_client::spawn_stub_server("HTTP/1.1 200 OK", zip.clone());
-        let backend = crate::backend_client::BackendClient::new();
+        // F04: `fetch_bytes` now only allows the client's configured base origin —
+        // build the client against the stub server's own origin (not the
+        // `http://localhost:8080` default `new()` would use, which the loopback
+        // stub's ephemeral `127.0.0.1:<port>` would fail the guard against).
+        let base = url.trim_end_matches("/pkg");
+        let backend = crate::backend_client::BackendClient::with_base(base);
         let bytes = backend.fetch_bytes(&url).await.expect("stub fetch succeeds");
         assert_eq!(bytes, zip, "fetched bytes round-trip the served package exactly");
 

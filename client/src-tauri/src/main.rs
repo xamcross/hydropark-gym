@@ -11,6 +11,7 @@ mod composition;
 mod deep_link;
 mod device;
 mod downloader;
+mod fetch_guard;
 mod grammar;
 mod hpskill;
 mod inference;

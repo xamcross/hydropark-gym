@@ -50,6 +50,12 @@ pub enum BackendError {
     /// A 2xx body that did not match the expected shape.
     #[error("could not decode backend response: {0}")]
     Decode(String),
+    /// F04: `fetch_bytes` was asked to fetch a URL that failed the
+    /// `fetch_guard::allowed_fetch_url` scheme/host check — rejected before
+    /// any network call was made. Carries the guard's own message, never the
+    /// rejected URL's response body (there is none — no request was sent).
+    #[error("fetch URL rejected: {0}")]
+    DisallowedUrl(String),
 }
 
 impl BackendError {
@@ -661,18 +667,36 @@ impl BackendClient {
     /// Fetch raw bytes from an absolute URL — used for the signed `.hpskill` blob
     /// URL `download_url` returns (the bridge into `skill_download_install`,
     /// P1-03.2). Unlike every other method here this does NOT join against
-    /// `self.base`: the URL is already absolute and may point at a different host
-    /// entirely (object storage). No bearer is attached — the URL is pre-signed
-    /// and self-authorizing.
+    /// `self.base`: the URL is already absolute. No bearer is attached — the URL
+    /// is pre-signed and self-authorizing.
+    ///
+    /// F04: `url` arrives over IPC straight from the webview (Tauri commands here
+    /// are not ACL-gated — `capabilities/default.json`), so before this does
+    /// anything network-facing it is checked by
+    /// [`crate::fetch_guard::allowed_fetch_url`] against the configured backend
+    /// origin (see that module's doc for why that origin is the only legitimate
+    /// target). A rejected URL never reaches `self.http` — no DNS lookup, no
+    /// connection, nothing an attacker-chosen loopback/internal host could
+    /// observe. On a non-2xx from an *allowed* host the response body is also
+    /// NOT echoed into the error (a prior version did, which turned a rejected
+    /// fetch into a response-body oracle) — only the status code crosses back to
+    /// the webview; the raw body is logged Rust-side only.
     pub async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>, BackendError> {
-        let resp = self.http.get(url).send().await.map_err(BackendError::network)?;
+        let checked = crate::fetch_guard::allowed_fetch_url(url, &self.base)
+            .map_err(|e| BackendError::DisallowedUrl(e.to_string()))?;
+        let resp = self.http.get(checked).send().await.map_err(BackendError::network)?;
         let status = resp.status();
         let bytes = resp.bytes().await.map_err(BackendError::network)?;
         if status.is_success() {
             Ok(bytes.to_vec())
         } else {
-            let body = String::from_utf8_lossy(&bytes).into_owned();
-            Err(BackendError::Status { status: status.as_u16(), body })
+            // F04: log the real body Rust-side only — never surface it to the webview.
+            eprintln!(
+                "fetch_bytes: backend returned HTTP {} for an allowed URL (body suppressed from caller, {} bytes)",
+                status.as_u16(),
+                bytes.len()
+            );
+            Err(BackendError::Status { status: status.as_u16(), body: String::new() })
         }
     }
 
@@ -1165,27 +1189,73 @@ mod tests {
     }
 
     // --- fetch_bytes (P1-03.2 download+install bridge) — local loopback only ---
+    //
+    // F04: `fetch_bytes` now guards `url` against the client's configured base
+    // (`self.base`) before it does anything network-facing, so every test here
+    // builds the client with `with_base(<the stub server's own origin>)` — the
+    // guard would otherwise reject the loopback stub as a "different host" than
+    // the `http://localhost:8080` default.
+
+    /// The stub server's origin (`http://127.0.0.1:<port>`), derived from the URL
+    /// [`spawn_stub_server`] returns, so tests can build a client that allows it.
+    fn stub_origin(stub_url: &str) -> &str {
+        stub_url.trim_end_matches("/pkg")
+    }
 
     #[tokio::test]
     async fn fetch_bytes_returns_the_body_verbatim_on_200() {
         let payload = b"hpskill-bytes-fixture-\x00\x01\x02".to_vec();
         let url = spawn_stub_server("HTTP/1.1 200 OK", payload.clone());
-        let client = BackendClient::new();
+        let client = BackendClient::with_base(stub_origin(&url));
         let got = client.fetch_bytes(&url).await.expect("stub fetch succeeds");
         assert_eq!(got, payload);
     }
 
+    /// F04: a non-2xx from an *allowed* host must still map to `Status`, but the
+    /// raw body must NOT be echoed into the error the webview sees (that was the
+    /// response-body-oracle half of the F04 finding — a rejected/erroring fetch of
+    /// an attacker-chosen URL should never let JS read back arbitrary response
+    /// bytes through the error message).
     #[tokio::test]
-    async fn fetch_bytes_maps_non_2xx_to_status_error_with_body() {
+    async fn fetch_bytes_maps_non_2xx_to_status_error_without_echoing_the_body() {
         let url = spawn_stub_server("HTTP/1.1 403 Forbidden", b"link expired".to_vec());
-        let client = BackendClient::new();
+        let client = BackendClient::with_base(stub_origin(&url));
         let err = client.fetch_bytes(&url).await.unwrap_err();
         match err {
             BackendError::Status { status, body } => {
                 assert_eq!(status, 403);
-                assert_eq!(body, "link expired");
+                assert!(body.is_empty(), "non-2xx body must not be echoed to the caller, got {body:?}");
             }
             other => panic!("expected Status error, got {other:?}"),
         }
+    }
+
+    /// F04: a disallowed URL (different host than the configured base) must be
+    /// rejected by the guard BEFORE any network call — proven by pointing at a
+    /// non-routable TEST-NET-style address and bounding the call with a short
+    /// timeout. If the guard were bypassed, `self.http.get(...).send()` would
+    /// either hang past the timeout (elapsed => the `.expect` panics) or, at
+    /// best for an attacker, fail fast as `BackendError::Network` rather than
+    /// `DisallowedUrl` — either way the `DisallowedUrl` assertion below would
+    /// fail, so this is a real RED/GREEN gate on "guard runs first", not just on
+    /// "some error occurred".
+    #[tokio::test]
+    async fn fetch_bytes_rejects_a_disallowed_url_without_a_network_call() {
+        let client = BackendClient::with_base("http://localhost:8080");
+        let fut = client.fetch_bytes("http://10.255.255.1:1/steal");
+        let result = tokio::time::timeout(std::time::Duration::from_millis(300), fut).await;
+        let err = result
+            .expect("guard must reject synchronously, not leave a connect attempt in flight")
+            .unwrap_err();
+        assert!(matches!(err, BackendError::DisallowedUrl(_)), "expected DisallowedUrl, got {err:?}");
+    }
+
+    /// F04: same guard, `file://` this time — makes explicit that a non-http(s)
+    /// scheme is refused even when no "host" comparison is in play.
+    #[tokio::test]
+    async fn fetch_bytes_rejects_a_non_http_scheme_without_a_network_call() {
+        let client = BackendClient::with_base("http://localhost:8080");
+        let err = client.fetch_bytes("file:///etc/passwd").await.unwrap_err();
+        assert!(matches!(err, BackendError::DisallowedUrl(_)), "expected DisallowedUrl, got {err:?}");
     }
 }
