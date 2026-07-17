@@ -19,7 +19,12 @@ const STUB_COMPOSED: ComposedAgentView = {
 const WEEKNIGHT_CHEF: TemplateView = {
   id: 'tmpl_weeknight_chef',
   name: 'Weeknight Chef',
-  skill_refs: ['kitchen-timer', 'nutrition-coach'],
+  // 'kitchen-timer' has a known dev-registry manifest (renders its display
+  // name); 'future-marketplace-skill' deliberately does not (Task 14 added
+  // nutrition-coach/packing-list/travel-planner to the registry, so this
+  // fixture's raw-id-fallback example must stay a genuinely unknown id — see
+  // the 'lists templates…' test below).
+  skill_refs: ['kitchen-timer', 'future-marketplace-skill'],
   base_model: 'qwen2.5-3b-instruct-q4_k_m',
 };
 
@@ -80,8 +85,8 @@ describe('TemplatesGalleryComponent (Task 11b)', () => {
     expect(text).toContain('Weeknight Chef');
     // 'kitchen-timer' resolves to its display name via the dev manifest registry.
     expect(text).toContain('Kitchen Timer & Units');
-    // 'nutrition-coach' has no known manifest — falls back to the raw id.
-    expect(text).toContain('nutrition-coach');
+    // 'future-marketplace-skill' has no known manifest — falls back to the raw id.
+    expect(text).toContain('future-marketplace-skill');
   });
 
   it('a fully successful Load emits `loaded`', async () => {

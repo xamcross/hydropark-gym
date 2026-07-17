@@ -26,7 +26,8 @@ import { PanelDescriptor } from '../shared/layout/layout.model';
 import { SessionService } from '../state/session.service';
 import { TelemetryService } from '../state/telemetry.service';
 import { CookingAssistantService } from '../skills/cooking-assistant/cooking-assistant.service';
-import { KITCHEN_TIMER_MANIFEST, COOKING_ASSISTANT_MANIFEST } from './manifest-registry';
+import { EnabledSkillsService } from './enabled-skills.service';
+import { KITCHEN_TIMER_MANIFEST, COOKING_ASSISTANT_MANIFEST, manifestFor } from './manifest-registry';
 import {
   SkillManifest,
   manifestId,
@@ -44,15 +45,37 @@ export class CompositionService {
   private readonly session = inject(SessionService);
   private readonly telemetry = inject(TelemetryService);
   private readonly cooking = inject(CookingAssistantService);
+  private readonly enabledSkills = inject(EnabledSkillsService);
 
   /**
-   * The enabled skills' manifests, DERIVED from the existing P0 enable signals.
-   * This is the "hook": toggling a skill anywhere flips its membership here.
+   * The enabled skills' manifests. DERIVED from the existing two P0 enable
+   * signals (unchanged — `kitchenSkillEnabled` / `CookingAssistantService.
+   * enabled` keep working exactly as before, so the free/paid P0 toggles are
+   * untouched), UNIONED with whatever {@link EnabledSkillsService} holds for
+   * every OTHER skill (Task 14, F03/F07) — deduped by manifest id so a skill
+   * that happens to be BOTH a P0 signal AND (hypothetically) in the store
+   * never composes twice. `manifestFor` resolves a store id to its manifest;
+   * an id the dev registry doesn't know about is silently skipped rather than
+   * breaking composition for every other enabled skill.
    */
   readonly enabledManifests: Signal<readonly SkillManifest[]> = computed(() => {
     const out: SkillManifest[] = [];
-    if (this.session.kitchenSkillEnabled()) out.push(KITCHEN_TIMER_MANIFEST);
-    if (this.cooking.enabled()) out.push(COOKING_ASSISTANT_MANIFEST);
+    const seen = new Set<string>();
+    if (this.session.kitchenSkillEnabled()) {
+      out.push(KITCHEN_TIMER_MANIFEST);
+      seen.add(KITCHEN_TIMER_MANIFEST.id);
+    }
+    if (this.cooking.enabled()) {
+      out.push(COOKING_ASSISTANT_MANIFEST);
+      seen.add(COOKING_ASSISTANT_MANIFEST.id);
+    }
+    for (const id of this.enabledSkills.enabledIds()) {
+      if (seen.has(id)) continue;
+      const manifest = manifestFor(id);
+      if (!manifest) continue;
+      out.push(manifest);
+      seen.add(id);
+    }
     return out;
   });
 

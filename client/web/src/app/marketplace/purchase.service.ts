@@ -7,7 +7,21 @@ import { SystemBrowserService } from '../shared/system-browser.service';
 import { TelemetryService } from '../state/telemetry.service';
 import { UnlockService } from '../unlock/unlock.service';
 import { AuthService } from '../account/auth.service';
+import { EnabledSkillsService } from '../composition/enabled-skills.service';
 import { OwnershipAction, OwnershipState, SkillDetail } from './catalog.model';
+
+/**
+ * P0's fixed-catalog skill ids — the only two the Rust `skill_enable` command
+ * can deserialize (its arg is the 2-value `SkillId` enum, predating the
+ * general P1 marketplace catalog). Used to branch `enable`/`disable` so an
+ * arbitrary marketplace id (e.g. `nutrition-coach`) never reaches that IPC
+ * call (F03) and instead routes through {@link EnabledSkillsService} (F07).
+ */
+const P0_SKILL_IDS: ReadonlySet<string> = new Set<SkillId>(['kitchen-timer', 'cooking-assistant']);
+
+function isP0SkillId(id: string): id is SkillId {
+  return P0_SKILL_IDS.has(id);
+}
 
 /** Backoff schedule for `order_get` polling while the browser checkout runs. */
 const POLL_START_MS = 900;
@@ -45,6 +59,7 @@ export class PurchaseService {
   private readonly browser = inject(SystemBrowserService);
   private readonly telemetry = inject(TelemetryService);
   private readonly unlock = inject(UnlockService);
+  private readonly enabledSkills = inject(EnabledSkillsService);
 
   /** Per-skill live ownership override (keyed by skillId). Read via {@link stateFor}. */
   private readonly overrides = signal<Record<string, OwnershipState>>({});
@@ -101,6 +116,10 @@ export class PurchaseService {
         void this.enable(detail.id);
         return;
       case 'disable':
+        // Non-P0 skills are only ever enabled through EnabledSkillsService
+        // (see `enable` below), so disabling must undo that exact same store
+        // membership — P0 skills are untouched here (unchanged behaviour).
+        if (!isP0SkillId(detail.id)) this.enabledSkills.disable(detail.id);
         this.setState(detail.id, 'installed');
         return;
       case 'uninstall':
@@ -251,14 +270,24 @@ export class PurchaseService {
   /** Installed → enabling → active. Ties a real paid SKU into its in-app unlock. */
   async enable(skillId: string): Promise<void> {
     this.setState(skillId, 'enabling');
-    try {
-      // P0's fixed-catalog enable gate (kitchen-timer / cooking-assistant only —
-      // it predates the general P1 marketplace catalog). Non-fatal on rejection:
-      // a skill outside that pair simply has nothing further to gate here, and a
-      // rejection must never strand an already-installed skill mid-enable.
-      await this.ipc.invoke('skill_enable', { skill_id: skillId as SkillId });
-    } catch {
-      // See above — swallowed by design.
+    if (isP0SkillId(skillId)) {
+      try {
+        // P0's fixed-catalog enable gate (kitchen-timer / cooking-assistant
+        // only — it predates the general P1 marketplace catalog). Non-fatal on
+        // rejection: a rejection must never strand an already-installed skill
+        // mid-enable.
+        await this.ipc.invoke('skill_enable', { skill_id: skillId });
+      } catch {
+        // See above — swallowed by design.
+      }
+    } else {
+      // General marketplace skills (F03/F07): the Rust `skill_enable` IPC arg
+      // is the fixed 2-value P0 `SkillId` enum and cannot deserialize an
+      // arbitrary marketplace id, so calling it here would just be a silently
+      // swallowed no-op that never actually enables anything. Route through
+      // the client-side enablement store instead — CompositionService unions
+      // it into `enabledManifests`, so the skill's panels/tools really compose.
+      this.enabledSkills.enable(skillId);
     }
     // Close the loop for the one in-app paid SKU: a settled purchase unlocks the
     // Cooking Assistant so its Assistant-view toggle lights up. In a real Tauri

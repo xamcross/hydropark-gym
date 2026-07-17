@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { PurchaseService } from './purchase.service';
 import { AuthService } from '../account/auth.service';
+import { EnabledSkillsService } from '../composition/enabled-skills.service';
 import { IPC_PORT, IpcPort, Unlisten } from '../ipc/ipc.port';
 import { IpcCommand, IpcCommandMap, IpcEvent, SkillEnableResult, SkillId, SkillInstallResult } from '../ipc/contract';
 import { SkillDetail } from './catalog.model';
@@ -88,11 +89,8 @@ const INSTALL_RESULT: SkillInstallResult = {
   dir: '/skills/demo-skill',
   state: 'installed_disabled',
 };
-// `SkillEnableResult.skill_id` is P0's fixed 2-value `SkillId` union, which predates the
-// general P1 marketplace catalog `install`/`enable` deal with (see purchase.service.ts's
-// `skillId as SkillId` cast at the call site) — the cast here mirrors that same known gap.
 const ENABLE_RESULT: SkillEnableResult = {
-  skill_id: 'demo-skill' as unknown as SkillId,
+  skill_id: 'kitchen-timer' as SkillId,
   persona_injected: true,
   tools_registered: [],
   panels: [],
@@ -101,6 +99,7 @@ const ENABLE_RESULT: SkillEnableResult = {
 describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
   let ipc: ScriptedIpc;
   let purchase: PurchaseService;
+  let enabledSkills: EnabledSkillsService;
 
   beforeEach(() => {
     ipc = new ScriptedIpc();
@@ -108,33 +107,62 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
       providers: [{ provide: IPC_PORT, useValue: ipc }],
     });
     purchase = TestBed.inject(PurchaseService);
+    enabledSkills = TestBed.inject(EnabledSkillsService);
   });
 
   // --- install() — the method this task rewires -----------------------------
 
-  it('install(id, true) runs license_fetch -> download_url -> skill_download_install -> skill_enable, in order, threading the download URL through, and reaches "active"', async () => {
-    ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
-    ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
-    ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
-    ipc.when('skill_enable', () => ({ ...ENABLE_RESULT }));
+  it(
+    'install(id, true) for a NON-P0 marketplace skill runs license_fetch -> download_url -> ' +
+      "skill_download_install (NEVER skill_enable — Task 14/F03), threading the download URL " +
+      "through, routes enable() through EnabledSkillsService, and reaches 'active'",
+    async () => {
+      ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
+      ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+      ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+      // Registered but must NEVER be invoked for a non-P0 id — its arg is P0's
+      // fixed 2-value SkillId enum and can't deserialize 'demo-skill' (F03).
+      ipc.when('skill_enable', () => ({ ...ENABLE_RESULT }));
 
-    await purchase.install('demo-skill', true);
+      await purchase.install('demo-skill', true);
 
-    expect(ipc.calls.map((c) => c.cmd)).toEqual([
-      'license_fetch',
-      'download_url',
-      'skill_download_install',
-      'skill_enable',
-    ]);
+      expect(ipc.calls.map((c) => c.cmd)).toEqual(['license_fetch', 'download_url', 'skill_download_install']);
 
-    // The signed URL `download_url` grants is the ONE thing the install command
-    // needs — the webview never handles the package bytes themselves.
-    const installCall = ipc.calls.find((c) => c.cmd === 'skill_download_install')!;
-    expect((installCall.args as { url: string }).url).toBe(DOWNLOAD_URL);
+      // The signed URL `download_url` grants is the ONE thing the install command
+      // needs — the webview never handles the package bytes themselves.
+      const installCall = ipc.calls.find((c) => c.cmd === 'skill_download_install')!;
+      expect((installCall.args as { url: string }).url).toBe(DOWNLOAD_URL);
 
-    expect(purchase.stateFor('demo-skill')).toBe('active');
-    expect(purchase.errorFor('demo-skill')).toBeNull();
-  });
+      // F03/F07: routed through the client-side enablement store instead —
+      // this is what makes CompositionService actually compose it.
+      expect(enabledSkills.has('demo-skill')).toBe(true);
+
+      expect(purchase.stateFor('demo-skill')).toBe('active');
+      expect(purchase.errorFor('demo-skill')).toBeNull();
+    }
+  );
+
+  it(
+    'install(id, true) for a P0 skill (kitchen-timer) still calls skill_enable (unchanged ' +
+      'behaviour) and does NOT add it to EnabledSkillsService (that store is for non-P0 ids only)',
+    async () => {
+      ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
+      ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+      ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+      ipc.when('skill_enable', () => ({ ...ENABLE_RESULT }));
+
+      await purchase.install('kitchen-timer', true);
+
+      expect(ipc.calls.map((c) => c.cmd)).toEqual([
+        'license_fetch',
+        'download_url',
+        'skill_download_install',
+        'skill_enable',
+      ]);
+      expect(enabledSkills.has('kitchen-timer')).toBe(false);
+      expect(purchase.stateFor('kitchen-timer')).toBe('active');
+    }
+  );
 
   it('install(id) without thenEnable stops at "installed" and never calls skill_enable', async () => {
     ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
@@ -186,7 +214,8 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
 
   it(
     'buy() drives the full pinned sequence order_checkout -> order_get -> license_fetch -> ' +
-      'download_url -> skill_download_install -> skill_enable, and reaches "active"',
+      'download_url -> skill_download_install (NEVER skill_enable for a non-P0 id — Task 14/F03), ' +
+      'reaches "active", and the skill ends up enabled via EnabledSkillsService',
     async () => {
       // A usable identity ('device', not 'authenticated') so ensureForPurchase()
       // resolves immediately without opening the auth prompt, and WITHOUT tripping
@@ -201,6 +230,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
       ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
       ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
       ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+      // Registered but must NEVER be invoked — 'demo-skill' is not a P0 id.
       ipc.when('skill_enable', () => ({ ...ENABLE_RESULT }));
 
       void purchase.buy(detail('demo-skill')); // fire-and-forget, exactly like the ownership button does
@@ -213,8 +243,29 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
         'license_fetch',
         'download_url',
         'skill_download_install',
-        'skill_enable',
       ]);
+      expect(enabledSkills.has('demo-skill')).toBe(true);
     }
   );
+
+  // --- Task 14 (F03/F07) — non-P0 enable/disable routing ---------------------
+
+  it('enable(id) for a non-P0 skill never calls skill_enable, only EnabledSkillsService', async () => {
+    ipc.when('skill_enable', () => ({ ...ENABLE_RESULT }));
+
+    await purchase.enable('nutrition-coach');
+
+    expect(ipc.calls.map((c) => c.cmd)).toEqual([]);
+    expect(enabledSkills.has('nutrition-coach')).toBe(true);
+    expect(purchase.stateFor('nutrition-coach')).toBe('active');
+  });
+
+  it('dispatch(detail, "disable") for a non-P0 skill removes it from EnabledSkillsService', () => {
+    enabledSkills.enable('nutrition-coach');
+
+    purchase.dispatch(detail('nutrition-coach'), 'disable');
+
+    expect(enabledSkills.has('nutrition-coach')).toBe(false);
+    expect(purchase.stateFor('nutrition-coach')).toBe('installed');
+  });
 });
