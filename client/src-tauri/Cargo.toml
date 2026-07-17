@@ -23,6 +23,21 @@ publish = false
 name = "hydropark"
 path = "src/main.rs"
 
+# Plan Task 17 (phase 1/2): offline preview-transcript capture tool — loads the
+# real inference engine + one skill's persona, runs a FIXED set of demo inputs,
+# and writes `previews/<skill-id>.json` (try-before-buy raw material, SPEC
+# §11.4 / BE §4.2 N1). A separate binary crate root (`src/bin/capture_preview.rs`)
+# that re-declares the sibling modules it needs via `#[path]` (see that file's
+# module doc) rather than restructuring this crate into lib+bin. NOT gated by
+# `required-features`: its core capture logic is engine-agnostic and must stay
+# reachable by `cargo test --no-default-features --features mock-inference`;
+# only its `main()` + real-engine glue are internally `#[cfg(feature =
+# "real-inference")]`-gated. A normal `cargo build`/`cargo tauri build` of the
+# `hydropark` binary is unaffected either way — this is purely an extra target.
+[[bin]]
+name = "capture_preview"
+path = "src/bin/capture_preview.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
