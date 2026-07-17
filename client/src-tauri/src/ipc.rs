@@ -877,6 +877,71 @@ impl UpdateCheckResult {
 }
 
 // ---------------------------------------------------------------------------
+// Templates (Task 11a, SPEC §10) — save / list / load a named skill
+// combination (the "Weeknight Chef" B2 demo beat). UNLIKE the marketplace /
+// account / hpskill / capability / auto-update families above, this is a
+// pure on-device feature (no backend network call) — same snake_case wire
+// convention as the P0 seed at the top of this file (plain
+// `#[derive(Serialize)]`, no `rename_all`). The Rust core (`templates.rs`)
+// owns the save/load/version-pin logic; this layer only persists it in the
+// on-device store (`store.rs`) and shapes the result for the gallery.
+//
+// `template_load` NEVER bare-rejects for a resolvable template whose combo
+// can't be fully restored (a missing or version-incompatible skill) — it
+// always resolves to a `TemplateLoadResult`, `ok: false` with the offending
+// skill id named in `missing_skills`, so the UI can explain and offer
+// reinstall (SPEC §10). An unknown template `id` is a genuine caller error
+// and still rejects (`CmdError::InvalidArgs`).
+// ---------------------------------------------------------------------------
+
+/// `template_save` args — the current agent's combo to save as a named
+/// template. `skill_refs` is `(skill_id, running_version)` pairs, already in
+/// composed/merge order (mirrors `templates::save_as_template`'s `enabled`
+/// parameter); each version is parsed with the same `SemVer` grammar
+/// `templates.rs` uses — an unparseable version rejects with
+/// `CmdError::InvalidArgs` naming the offending skill.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TemplateSaveArgs {
+    pub name: String,
+    pub skill_refs: Vec<(String, String)>,
+    pub base_model: String,
+    pub ui_overrides: serde_json::Value,
+}
+
+/// A saved template as the gallery renders it — the flattened view over
+/// `templates::Template` (skill ids only; the version pin is an
+/// implementation detail the gallery does not need to render).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TemplateView {
+    pub id: String,
+    pub name: String,
+    pub skill_refs: Vec<String>,
+    pub base_model: String,
+}
+
+/// `template_load` args — the template id to resolve + restore.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TemplateLoadArgs {
+    pub id: String,
+}
+
+/// `template_load` result — ALWAYS the successful side of the IPC boundary for
+/// a known template id (see the section header above). `ok: true` carries the
+/// restored combo (`skill_ids`, in template/merge order) and the layout to
+/// reapply (`ui_overrides`, opaque — the UI layer owns its shape). `ok: false`
+/// carries the skill id that could not be resolved (missing OR
+/// installed-but-version-incompatible; both are named in `missing_skills`
+/// because the same "explain + offer reinstall" remediation applies to both,
+/// SPEC §10) and `skill_ids`/`ui_overrides` are left empty/`null`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TemplateLoadResult {
+    pub ok: bool,
+    pub skill_ids: Vec<String>,
+    pub ui_overrides: serde_json::Value,
+    pub missing_skills: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Command errors
 // ---------------------------------------------------------------------------
 
@@ -918,6 +983,11 @@ pub enum CmdError {
     /// nothing is registered or persisted. Carries the `hpskill::HpSkillError` message.
     #[error("skill package error: {0}")]
     Package(String),
+    /// A local template (SPEC §10) store operation failed — the on-device
+    /// `templates` table (save/list/load). Carries the `store::StoreError`
+    /// message.
+    #[error("template store error: {0}")]
+    Template(String),
 }
 
 impl From<std::io::Error> for CmdError {

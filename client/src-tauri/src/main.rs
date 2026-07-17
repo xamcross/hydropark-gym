@@ -47,7 +47,7 @@ use ipc::{
     NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
     SkillDisableArgs, SkillDownloadInstallArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs,
     SkillInstallResult, SkillUninstallArgs, SkillUninstallResult, StepUpAnswerArgs, StepUpAnswerResult,
-    TelemetryEvent,
+    TelemetryEvent, TemplateLoadArgs, TemplateLoadResult, TemplateSaveArgs, TemplateView,
     TimerControlArgs, TimerStateSnapshot, ToolCallError, ToolCallErrorCode, ToolCallRequest,
     ToolCallResponse, ToolName, UpdateCheckResult,
 };
@@ -536,6 +536,128 @@ fn step_up_answer(
     Ok(StepUpAnswerResult { signature: signed.signature, device_id: signed.device_id })
 }
 
+// ---------------------------------------------------------------------------
+// Templates (Task 11a, SPEC §10) — save / list / load a named skill
+// combination (the "Weeknight Chef" B2 demo beat). Pure on-device: the Rust
+// core (`templates.rs`) validates the combo/version-pin logic; this layer
+// persists it in the shared on-device store — the SAME `Arc<Mutex<Store>>`
+// `SessionManager` already manages (P1-10), mirroring the `device.rs`
+// precedent (a plain fn over `&Arc<Mutex<Store>>`) rather than adding a new
+// managed state — and resolves a load against `store.list_installed_skills()`.
+//
+// Each `#[tauri::command]` below is a thin wrapper over a `*_with_store` fn
+// that takes the store directly, so the save/list/load logic is unit-testable
+// without any Tauri runtime (see `template_tests` below), the same split
+// `capability_disclose` uses for testability.
+// ---------------------------------------------------------------------------
+
+/// Flatten a `templates::Template` into the gallery's `TemplateView`.
+fn template_view(template: &templates::Template) -> TemplateView {
+    TemplateView {
+        id: template.id.clone(),
+        name: template.name.clone(),
+        skill_refs: template.skill_refs.iter().map(|r| r.skill_id.clone()).collect(),
+        base_model: template.base_model.clone(),
+    }
+}
+
+/// **Save current agent as template** (P1-07.2, SPEC §10) over a given store.
+fn template_save_with_store(
+    args: TemplateSaveArgs,
+    store: &Arc<Mutex<Store>>,
+) -> Result<TemplateView, CmdError> {
+    let mut enabled: Vec<(&str, templates::SemVer)> = Vec::with_capacity(args.skill_refs.len());
+    for (skill_id, version) in &args.skill_refs {
+        let parsed: templates::SemVer = version.parse().map_err(|e: String| {
+            CmdError::InvalidArgs(format!("skill '{skill_id}' has an invalid version '{version}': {e}"))
+        })?;
+        enabled.push((skill_id.as_str(), parsed));
+    }
+    let template = templates::save_as_template(&args.name, &args.base_model, &enabled, args.ui_overrides);
+    store
+        .lock()
+        .expect("template store mutex poisoned")
+        .save_template(&template)
+        .map_err(|e| CmdError::Template(e.to_string()))?;
+    Ok(template_view(&template))
+}
+
+/// **List saved templates** — the "My Templates" gallery (SPEC §10), over a given store.
+fn template_list_with_store(store: &Arc<Mutex<Store>>) -> Result<Vec<TemplateView>, CmdError> {
+    let saved = store
+        .lock()
+        .expect("template store mutex poisoned")
+        .list_templates()
+        .map_err(|e| CmdError::Template(e.to_string()))?;
+    Ok(saved.iter().map(template_view).collect())
+}
+
+/// **Load a template** (P1-07.3, SPEC §10) over a given store: resolve it against
+/// the store's `installed_skills` versions via `templates::load_template`, and map
+/// `TemplateError::MissingSkill`/`VersionIncompatible` into a structured
+/// `TemplateLoadResult` — never a bare error (the UI explains and offers reinstall).
+///
+/// Installed skill versions are stored as strings; an unparseable one can never
+/// satisfy a pin, so that skill is treated as not installed for resolution
+/// purposes (reported in `missing_skills`, never a panic).
+fn template_load_with_store(
+    args: TemplateLoadArgs,
+    store: &Arc<Mutex<Store>>,
+) -> Result<TemplateLoadResult, CmdError> {
+    let (template, installed) = {
+        let guard = store.lock().expect("template store mutex poisoned");
+        let template = guard
+            .load_template(&args.id)
+            .map_err(|e| CmdError::Template(e.to_string()))?
+            .ok_or_else(|| CmdError::InvalidArgs(format!("no such template: {}", args.id)))?;
+        let installed =
+            guard.list_installed_skills().map_err(|e| CmdError::Template(e.to_string()))?;
+        (template, installed)
+    };
+
+    let installed_versions: Vec<(&str, templates::SemVer)> = installed
+        .iter()
+        .filter_map(|s| s.version.parse::<templates::SemVer>().ok().map(|v| (s.skill_id.as_str(), v)))
+        .collect();
+
+    Ok(match templates::load_template(&template, &installed_versions) {
+        Ok(resolved) => TemplateLoadResult {
+            ok: true,
+            skill_ids: resolved.skills.into_iter().map(|s| s.skill_id).collect(),
+            ui_overrides: resolved.ui_overrides,
+            missing_skills: Vec::new(),
+        },
+        Err(templates::TemplateError::MissingSkill { skill_id })
+        | Err(templates::TemplateError::VersionIncompatible { skill_id, .. }) => TemplateLoadResult {
+            ok: false,
+            skill_ids: Vec::new(),
+            ui_overrides: serde_json::Value::Null,
+            missing_skills: vec![skill_id],
+        },
+    })
+}
+
+#[tauri::command]
+fn template_save(
+    args: TemplateSaveArgs,
+    session: State<'_, SessionManager>,
+) -> Result<TemplateView, CmdError> {
+    template_save_with_store(args, session.inner().store())
+}
+
+#[tauri::command]
+fn template_list(session: State<'_, SessionManager>) -> Result<Vec<TemplateView>, CmdError> {
+    template_list_with_store(session.inner().store())
+}
+
+#[tauri::command]
+fn template_load(
+    args: TemplateLoadArgs,
+    session: State<'_, SessionManager>,
+) -> Result<TemplateLoadResult, CmdError> {
+    template_load_with_store(args, session.inner().store())
+}
+
 /// Open (creating + migrating) the on-device SQLite store under the app-data dir.
 fn open_app_store(app: &AppHandle) -> Result<Store, Box<dyn std::error::Error>> {
     let dir = app.path().app_data_dir()?;
@@ -658,6 +780,9 @@ fn main() {
             device_ensure,
             entitlements_refresh,
             step_up_answer,
+            template_save,
+            template_list,
+            template_load,
             unlock::unlock_redeem,
             unlock::unlock_status,
         ])
@@ -722,5 +847,156 @@ mod capability_disclose_tests {
         // rather than silently dropping it or panicking.
         let err = capability_disclose(args(&["timers", "system"])).expect_err("system has no variant");
         assert!(err.to_string().contains("system"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Task 11a (templates over IPC, SPEC §10). Exercised directly against
+// the `*_with_store` fns (no Tauri runtime needed — mirrors how
+// `capability_disclose_tests` above calls the thin command fn directly).
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod template_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn store() -> Arc<Mutex<Store>> {
+        Arc::new(Mutex::new(Store::open_in_memory().expect("in-memory store opens + migrates")))
+    }
+
+    /// Register a skill as installed at `version` (the resolution set
+    /// `template_load_with_store` checks against).
+    fn install(store: &Arc<Mutex<Store>>, skill_id: &str, version: &str) {
+        let manifest = json!({ "id": skill_id, "version": version });
+        store
+            .lock()
+            .unwrap()
+            .save_installed_skill(skill_id, version, &manifest, &format!("/skills/{skill_id}"), true)
+            .unwrap();
+    }
+
+    fn save_args(name: &str, refs: &[(&str, &str)], ui: serde_json::Value) -> TemplateSaveArgs {
+        TemplateSaveArgs {
+            name: name.to_string(),
+            skill_refs: refs.iter().map(|(id, v)| (id.to_string(), v.to_string())).collect(),
+            base_model: "qwen2.5-3b-instruct-q4_k_m".to_string(),
+            ui_overrides: ui,
+        }
+    }
+
+    #[test]
+    fn save_list_load_round_trip() {
+        let store = store();
+        install(&store, "cooking-assistant", "1.2.0");
+        install(&store, "nutrition-coach", "1.0.0");
+
+        let ui = json!({ "panel_order": ["timers", "ingredients", "nutrition"] });
+        let saved = template_save_with_store(
+            save_args(
+                "Weeknight Chef",
+                &[("cooking-assistant", "1.2.0"), ("nutrition-coach", "1.0.0")],
+                ui.clone(),
+            ),
+            &store,
+        )
+        .expect("save succeeds");
+
+        assert_eq!(saved.id, "tmpl_weeknight_chef");
+        assert_eq!(saved.name, "Weeknight Chef");
+        assert_eq!(saved.base_model, "qwen2.5-3b-instruct-q4_k_m");
+        assert_eq!(saved.skill_refs, vec!["cooking-assistant".to_string(), "nutrition-coach".to_string()]);
+
+        // list() surfaces the just-saved template.
+        let listed = template_list_with_store(&store).expect("list succeeds");
+        assert_eq!(listed, vec![saved.clone()]);
+
+        // load() resolves the exact combo + restores the layout verbatim.
+        let loaded = template_load_with_store(TemplateLoadArgs { id: saved.id.clone() }, &store)
+            .expect("load succeeds");
+        assert!(loaded.ok);
+        assert_eq!(loaded.skill_ids, vec!["cooking-assistant".to_string(), "nutrition-coach".to_string()]);
+        assert_eq!(loaded.ui_overrides, ui);
+        assert!(loaded.missing_skills.is_empty());
+    }
+
+    #[test]
+    fn load_with_missing_skill_is_a_structured_result_not_a_bare_error() {
+        let store = store();
+        install(&store, "cooking-assistant", "1.2.0");
+        // nutrition-coach is deliberately never installed.
+
+        let saved = template_save_with_store(
+            save_args(
+                "Weeknight Chef",
+                &[("cooking-assistant", "1.2.0"), ("nutrition-coach", "1.0.0")],
+                json!({}),
+            ),
+            &store,
+        )
+        .unwrap();
+
+        let loaded = template_load_with_store(TemplateLoadArgs { id: saved.id }, &store)
+            .expect("a missing skill is a structured result, not a rejected Result");
+        assert!(!loaded.ok);
+        assert_eq!(loaded.missing_skills, vec!["nutrition-coach".to_string()]);
+        assert!(loaded.skill_ids.is_empty());
+    }
+
+    #[test]
+    fn load_with_version_incompatible_skill_is_also_a_structured_result() {
+        let store = store();
+        // Installed below the `>=1.2.0` pin save_as_template records.
+        install(&store, "cooking-assistant", "1.1.0");
+
+        let saved = template_save_with_store(
+            save_args("T", &[("cooking-assistant", "1.2.0")], json!({})),
+            &store,
+        )
+        .unwrap();
+
+        let loaded = template_load_with_store(TemplateLoadArgs { id: saved.id }, &store).unwrap();
+        assert!(!loaded.ok);
+        assert_eq!(loaded.missing_skills, vec!["cooking-assistant".to_string()]);
+    }
+
+    #[test]
+    fn load_unparseable_installed_version_is_treated_as_missing_not_a_panic() {
+        let store = store();
+        install(&store, "cooking-assistant", "not-a-version");
+
+        let saved =
+            template_save_with_store(save_args("Bad Version", &[("cooking-assistant", "1.0.0")], json!({})), &store)
+                .unwrap();
+
+        let loaded = template_load_with_store(TemplateLoadArgs { id: saved.id }, &store).unwrap();
+        assert!(!loaded.ok);
+        assert_eq!(loaded.missing_skills, vec!["cooking-assistant".to_string()]);
+    }
+
+    #[test]
+    fn load_unknown_template_id_rejects() {
+        let store = store();
+        let err = template_load_with_store(TemplateLoadArgs { id: "tmpl_nope".to_string() }, &store)
+            .expect_err("an unknown template id is a genuine caller error");
+        assert!(err.to_string().contains("tmpl_nope"));
+    }
+
+    #[test]
+    fn save_with_unparseable_version_rejects_naming_the_skill() {
+        let store = store();
+        let err = template_save_with_store(
+            save_args("T", &[("cooking-assistant", "not-a-version")], json!({})),
+            &store,
+        )
+        .expect_err("an unparseable version must not panic");
+        let msg = err.to_string();
+        assert!(msg.contains("cooking-assistant"));
+    }
+
+    #[test]
+    fn empty_list_before_any_save() {
+        let store = store();
+        assert!(template_list_with_store(&store).unwrap().is_empty());
     }
 }

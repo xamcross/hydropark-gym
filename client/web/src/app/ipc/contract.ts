@@ -944,6 +944,67 @@ export interface UpdateCheckResult {
 }
 
 // ---------------------------------------------------------------------------
+// Templates (Task 11a, SPEC §10) — save / list / load a named skill
+// combination (the "Weeknight Chef" B2 demo beat).
+// ---------------------------------------------------------------------------
+//
+// UNLIKE the P1 marketplace/account/hpskill/capability/auto-update families
+// above, this is a pure on-device feature (no backend network call) — snake_case
+// wire names, mirroring `ipc.rs` field-for-field (plain `#[derive(Serialize)]`,
+// no camelCase `rename_all`), same convention as the P0 seed at the top of this
+// file. The Rust core (`templates.rs`) owns the save/load/version-pin logic;
+// `template_load` NEVER bare-rejects for a resolvable template whose combo
+// can't be fully restored (a missing or version-incompatible skill) — it always
+// resolves to a `TemplateLoadResult`, `ok: false` with the offending skill id
+// named in `missing_skills`, so the gallery can explain and offer reinstall.
+
+/**
+ * `template_save` args — the current agent's combo to save as a named template.
+ * `skill_refs` is `[skill_id, running_version]` pairs, already in
+ * composed/merge order (from `CompositionService.enabledManifests()`).
+ */
+export interface TemplateSaveArgs {
+  name: string;
+  skill_refs: Array<[string, string]>;
+  base_model: string;
+  /** Opaque panel/layout overrides (`LayoutService.snapshot()`); the UI owns the shape. */
+  ui_overrides: unknown;
+}
+
+/**
+ * A saved template as the gallery renders it — the flattened view over Rust
+ * `templates::Template` (skill ids only; the version pin is an implementation
+ * detail the gallery does not need to render).
+ */
+export interface TemplateView {
+  id: string;
+  name: string;
+  skill_refs: string[];
+  base_model: string;
+}
+
+export interface TemplateLoadArgs {
+  id: string;
+}
+
+/**
+ * `template_load` result — ALWAYS the successful side of the IPC boundary for a
+ * known template id. `ok: true` carries the restored combo (`skill_ids`, in
+ * template/merge order) and the layout to reapply (`ui_overrides`, opaque —
+ * pass to `LayoutService.restore()`). `ok: false` carries the skill id that
+ * could not be resolved (missing OR installed-but-version-incompatible; both
+ * are named in `missing_skills`, since the same "explain + offer reinstall"
+ * remediation applies to both, SPEC §10) and `skill_ids`/`ui_overrides` are
+ * left empty/`null`.
+ */
+export interface TemplateLoadResult {
+  ok: boolean;
+  skill_ids: string[];
+  ui_overrides: unknown;
+  missing_skills: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
 // ---------------------------------------------------------------------------
 
@@ -1001,6 +1062,11 @@ export interface IpcCommandMap {
   model_download_status: { args: ModelDownloadStatusArgs; result: ModelDownloadStatus | null };
   /** Cancel an in-flight download (the core may retain a resumable partial). */
   model_download_cancel: { args: ModelDownloadCancelArgs; result: void };
+
+  // --- Task 11a: templates (save / list / load a named skill combination, SPEC §10) ---
+  template_save: { args: TemplateSaveArgs; result: TemplateView };
+  template_list: { args: void; result: TemplateView[] };
+  template_load: { args: TemplateLoadArgs; result: TemplateLoadResult };
 }
 
 export type IpcCommand = keyof IpcCommandMap;

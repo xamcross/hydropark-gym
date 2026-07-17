@@ -326,6 +326,18 @@ impl Store {
         }
     }
 
+    /// All saved templates — the "My Templates" gallery (SPEC §10), newest-saved
+    /// first (`updated_at DESC`; ties break on id for a deterministic order).
+    pub fn list_templates(&self) -> Result<Vec<Template>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT body FROM templates ORDER BY updated_at DESC, id ASC")?;
+        let bodies = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        bodies.iter().map(|b| Ok(serde_json::from_str(b)?)).collect()
+    }
+
     // ---- agents (opaque JSON documents) ----------------------------------
 
     /// Insert or replace an agent document, keyed by agent id.
@@ -787,6 +799,31 @@ mod tests {
         updated.base_model = "some-other-model".to_string();
         s.save_template(&updated).unwrap();
         assert_eq!(s.load_template(&tpl.id).unwrap(), Some(updated));
+    }
+
+    // ---- templates: list ordered by updated_at desc (Task 11a) --------------
+
+    #[test]
+    fn list_templates_orders_by_updated_at_desc() {
+        let s = store();
+        assert!(s.list_templates().unwrap().is_empty(), "empty before any save");
+
+        let a = sample_template("A");
+        let b = sample_template("B");
+        let c = sample_template("C");
+        s.save_template(&a).unwrap();
+        s.save_template(&b).unwrap();
+        s.save_template(&c).unwrap();
+
+        // Force a deterministic updated_at ordering directly (bypassing wall-clock
+        // timing, which is too coarse at millisecond resolution to trust in a test).
+        s.conn.execute("UPDATE templates SET updated_at = 1000 WHERE id = ?1", params![a.id]).unwrap();
+        s.conn.execute("UPDATE templates SET updated_at = 3000 WHERE id = ?1", params![b.id]).unwrap();
+        s.conn.execute("UPDATE templates SET updated_at = 2000 WHERE id = ?1", params![c.id]).unwrap();
+
+        let listed = s.list_templates().unwrap();
+        let ids: Vec<&str> = listed.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec![b.id.as_str(), c.id.as_str(), a.id.as_str()], "newest updated_at first");
     }
 
     // ---- licenses: cache then fetch the newest -------------------------------

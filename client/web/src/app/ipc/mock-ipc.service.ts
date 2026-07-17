@@ -27,6 +27,8 @@ import {
   SkillInstallResult,
   StartTimerArgs,
   TelemetryEvent,
+  TemplateLoadResult,
+  TemplateView,
   TimerStateSnapshot,
   ToolCallRequest,
   ToolCallResponse,
@@ -92,6 +94,10 @@ export class MockIpcService extends IpcPort {
   >();
   /** Retained partial byte offsets, so a cancelled/failed download can RESUME (real range behavior). */
   private readonly modelPartials = new Map<string, number>();
+
+  // --- templates (Task 11a, SPEC §10) -------------------------------------
+  /** In-memory "My Templates" gallery — save/list/load round-trip within a session. */
+  private readonly templates = new Map<string, { view: TemplateView; uiOverrides: unknown; updatedAt: number }>();
 
   // ---- IpcPort ------------------------------------------------------------
 
@@ -189,6 +195,14 @@ export class MockIpcService extends IpcPort {
         const status: UpdateCheckResult = { phase: 'upToDate', currentVersion: '0.1.0' };
         return status as IpcCommandMap[K]['result'];
       }
+
+      // --- Task 11a: templates (save / list / load a named skill combination, SPEC §10) ---
+      case 'template_save':
+        return this.templateSave(args as IpcCommandMap['template_save']['args']) as IpcCommandMap[K]['result'];
+      case 'template_list':
+        return this.templateList() as IpcCommandMap[K]['result'];
+      case 'template_load':
+        return this.templateLoad(args as IpcCommandMap['template_load']['args']) as IpcCommandMap[K]['result'];
 
       default:
         throw new Error(`MockIpcService: unhandled command "${String(cmd)}"`);
@@ -444,6 +458,53 @@ export class MockIpcService extends IpcPort {
     }
     if (caps.length === 0) return 'This skill uses no special capabilities.';
     return `This skill can: ${caps.map((c) => CAPABILITY_PHRASES[c]).join(', ')}`;
+  }
+
+  // ---- templates (Task 11a, SPEC §10) ------------------------------------
+  //
+  // Save/list/load a named skill combination — the "Weeknight Chef" B2 demo
+  // beat. Unlike the real Rust core, this mock has no separate "installed
+  // skills" registry with per-skill versions to resolve a load against, so a
+  // template saved through this mock session is always resolvable when
+  // reloaded (the browser demo never truly uninstalls a skill) — only an
+  // unknown template id rejects, mirroring the real command's caller-error
+  // case. The missing-skill/reinstall UI path (Task 11b) is exercised
+  // against a hand-rolled `IpcPort` test double in that task's own specs.
+
+  /** Mirrors Rust `templates::template_id`'s slug rule: lowercase alnum runs
+   * joined by a single `_`, trimmed, falling back to `untitled` when empty. */
+  private templateSlug(name: string): string {
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    return `tmpl_${slug || 'untitled'}`;
+  }
+
+  private templateSave(args: IpcCommandMap['template_save']['args']): TemplateView {
+    const view: TemplateView = {
+      id: this.templateSlug(args.name),
+      name: args.name,
+      skill_refs: args.skill_refs.map(([skillId]) => skillId),
+      base_model: args.base_model,
+    };
+    this.templates.set(view.id, { view, uiOverrides: args.ui_overrides, updatedAt: Date.now() });
+    return view;
+  }
+
+  private templateList(): TemplateView[] {
+    return [...this.templates.values()].sort((a, b) => b.updatedAt - a.updatedAt).map((t) => t.view);
+  }
+
+  private templateLoad(args: IpcCommandMap['template_load']['args']): TemplateLoadResult {
+    const saved = this.templates.get(args.id);
+    if (!saved) {
+      // Mirrors the Rust core: an unknown template id rejects (not a
+      // structured `ok: false` — that shape is reserved for a resolvable
+      // template with an unresolvable skill, SPEC §10).
+      throw new Error(`no such template: ${args.id}`);
+    }
+    return { ok: true, skill_ids: saved.view.skill_refs, ui_overrides: saved.uiOverrides, missing_skills: [] };
   }
 
   // ---- simulated account + commerce (P1-08/09) --------------------------
