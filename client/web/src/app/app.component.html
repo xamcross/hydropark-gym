@@ -25,6 +25,15 @@
       >
         Marketplace
       </button>
+      <button
+        type="button"
+        class="nav-btn"
+        [class.on]="view() === 'templates'"
+        [attr.aria-pressed]="view() === 'templates'"
+        (click)="setView('templates')"
+      >
+        Templates
+      </button>
     </nav>
 
     <div class="topbar-actions">
@@ -89,6 +98,13 @@
   @if (view() === 'marketplace') {
     <main class="marketplace-region">
       <app-marketplace-view></app-marketplace-view>
+    </main>
+  }
+
+  <!-- ── MY TEMPLATES (Task 11b, SPEC §10) ───────────────────────────────── -->
+  @if (view() === 'templates') {
+    <main class="templates-region">
+      <app-templates-gallery (loaded)="onTemplateLoaded()"></app-templates-gallery>
     </main>
   }
 </div>

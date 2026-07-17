@@ -28,13 +28,17 @@ import {
   computed,
   effect,
   inject,
+  signal,
+  viewChild,
 } from '@angular/core';
 import { IPC_PORT } from '../ipc/ipc.port';
 import { BUS_TRANSCRIPT_SINK, BusService, BusTranscriptSink, StatePatch, TranscriptLine } from '../shared/bus';
 import { ArrangedPanel } from '../shared/layout/layout.model';
 import { LayoutDockComponent, PanelBodyDirective } from '../shared/layout/layout-dock.component';
+import { LayoutSnapshotService } from '../shared/layout/layout-snapshot.service';
 import { PanelTransitionDirective } from '../shared/panel-transition/panel-transition.directive';
 import { SessionService } from '../state/session.service';
+import { SaveTemplateDialogComponent } from '../templates/save-template-dialog.component';
 import { BoundState } from '../widgets/widget-contract';
 import { boundStateEqual, boundStateFor } from './bound-state';
 import { CompositionService } from './composition.service';
@@ -44,7 +48,7 @@ import { ResolvedWidget, acceptsBoundState, isPlaceholder, resolveWidget } from 
   selector: 'app-composed-panel-host',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgComponentOutlet, LayoutDockComponent, PanelBodyDirective, PanelTransitionDirective],
+  imports: [NgComponentOutlet, LayoutDockComponent, PanelBodyDirective, PanelTransitionDirective, SaveTemplateDialogComponent],
   templateUrl: './composed-panel-host.component.html',
   styleUrl: './composed-panel-host.component.css',
   providers: [
@@ -69,6 +73,15 @@ export class ComposedPanelHostComponent {
   readonly composition = inject(CompositionService);
   readonly bus = inject(BusService);
   private readonly ipc = inject(IPC_PORT);
+  private readonly layoutSnapshot = inject(LayoutSnapshotService);
+
+  /** The dock actually mounted in the template — only present while `hasAgent()` (the
+   * `*appPanelTransition` above unmounts it when idle). Public-only-to-this-file seam
+   * for the Task 11b layout-snapshot bridge below; see layout-snapshot.service.ts. */
+  private readonly dock = viewChild(LayoutDockComponent);
+
+  /** "Save as template" dialog visibility (Task 11b). */
+  readonly saveDialogOpen = signal(false);
 
   // Surfaced straight to the template (all signals).
   readonly composed = this.composition.composed;
@@ -110,7 +123,27 @@ export class ComposedPanelHostComponent {
     const off = this.ipc.on('inference://tool_call_result', (e) =>
       this.routeToolResult(e.tool, e.result)
     );
-    inject(DestroyRef).onDestroy(off);
+
+    // (Task 11b) Bridge the child dock's per-instance LayoutService through the
+    // root-scoped LayoutSnapshotService — see that file's header for why this
+    // indirection exists (LayoutService is component-scoped, not root) and how
+    // it handles the dock not being mounted yet when a template load restores.
+    effect(() => {
+      const d = this.dock();
+      if (d) {
+        this.layoutSnapshot.register({
+          capture: () => d.layout.serializeOverrides(),
+          restore: (overrides) => d.layout.applyOverrides(overrides),
+        });
+      } else {
+        this.layoutSnapshot.clear();
+      }
+    });
+
+    inject(DestroyRef).onDestroy(() => {
+      off();
+      this.layoutSnapshot.clear();
+    });
   }
 
   // --- dynamic mount (widget registry) -------------------------------------
@@ -166,6 +199,16 @@ export class ComposedPanelHostComponent {
     if (Array.isArray(v)) return `${v.length} item(s)`;
     if (typeof v === 'object') return `${Object.keys(v as object).length} field(s)`;
     return String(v);
+  }
+
+  // --- save-as-template dialog (Task 11b) -----------------------------------
+
+  openSaveDialog(): void {
+    this.saveDialogOpen.set(true);
+  }
+
+  closeSaveDialog(): void {
+    this.saveDialogOpen.set(false);
   }
 
   // --- direction #4: tool/model → widget, via routing ----------------------

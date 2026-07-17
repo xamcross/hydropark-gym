@@ -496,6 +496,29 @@ export class MockIpcService extends IpcPort {
     return [...this.templates.values()].sort((a, b) => b.updatedAt - a.updatedAt).map((t) => t.view);
   }
 
+  /**
+   * Resolve a saved template's `skill_refs` against a real "is it actually
+   * available" check, so the missing-skill/reinstall gallery UI (Task 11b) is
+   * demoable live under `ng serve`, not only in that task's own hand-rolled
+   * IpcPort test doubles (see the file-header note above and Task 11a's
+   * report, concern #2).
+   *
+   * `ownedSkills` is the mock's MARKETPLACE entitlement registry (P1-08/09 —
+   * what "Restore purchases" reconciles against), so it is the right thing to
+   * check a marketplace skill id against. It deliberately does NOT gate
+   * `kitchen-timer` / `cooking-assistant`: those are the two P0 skills that
+   * ship WITH the app and are gated by their own, separate seams
+   * (`SessionService.kitchenSkillEnabled` / `UnlockService`) — folding them
+   * into the marketplace entitlement set would misrepresent them elsewhere
+   * (e.g. `entitlements()` / restore-purchases would start reporting them as
+   * purchased marketplace SKUs, which they are not). Today's real save flow
+   * (Task 11b's `TemplatesService`) only ever names those two ids, so they
+   * always resolve — exactly like the real Rust store, where they are always
+   * "installed". Any OTHER skill id a template names is checked for real
+   * against `ownedSkills`, so a template referencing one that was never
+   * bought/installed (or has since been "uninstalled" in this session) shows
+   * the missing-skill path.
+   */
   private templateLoad(args: IpcCommandMap['template_load']['args']): TemplateLoadResult {
     const saved = this.templates.get(args.id);
     if (!saved) {
@@ -503,6 +526,12 @@ export class MockIpcService extends IpcPort {
       // structured `ok: false` — that shape is reserved for a resolvable
       // template with an unresolvable skill, SPEC §10).
       throw new Error(`no such template: ${args.id}`);
+    }
+    const missing = saved.view.skill_refs.filter(
+      (id) => !ALWAYS_RESOLVABLE_P0_SKILLS.has(id) && !this.ownedSkills.has(id)
+    );
+    if (missing.length > 0) {
+      return { ok: false, skill_ids: [], ui_overrides: null, missing_skills: missing };
     }
     return { ok: true, skill_ids: saved.view.skill_refs, ui_overrides: saved.uiOverrides, missing_skills: [] };
   }
@@ -998,6 +1027,9 @@ const CAPABILITY_PHRASES: Record<string, string> = {
   calculation: 'do calculations',
   date_math: 'do date math',
 };
+
+/** The two P0 skills ship with the app itself — see `templateLoad`'s doc comment above. */
+const ALWAYS_RESOLVABLE_P0_SKILLS = new Set<string>(['kitchen-timer', 'cooking-assistant']);
 
 /** Mirrors `composition.rs` BASE_PREAMBLE (the base agent's voice). */
 const MOCK_BASE_PREAMBLE =

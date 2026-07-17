@@ -149,7 +149,8 @@
   overflow-y: auto;
 }
 
-.marketplace-region {
+.marketplace-region,
+.templates-region {
   flex: 1;
   min-height: 0;
   overflow-y: auto;

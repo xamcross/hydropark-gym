@@ -12,7 +12,18 @@
         @if (c.primary) { · lead: <strong>{{ c.primary }}</strong> }
       </span>
     }
+    <!-- Task 11b: capture the CURRENT combo + layout as a reusable template. -->
+    <button type="button" class="ch-save-btn" [disabled]="!hasAgent()" (click)="openSaveDialog()">
+      Save as template
+    </button>
   </header>
+
+  @if (saveDialogOpen()) {
+    <app-save-template-dialog
+      (saved)="closeSaveDialog()"
+      (cancel)="closeSaveDialog()"
+    ></app-save-template-dialog>
+  }
 
   <!-- Structured composition failure (SPEC §8.3.5 block, conflicts, etc.) -->
   @if (error(); as e) {

@@ -20,9 +20,10 @@ import { TimerSyncService } from './state/timer-sync.service';
 import { IPC_PORT, IpcPort } from './ipc/ipc.port';
 import { MockIpcService } from './ipc/mock-ipc.service';
 import { ThemeService } from './shared/theme.service';
+import { TemplatesGalleryComponent } from './templates/templates-gallery.component';
 
 /** Which top-level surface the shell shows. */
-type ShellView = 'assistant' | 'marketplace';
+type ShellView = 'assistant' | 'marketplace' | 'templates';
 
 @Component({
   selector: 'app-root',
@@ -42,6 +43,7 @@ type ShellView = 'assistant' | 'marketplace';
     ToastHostComponent,
     HardwareWarningComponent,
     OnboardingOverlayComponent,
+    TemplatesGalleryComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -83,6 +85,11 @@ export class AppComponent implements OnInit {
 
   setView(view: ShellView): void {
     this.view.set(view);
+  }
+
+  /** A template finished loading successfully (Task 11b) — bring the user to see the composed result. */
+  onTemplateLoaded(): void {
+    this.setView('assistant');
   }
 
   async ngOnInit(): Promise<void> {
