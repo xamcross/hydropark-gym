@@ -12,6 +12,7 @@ import {
   buildPreview,
   runsOnThisPc,
 } from './catalog.model';
+import { buildCuratedPreview } from './preview-transcripts';
 
 const USD = 'USD';
 const MB = 1024 * 1024;
@@ -192,6 +193,13 @@ export class StubCatalogPort extends CatalogPort {
 
   async getPreview(id: string): Promise<SkillPreview> {
     await this.latency();
+    // Task 17 (phase 2): a curated REAL-MODEL transcript wins over the synthetic
+    // one whenever the capture bin produced one for this skill — buyers see what
+    // the app actually rendered for a real conversation, not a canned reply
+    // templated from the sample prompts. Still display-only (SPEC §11.4): no
+    // license, no unlock, either way.
+    const curated = buildCuratedPreview(id);
+    if (curated) return curated;
     const rec = this.records.find((r) => r.item.id === id);
     if (!rec) throw new Error(`unknown skill "${id}"`);
     if (!rec.detail.has_preview) throw new Error(`"${id}" has no preview`);

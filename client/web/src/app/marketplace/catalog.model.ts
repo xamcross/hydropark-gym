@@ -185,8 +185,13 @@ export interface SkillPreview {
 /** The cap on a preview transcript (SPEC §11.4 — a taste, not the whole thing). */
 export const PREVIEW_MAX_MESSAGES = 6;
 
-/** Widget-type guess for a human panel label, so a preview tile shows a plausible glyph. */
-function previewWidgetType(label: string): string {
+/**
+ * Widget-type guess for a human panel label, so a preview tile shows a plausible
+ * glyph. Exported so {@link ../preview-transcripts.ts} can build {@link PreviewPanel}
+ * tiles for curated (real-model) previews the same way {@link buildPreview} does
+ * for synthetic ones — one glyph-guessing rule, not two.
+ */
+export function previewWidgetType(label: string): string {
   const l = label.toLowerCase();
   if (l.includes('timer')) return 'timer_stack';
   if (l.includes('step') || l.includes('list') || l.includes('checklist') || l.includes('substitution')) {
