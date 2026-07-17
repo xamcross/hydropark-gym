@@ -326,6 +326,47 @@ export function isInstalled(state: OwnershipState): boolean {
   return state === 'installed' || state === 'enabling' || state === 'active';
 }
 
+// ── capability disclosure (Task 10, SPEC §8.5 / §11) ─────────────────────────
+//
+// `SkillDetail` carries no `capabilities` field (neither on the wire nor in
+// `ipc.rs`'s `SkillDetail` DTO) — only `tools`, the tool REFS the skill
+// registers (e.g. `"start_timer"`). The install-time "This skill can: …"
+// disclosure needs CAPABILITY tokens (e.g. `"timers"`), so this derives them
+// from `tools` via the same tool→capability mapping the Rust catalog owns
+// (`tool_catalog.rs`'s `CATALOG` descriptors' `capability` field — mirrored
+// here verbatim; the Rust side is the source of truth for the mapping).
+
+/** Tool ref → §8.5 capability category, mirroring `tool_catalog.rs`'s `CATALOG`
+ * descriptors exactly (`start_timer` → `timers`, etc.). */
+const TOOL_CAPABILITY: Record<string, string> = {
+  start_timer: 'timers',
+  convert_units: 'unit_conversion',
+  list_manage: 'list_management',
+  calculate: 'calculation',
+  date_math: 'date_math',
+};
+
+/**
+ * Derive the (deduped, order-preserving) capability tokens a skill's `tools`
+ * imply, for the `capability_disclose` IPC call. An unrecognised tool ref is
+ * skipped rather than surfaced — the fixed 5-tool catalog is closed, so this
+ * only happens for forward-incompatible data, and silently omitting it from
+ * the summary is safer than blocking install-time disclosure on it.
+ */
+export function capabilitiesForTools(tools: string[] | undefined | null): string[] {
+  if (!tools) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of tools) {
+    const cap = TOOL_CAPABILITY[t];
+    if (cap && !seen.has(cap)) {
+      seen.add(cap);
+      out.push(cap);
+    }
+  }
+  return out;
+}
+
 // ── formatting + hardware-fit helpers (presentational, pure) ─────────────────
 
 /** "$5" / "$4.99" / "Free" (SPEC §11.1). Whole amounts drop the decimals. */

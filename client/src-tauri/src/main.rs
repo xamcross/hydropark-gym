@@ -41,7 +41,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use backend_client::BackendClient;
 use hpskill::SkillInstaller;
 use ipc::{
-    AuthCredentialsArgs, CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult,
+    AuthCredentialsArgs, CapabilityDiscloseArgs, CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult,
     CmdError, DeviceEnsureResult, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
     HardwareProfile, InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult,
     NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
@@ -415,6 +415,21 @@ async fn skill_download_install(
     })
 }
 
+/// Task 10 (SPEC §8.5 / §11 — the B4 trust surface): render the plain-language
+/// "This skill can: …" install-time capability disclosure. The webview calls
+/// this BEFORE an install/buy proceeds, so a shopper sees exactly what a skill
+/// can do and can still cancel with no state change. Thin IPC wrapper — all the
+/// logic (the closed v1 capability set + the disclosure phrasing) lives in the
+/// existing, unit-tested `tool_routing` module; an out-of-set token (only
+/// network/file/system are excluded in v1) rejects with `CmdError::InvalidArgs`
+/// naming it, never a panic.
+#[tauri::command]
+fn capability_disclose(args: CapabilityDiscloseArgs) -> Result<String, CmdError> {
+    let caps = tool_routing::parse_capabilities(&args.capabilities)
+        .map_err(|e| CmdError::InvalidArgs(e.to_string()))?;
+    Ok(tool_routing::disclose(&caps))
+}
+
 // ---------------------------------------------------------------------------
 // Accounts / licensing (P1-09) + step-up (P1-09.8). The Rust core owns the
 // session: register/login/refresh/logout hit `/v1/auth` and persist the token
@@ -635,6 +650,7 @@ fn main() {
             license_fetch,
             download_url,
             skill_download_install,
+            capability_disclose,
             auth_register,
             auth_login,
             auth_logout,
@@ -647,4 +663,64 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Hydropark Tauri application");
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Task 10 (`capability_disclose`, SPEC §8.5 / §11). The command is a
+// thin wrapper (no Tauri `State`), so it is callable directly like any plain
+// function; these tests exercise it exactly as the webview would over IPC.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod capability_disclose_tests {
+    use super::*;
+
+    fn args(caps: &[&str]) -> CapabilityDiscloseArgs {
+        CapabilityDiscloseArgs { capabilities: caps.iter().map(|s| s.to_string()).collect() }
+    }
+
+    #[test]
+    fn known_capabilities_render_the_disclosure_phrase() {
+        let msg = capability_disclose(args(&["timers", "list_management"]))
+            .expect("known capabilities must disclose");
+        assert_eq!(msg, "This skill can: set timers, manage a list");
+    }
+
+    #[test]
+    fn every_v1_capability_renders_its_own_phrase() {
+        let msg = capability_disclose(args(&[
+            "timers",
+            "unit_conversion",
+            "list_management",
+            "calculation",
+            "date_math",
+        ]))
+        .expect("the whole closed set must disclose");
+        assert_eq!(
+            msg,
+            "This skill can: set timers, convert units, manage a list, do calculations, do date math"
+        );
+    }
+
+    #[test]
+    fn empty_capabilities_render_the_graceful_no_special_capabilities_line() {
+        let msg = capability_disclose(args(&[])).expect("an empty list is not an error");
+        assert_eq!(msg, "This skill uses no special capabilities.");
+    }
+
+    #[test]
+    fn unknown_capability_is_a_cmderror_not_a_panic() {
+        let err = capability_disclose(args(&["network"])).expect_err("out-of-set token must reject");
+        let msg = err.to_string();
+        assert!(msg.contains("network"), "message must name the offending token: {msg}");
+        assert!(msg.contains("v1"), "message must reference the v1 rule: {msg}");
+    }
+
+    #[test]
+    fn an_out_of_set_token_after_valid_ones_still_rejects_cleanly() {
+        // Mirrors tool_routing's short-circuit: the first bad token fails the whole call
+        // rather than silently dropping it or panicking.
+        let err = capability_disclose(args(&["timers", "system"])).expect_err("system has no variant");
+        assert!(err.to_string().contains("system"));
+    }
 }

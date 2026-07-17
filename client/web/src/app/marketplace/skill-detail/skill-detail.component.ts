@@ -1,8 +1,17 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CATALOG_PORT } from '../catalog.port';
-import { OwnershipAction, OwnershipState, SkillDetail, formatPrice, formatSize, runsOnThisPc } from '../catalog.model';
+import {
+  OwnershipAction,
+  OwnershipState,
+  SkillDetail,
+  capabilitiesForTools,
+  formatPrice,
+  formatSize,
+  runsOnThisPc,
+} from '../catalog.model';
 import { OwnershipButtonComponent } from '../ownership-button/ownership-button.component';
 import { SkillPreviewComponent } from '../skill-preview/skill-preview.component';
+import { CapabilityConsentComponent } from '../capability-consent/capability-consent.component';
 import { PurchaseService } from '../purchase.service';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -25,12 +34,22 @@ type Phase = 'loading' | 'ready' | 'error';
  * system browser, settle via poll + `purchase://callback`, license + download,
  * enable) — whose live per-skill override, when present, wins over the baseline
  * ({@link displayState}). The `action` output is still emitted for the host.
+ *
+ * ── INSTALL-TIME CAPABILITY DISCLOSURE (SPEC §8.5 / §11, Task 10) ───────────
+ * `'install'` and `'buy'` intents do NOT reach {@link PurchaseService} directly:
+ * {@link onAction} first opens {@link CapabilityConsentComponent} — the B4 trust
+ * surface, "This skill can: …" — derived from the skill's `tools` via
+ * {@link capabilitiesForTools}. Only on Confirm does the real dispatch run;
+ * Cancel aborts with no state change and no `action` emit. `'enable'` /
+ * `'disable'` / `'uninstall'` are NOT intercepted — they dispatch immediately,
+ * exactly as before.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 @Component({
   selector: 'app-skill-detail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [OwnershipButtonComponent, SkillPreviewComponent],
+  imports: [OwnershipButtonComponent, SkillPreviewComponent, CapabilityConsentComponent],
   templateUrl: './skill-detail.component.html',
   styleUrl: './skill-detail.component.css',
 })
@@ -105,12 +124,53 @@ export class SkillDetailComponent {
     this.back.emit();
   }
 
-  /** Re-emit the intent for the host, then drive the real commerce flow. */
+  // --- install-time capability disclosure (SPEC §8.5 / §11, Task 10) -------
+
+  /** True while the capability-consent dialog is open. */
+  readonly consentOpen = signal(false);
+  /** The capability tokens the open dialog discloses (derived from `detail().tools`). */
+  readonly consentCapabilities = signal<string[]>([]);
+  /** The action awaiting confirmation ('install' | 'buy') — null once resolved. */
+  private pendingAction: OwnershipAction | null = null;
+
+  /**
+   * `'install'`/`'buy'` open the capability-consent dialog first — the real
+   * dispatch (and the `action` emit for the host) only happens on Confirm
+   * ({@link onConsentConfirm}). Every other intent is unintercepted, exactly as
+   * before.
+   */
   onAction(action: OwnershipAction): void {
+    const d = this.detail();
+    if (!d) return;
+    if (action === 'install' || action === 'buy') {
+      this.pendingAction = action;
+      this.consentCapabilities.set(capabilitiesForTools(d.tools));
+      this.consentOpen.set(true);
+      return;
+    }
+    this.dispatchAction(action);
+  }
+
+  /** Re-emit the intent for the host, then drive the real commerce flow. */
+  private dispatchAction(action: OwnershipAction): void {
     const d = this.detail();
     if (!d) return;
     this.action.emit({ skillId: this.skillId(), action });
     this.purchase.dispatch(d, action);
+  }
+
+  /** Confirmed — close the dialog and run the flow the shopper just consented to. */
+  onConsentConfirm(): void {
+    const action = this.pendingAction;
+    this.pendingAction = null;
+    this.consentOpen.set(false);
+    if (action) this.dispatchAction(action);
+  }
+
+  /** Cancelled (button / Escape / backdrop) — close with NO dispatch, NO state change. */
+  onConsentCancel(): void {
+    this.pendingAction = null;
+    this.consentOpen.set(false);
   }
 
   // --- preview modal control (P1-08.4) -------------------------------------

@@ -767,6 +767,26 @@ pub struct SkillUninstallResult {
 }
 
 // ---------------------------------------------------------------------------
+// Capability disclosure (Task 10, SPEC §8.5 / §11 — the B4 trust surface). Same
+// camelCase IPC family as the marketplace commands above. The webview calls this
+// BEFORE an install/buy proceeds, so the shopper sees a plain-language "This
+// skill can: …" summary and can still cancel with no state change. The command
+// is a thin IPC wrapper — it delegates entirely to the existing, tested
+// `tool_routing` capability model (`parse_capabilities` + `disclose`).
+// ---------------------------------------------------------------------------
+
+/// `capability_disclose` args — the skill's declared capability tokens (the v1
+/// closed set from `tool_routing::Capability::as_manifest_str`, e.g. `"timers"`,
+/// `"list_management"`). An out-of-set token (only network/file/system are
+/// excluded in v1) makes the command reject with `CmdError::InvalidArgs` naming
+/// it — never a panic.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityDiscloseArgs {
+    pub capabilities: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // App auto-update (P1-11.2). Same camelCase IPC family as the marketplace
 // commands above. `tauri-plugin-updater` owns the actual signed-build check (and,
 // later, download+apply) against the configured endpoint; the `check_for_update`

@@ -167,6 +167,12 @@ export class MockIpcService extends IpcPort {
         // uses window.open in the web build and never reaches this.
         return undefined as IpcCommandMap[K]['result'];
 
+      // --- Task 10: install-time capability disclosure (SPEC §8.5 / §11) ---
+      case 'capability_disclose':
+        return this.capabilityDisclose(
+          args as IpcCommandMap['capability_disclose']['args']
+        ) as IpcCommandMap[K]['result'];
+
       // --- on-demand model download (P1-02.7) ---
       case 'model_download_start':
         return this.modelDownloadStart(args as ModelDownloadStartArgs) as IpcCommandMap[K]['result'];
@@ -416,6 +422,28 @@ export class MockIpcService extends IpcPort {
       tools_registered: ['start_timer', 'convert_units', 'list_manage'],
       panels: ['timer_stack', 'editable_list', 'segmented_toggle'],
     };
+  }
+
+  // ---- capability disclosure (Task 10, SPEC §8.5 / §11) -----------------
+  //
+  // Mirrors `tool_routing::disclose` / `Capability::disclosure_phrase` on the
+  // Rust side EXACTLY (same v1 closed set, same phrases, same error text) so
+  // the install-time trust surface behaves identically under `ng serve` and a
+  // real Tauri build. The Rust core is the source of truth; this is a copy.
+
+  private capabilityDisclose(args: IpcCommandMap['capability_disclose']['args']): string {
+    const caps = args.capabilities;
+    for (const c of caps) {
+      if (!(c in CAPABILITY_PHRASES)) {
+        const allowed = Object.keys(CAPABILITY_PHRASES).join(', ');
+        throw new Error(
+          `invalid arguments: capability '${c}' is not in the v1 allowed set (${allowed}); ` +
+            'skills have no network/file/system capabilities in v1'
+        );
+      }
+    }
+    if (caps.length === 0) return 'This skill uses no special capabilities.';
+    return `This skill can: ${caps.map((c) => CAPABILITY_PHRASES[c]).join(', ')}`;
   }
 
   // ---- simulated account + commerce (P1-08/09) --------------------------
@@ -899,6 +927,16 @@ interface MockManifest {
   compatibility?: { combine_priority?: number };
   cost_estimate?: { prompt_tokens?: number };
 }
+
+/** The v1 closed capability set's plain-language phrase, mirroring Rust
+ * `Capability::disclosure_phrase` (`tool_routing.rs`) verbatim. */
+const CAPABILITY_PHRASES: Record<string, string> = {
+  timers: 'set timers',
+  unit_conversion: 'convert units',
+  list_management: 'manage a list',
+  calculation: 'do calculations',
+  date_math: 'do date math',
+};
 
 /** Mirrors `composition.rs` BASE_PREAMBLE (the base agent's voice). */
 const MOCK_BASE_PREAMBLE =

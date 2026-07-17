@@ -181,6 +181,17 @@
             (buy)="onPreviewBuy()"
           ></app-skill-preview>
         }
+
+        <!-- ── Install-time capability disclosure (§8.5 / §11) — the B4 trust
+             surface. Opens BEFORE install/buy proceeds; Cancel is a no-op. -->
+        @if (consentOpen()) {
+          <app-capability-consent
+            [capabilities]="consentCapabilities()"
+            [skillName]="d.name"
+            (confirm)="onConsentConfirm()"
+            (cancel)="onConsentCancel()"
+          ></app-capability-consent>
+        }
       }
     }
   }

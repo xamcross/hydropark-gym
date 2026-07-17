@@ -901,6 +901,21 @@ export interface SkillUninstallResult {
 }
 
 // ---------------------------------------------------------------------------
+// Capability disclosure (Task 10, SPEC §8.5 / §11 — the B4 trust surface).
+// Same camelCase P1 convention. The webview calls this BEFORE an install/buy
+// proceeds so the shopper sees a plain-language "This skill can: …" summary
+// and can still cancel with no state change. The Rust core owns the closed v1
+// capability set and the phrasing (`tool_routing::parse_capabilities` +
+// `disclose`) — this command is a thin wrapper over it.
+// ---------------------------------------------------------------------------
+
+/** `capability_disclose` args — the skill's declared capability tokens (the v1 closed
+ * set, e.g. `"timers"`, `"list_management"`). An out-of-set token rejects the promise. */
+export interface CapabilityDiscloseArgs {
+  capabilities: string[];
+}
+
+// ---------------------------------------------------------------------------
 // App auto-update (P1-11.2) — mirrors ipc.rs UpdatePhase / UpdateCheckResult
 // ---------------------------------------------------------------------------
 //
@@ -961,6 +976,10 @@ export interface IpcCommandMap {
   /** Fetch + install the signed `.hpskill` blob at `download_url`'s URL (P1-08.x purchase-flow bridge). */
   skill_download_install: { args: SkillDownloadInstallArgs; result: SkillInstallResult };
   skill_uninstall: { args: SkillUninstallArgs; result: SkillUninstallResult };
+
+  // --- Task 10: install-time capability disclosure (SPEC §8.5 / §11) ---
+  /** Render the plain-language "This skill can: …" summary for a skill's declared capabilities. */
+  capability_disclose: { args: CapabilityDiscloseArgs; result: string };
 
   // --- P1 app auto-update (P1-11.2) — offline-safe, never rejects (§18) ---
   check_for_update: { args: void; result: UpdateCheckResult };
