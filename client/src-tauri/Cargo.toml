@@ -6,6 +6,9 @@ authors = ["xamcross@gmail.com"]
 edition = "2021"
 rust-version = "1.77"
 publish = false
+# The capture_preview bin (Task 17) makes `cargo run` ambiguous; pin the app as
+# the default so the documented `cargo run` dev workflow keeps launching it.
+default-run = "hydropark"
 
 # NOTE TO BUILDERS: the default (`mock-inference`) crate builds, links, and
 # runs on Windows (see client/README.md). The `real-inference` feature has
