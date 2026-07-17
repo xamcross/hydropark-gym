@@ -92,6 +92,26 @@ pub fn allowed_fetch_url(raw: &str, base: &str) -> Result<Url, FetchGuardError> 
     }
 }
 
+/// The shared `reqwest::Client` both `BackendClient` and `DownloadManager`
+/// build their transport from (F04 follow-up).
+///
+/// **Redirects are disabled.** [`allowed_fetch_url`] only ever validates the
+/// INITIAL url `fetch_bytes`/`download_blob`/`download_delta` are called
+/// with — with reqwest's default redirect policy (follow up to 10 hops), an
+/// otherwise-allowlisted host answering a `3xx` pointing at an off-allowlist
+/// host would silently reopen exactly the fetch-proxy hole the guard exists
+/// to close, and CDNs commonly answer with a cross-host redirect, so this is
+/// not a hypothetical — it becomes live risk the moment a distinct CDN/model
+/// host is wired into the client config (see the module doc's R2 note).
+/// Signed blob/model URLs are direct-serve and never legitimately need a
+/// redirect, so disabling this costs nothing.
+pub fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("a reqwest client with only a no-redirect policy set always builds")
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -187,6 +207,60 @@ mod tests {
         assert_eq!(
             allowed_fetch_url("http://localhost:8080@evil.example/steal", BASE_DEV),
             Err(FetchGuardError::HostNotAllowed)
+        );
+    }
+
+    /// F04 review follow-up (MINOR): `localhost:8080.evil.com` is not a valid
+    /// authority — the segment after the first `:` in a URL authority must be
+    /// numeric (a port), and `8080.evil.com` isn't, so this must fail to parse
+    /// rather than somehow be treated as the `localhost:8080` origin. Either
+    /// `InvalidUrl` or `HostNotAllowed` is an acceptable rejection here — the
+    /// point is it must not be `Ok`.
+    #[test]
+    fn rejects_a_dot_suffix_host_confusion_string() {
+        let result = allowed_fetch_url("http://localhost:8080.evil.com/steal", BASE_DEV);
+        assert!(result.is_err(), "must be rejected one way or another, got {result:?}");
+    }
+
+    /// F04 review follow-up (MINOR): `localhost:8080` appearing in the QUERY
+    /// STRING must not fool the guard — the actual host is `evil.com`, and
+    /// that is what gets compared.
+    #[test]
+    fn rejects_a_query_string_host_confusion_string() {
+        assert_eq!(
+            allowed_fetch_url("http://evil.com/?x=localhost:8080", BASE_DEV),
+            Err(FetchGuardError::HostNotAllowed)
+        );
+    }
+
+    /// F04 review follow-up (Important): both `BackendClient` and
+    /// `DownloadManager` build their transport via [`build_http_client`] — this
+    /// proves that shared client actually refuses to follow a redirect,
+    /// covering `downloader.rs`'s `DownloadManager` too (which has no
+    /// AppHandle-free way to exercise `download_blob`/`download_delta`
+    /// end-to-end — see that module's doc on why the network-touching parts
+    /// aren't unit-tested there). Uses a non-routable TEST-NET-style `Location`
+    /// (same technique as `backend_client`'s disallowed-url tests): if the
+    /// client followed it, `.send()` would still be dialing well past this
+    /// timeout, so completing fast with the origin's own 302 is real proof no
+    /// redirect was followed.
+    #[tokio::test]
+    async fn build_http_client_does_not_follow_a_redirect_to_an_off_allowlist_host() {
+        let url = crate::backend_client::spawn_redirect_stub_server(
+            "HTTP/1.1 302 Found",
+            "http://10.255.255.1:1/off-host-marker",
+            b"redirecting...".to_vec(),
+        );
+        let client = build_http_client();
+        let fut = client.get(&url).send();
+        let resp = tokio::time::timeout(std::time::Duration::from_millis(300), fut)
+            .await
+            .expect("the client must not still be dialing the Location host — redirects are disabled")
+            .expect("the loopback stub's own 302 response must be received");
+        assert_eq!(
+            resp.status().as_u16(),
+            302,
+            "the client must surface the 3xx itself, not a followed response"
         );
     }
 }

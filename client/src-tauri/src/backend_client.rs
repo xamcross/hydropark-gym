@@ -555,14 +555,14 @@ impl Default for BackendClient {
 impl BackendClient {
     /// Build with the base URL from `HYDROPARK_API_BASE` (or the dev default).
     pub fn new() -> Self {
-        Self { http: reqwest::Client::new(), base: base_url() }
+        Self { http: crate::fetch_guard::build_http_client(), base: base_url() }
     }
 
     /// Build against an explicit base URL (used by tests / callers that already
     /// resolved the base).
     #[allow(dead_code)]
     pub fn with_base(base: impl Into<String>) -> Self {
-        Self { http: reqwest::Client::new(), base: base.into() }
+        Self { http: crate::fetch_guard::build_http_client(), base: base.into() }
     }
 
     // --- catalog (PUBLIC — no bearer) --------------------------------------
@@ -831,6 +831,37 @@ pub(crate) fn spawn_stub_server(status_line: &'static str, body: Vec<u8>) -> Str
             let _ = stream.read(&mut buf); // drain the request line/headers; content unused
             let header = format!(
                 "{status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&body);
+            let _ = stream.flush();
+        }
+    });
+    format!("http://127.0.0.1:{port}/pkg")
+}
+
+/// Like [`spawn_stub_server`] but adds a `Location:` header — used only by the
+/// F04-follow-up redirect test to prove the client's no-redirect policy
+/// (`fetch_guard::build_http_client`) actually stops a `3xx` answered by an
+/// ALLOWLISTED host from being followed to wherever `location` points.
+#[cfg(test)]
+pub(crate) fn spawn_redirect_stub_server(
+    status_line: &'static str,
+    location: &'static str,
+    body: Vec<u8>,
+) -> String {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("local_addr").port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf); // drain the request line/headers; content unused
+            let header = format!(
+                "{status_line}\r\nLocation: {location}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             let _ = stream.write_all(header.as_bytes());
@@ -1257,5 +1288,35 @@ mod tests {
         let client = BackendClient::with_base("http://localhost:8080");
         let err = client.fetch_bytes("file:///etc/passwd").await.unwrap_err();
         assert!(matches!(err, BackendError::DisallowedUrl(_)), "expected DisallowedUrl, got {err:?}");
+    }
+
+    /// F04 follow-up: `allowed_fetch_url` only ever checks the INITIAL url —
+    /// once past the guard, the underlying `reqwest::Client` must not follow a
+    /// `3xx` an ALLOWLISTED host answers with, or a redirect to an
+    /// off-allowlist host would reopen the exact hole the guard closes. The
+    /// `Location` here is a non-routable TEST-NET-style address (same
+    /// technique as `fetch_bytes_rejects_a_disallowed_url_without_a_network_call`):
+    /// if the client's redirect policy followed it, `.send()` would still be
+    /// dialing well past this timeout, so a clean, fast `Status{302}` is real
+    /// proof no redirect was followed — not just that "some" error came back.
+    #[tokio::test]
+    async fn fetch_bytes_does_not_follow_a_redirect_to_an_off_allowlist_host() {
+        let url = spawn_redirect_stub_server(
+            "HTTP/1.1 302 Found",
+            "http://10.255.255.1:1/off-host-marker",
+            b"redirecting...".to_vec(),
+        );
+        let client = BackendClient::with_base(stub_origin(&url));
+        let fut = client.fetch_bytes(&url);
+        let result = tokio::time::timeout(std::time::Duration::from_millis(300), fut)
+            .await
+            .expect("the client must not still be dialing the Location host — redirects are disabled");
+        match result {
+            Err(BackendError::Status { status, body }) => {
+                assert_eq!(status, 302, "the origin's own 3xx must surface, not a followed response");
+                assert!(body.is_empty(), "body must not be echoed (F04 response-body-oracle mitigation)");
+            }
+            other => panic!("expected Err(Status{{302, \"\"}}), got {other:?}"),
+        }
     }
 }

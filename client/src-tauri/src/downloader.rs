@@ -439,7 +439,11 @@ impl Default for DownloadManager {
 
 impl DownloadManager {
     pub fn new() -> Self {
-        Self { http: reqwest::Client::new(), inner: Arc::new(Mutex::new(Inner::default())) }
+        // F04 follow-up: `crate::fetch_guard::build_http_client` disables
+        // redirects — see that function's doc for why (the guard only checks
+        // the INITIAL url; a followed 3xx from an allowlisted host could
+        // otherwise reopen the fetch-proxy hole).
+        Self { http: crate::fetch_guard::build_http_client(), inner: Arc::new(Mutex::new(Inner::default())) }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
