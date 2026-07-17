@@ -7,7 +7,11 @@
 .add-btn {
   border: 1px solid var(--color-primary);
   background: transparent;
-  color: var(--color-primary);
+  /* X-A11Y.1 fix: `--color-primary` (sulphur) is a FILL token — as this
+     button's own TEXT on a plain surface it fails AA in the light theme
+     (1.56:1). `--color-primary-ink` is the theme-paired, AA-safe "sulphur as
+     text" variant (tokens.css — same precedent as `--focus-ring`/`--tone-careful-text`). */
+  color: var(--color-primary-ink);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-sm);

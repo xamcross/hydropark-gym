@@ -128,6 +128,7 @@
   --color-primary:          var(--sulphur);        /* action FILL; pairs w/ iron text */
   --color-primary-strong:   var(--sulphur-dim);    /* hover / pressed */
   --color-primary-contrast: var(--iron);           /* text/icon ON sulphur */
+  --color-primary-ink:      var(--sulphur-ink);    /* sulphur AS TEXT on a light surface — sulphur itself fails AA here */
 
   --color-accent:           var(--steel);          /* "fine" tone, as TEXT/marker on light */
   --color-on-accent:        var(--paper-2);         /* text/icon ON an accent fill */
@@ -172,6 +173,7 @@
   --color-primary:          var(--sulphur);
   --color-primary-strong:   var(--sulphur-bright);
   --color-primary-contrast: var(--iron);
+  --color-primary-ink:      var(--sulphur);        /* sulphur reads AA on the iron surface itself */
 
   --color-accent:           var(--chalk);          /* "fine" tone is bright neutral on dark */
   --color-on-accent:        var(--iron);
@@ -212,6 +214,7 @@
     --color-primary:          var(--sulphur);
     --color-primary-strong:   var(--sulphur-bright);
     --color-primary-contrast: var(--iron);
+    --color-primary-ink:      var(--sulphur);      /* sulphur reads AA on the iron surface itself */
 
     --color-accent:           var(--chalk);
     --color-on-accent:        var(--iron);
