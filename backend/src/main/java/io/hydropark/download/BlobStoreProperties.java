@@ -42,6 +42,14 @@ public class BlobStoreProperties {
    */
   private long modelBytesEstimate = 0L;
 
+  /**
+   * Filesystem root {@link LocalFsBlobStore} persists real bytes under and {@link
+   * BlobServeController} serves {@code GET /blobs/...} requests from. Only meaningful when {@code
+   * provider=local}; supply {@code HP_BLOBSTORE_LOCAL_ROOT} out of band in any zone that runs the
+   * local adapter off a laptop checkout.
+   */
+  private String localRoot = "./blobstore-dev";
+
   public String getProvider() {
     return provider;
   }
@@ -88,5 +96,13 @@ public class BlobStoreProperties {
 
   public void setModelBytesEstimate(long modelBytesEstimate) {
     this.modelBytesEstimate = modelBytesEstimate;
+  }
+
+  public String getLocalRoot() {
+    return localRoot;
+  }
+
+  public void setLocalRoot(String localRoot) {
+    this.localRoot = localRoot;
   }
 }

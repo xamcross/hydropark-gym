@@ -27,4 +27,13 @@ public class R2BlobStore implements BlobStore {
         "R2BlobStore is a stub - gated on Cloudflare R2 creds (P1-19). "
             + "Use hydropark.blobstore.provider=local for dev/test.");
   }
+
+  @Override
+  public void store(String objectKey, byte[] content) {
+    // TODO gated on Cloudflare R2 creds (P1-19): a real adapter would hand the publisher a
+    // presigned PUT rather than accept bytes here at all.
+    throw new UnsupportedOperationException(
+        "R2BlobStore is a stub - gated on Cloudflare R2 creds (P1-19). "
+            + "Use hydropark.blobstore.provider=local for dev/test.");
+  }
 }

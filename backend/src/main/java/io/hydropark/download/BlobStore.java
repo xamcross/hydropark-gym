@@ -21,4 +21,16 @@ public interface BlobStore {
    *     "public"}) keeps it cacheable across users (the free base-model GGUF, P1-19.3).
    */
   SignedUrl signedUrl(String objectKey, String userScope, Duration ttl);
+
+  /**
+   * Persists {@code content} under {@code objectKey} so a URL later minted by {@link #signedUrl}
+   * for the same key has real bytes to serve. Added because {@link LocalFsBlobStore} previously
+   * only ever minted URLs - nothing wrote the bytes a client would go on to fetch, so the local
+   * dev download loop dead-ended right after signing. The publish path (P1-20) calls this to land
+   * a {@code .hpskill} package or model file under {@code local-root}.
+   *
+   * <p>A real object-store adapter would instead hand the publisher a presigned PUT and never see
+   * the bytes itself, so {@link R2BlobStore} has no real implementation of this yet.
+   */
+  void store(String objectKey, byte[] content);
 }

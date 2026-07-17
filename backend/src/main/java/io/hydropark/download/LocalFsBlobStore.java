@@ -1,7 +1,12 @@
 package io.hydropark.download;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
@@ -18,6 +23,10 @@ import org.springframework.stereotype.Component;
  * <p>The MAC binds all three of key, scope and expiry, so a client cannot swap the object it is
  * entitled to, lift another user's URL, or extend its own TTL without invalidating the signature.
  * {@link #verify} compares in constant time and treats {@code now > expiry} as a hard reject.
+ *
+ * <p>{@link #store} persists real bytes under {@link BlobStoreProperties#getLocalRoot()}, and
+ * {@link BlobServeController} serves them back for a URL that passes {@link #verify} - together
+ * these make the whole signed-download contract exercisable without any external service.
  */
 @Component
 @ConditionalOnProperty(prefix = "hydropark.blobstore", name = "provider", havingValue = "local",
@@ -74,5 +83,46 @@ public class LocalFsBlobStore implements BlobStore {
 
   private static String urlEncode(String s) {
     return URLEncoder.encode(s, StandardCharsets.UTF_8);
+  }
+
+  /** {@inheritDoc} Writes {@code content} to {@code local-root/objectKey}, creating parent dirs. */
+  @Override
+  public void store(String objectKey, byte[] content) {
+    Path target = resolve(objectKey);
+    try {
+      if (target.getParent() != null) {
+        Files.createDirectories(target.getParent());
+      }
+      Files.write(target, content);
+    } catch (IOException e) {
+      throw new UncheckedIOException("failed to persist blob " + objectKey, e);
+    }
+  }
+
+  /**
+   * Resolves {@code objectKey} against {@code local-root} and refuses to leave it - an absolute
+   * key or a {@code ..} segment that would climb above the root throws rather than silently
+   * reading or writing outside the dev blobstore directory. {@link BlobServeController} reuses
+   * this exact guard for every inbound {@code GET /blobs/...} request, so the two never disagree
+   * about what counts as an escape.
+   */
+  Path resolve(String objectKey) {
+    if (objectKey == null || objectKey.isBlank()) {
+      throw new IllegalArgumentException("empty object key");
+    }
+    String cleaned = objectKey.replace('\\', '/');
+    while (cleaned.startsWith("/")) {
+      cleaned = cleaned.substring(1);
+    }
+    Path relative = Paths.get(cleaned);
+    if (relative.isAbsolute()) {
+      throw new IllegalArgumentException("object key must be relative: " + objectKey);
+    }
+    Path root = Paths.get(props.getLocalRoot()).toAbsolutePath().normalize();
+    Path candidate = root.resolve(relative).normalize();
+    if (!candidate.startsWith(root)) {
+      throw new IllegalArgumentException("object key escapes the blobstore root: " + objectKey);
+    }
+    return candidate;
   }
 }
