@@ -108,7 +108,8 @@ public class CatalogSeeder implements ApplicationRunner {
             true,
             0,
             "Turns a trip description into a grouped, tick-off packing checklist scaled to trip"
-                + " length, with a days-until-departure countdown."),
+                + " length, with date math to shift a departure date by the trip length to find"
+                + " your return date."),
 
         // --- paid (8), $5 each, base_currency USD ---
         // 6 named in landing-gym/index.html, plus budget-bills and study-flashcards:
@@ -135,9 +136,9 @@ public class CatalogSeeder implements ApplicationRunner {
             "travel",
             false,
             500,
-            "Trip-planning specialist: day-by-day itineraries, trip-length and countdown math,"
-                + " rough budget splits, and C/F weather conversion — no live bookings or"
-                + " prices."),
+            "Trip-planning specialist: day-by-day itineraries, date math to shift a departure or"
+                + " return date, rough budget splits, and C/F weather conversion — no live"
+                + " bookings or prices."),
         new SkillSeed(
             "home-diy",
             "Home & DIY",

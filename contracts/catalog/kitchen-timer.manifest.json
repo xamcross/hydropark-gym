@@ -107,7 +107,7 @@
     "combine_priority": 40
   },
   "cost_estimate": {
-    "prompt_tokens": 190,
+    "prompt_tokens": 300,
     "tools": 3,
     "panels": 3
   }
