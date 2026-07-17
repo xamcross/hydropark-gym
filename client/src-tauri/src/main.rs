@@ -45,8 +45,9 @@ use ipc::{
     CmdError, DeviceEnsureResult, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
     HardwareProfile, InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult,
     NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
-    SkillDisableArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs, SkillInstallResult,
-    SkillUninstallArgs, SkillUninstallResult, StepUpAnswerArgs, StepUpAnswerResult, TelemetryEvent,
+    SkillDisableArgs, SkillDownloadInstallArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs,
+    SkillInstallResult, SkillUninstallArgs, SkillUninstallResult, StepUpAnswerArgs, StepUpAnswerResult,
+    TelemetryEvent,
     TimerControlArgs, TimerStateSnapshot, ToolCallError, ToolCallErrorCode, ToolCallRequest,
     ToolCallResponse, ToolName, UpdateCheckResult,
 };
@@ -388,6 +389,32 @@ async fn download_url(
         .await?)
 }
 
+/// Fetch the signed `.hpskill` blob at `args.url` (the URL `download_url` just
+/// returned) and install it — the purchase flow's bridge from P1-08.x commerce
+/// into the P1-03.2 install pipeline. The Rust core owns the fetch (the webview
+/// CSP is `connect-src 'self'`, so it cannot reach the blob URL itself); the
+/// fetched bytes then go through the SAME fail-closed `SkillInstaller::install_bytes`
+/// verify -> re-validate -> compat-gate -> extract -> register -> persist pipeline
+/// that the path-based `skill_install` command uses.
+#[tauri::command]
+async fn skill_download_install(
+    args: SkillDownloadInstallArgs,
+    client: State<'_, BackendClient>,
+    installer: State<'_, SkillInstaller>,
+) -> Result<SkillInstallResult, CmdError> {
+    let client = client.inner().clone();
+    let bytes = client.fetch_bytes(&args.url).await?;
+    let outcome = installer
+        .install_bytes(&bytes)
+        .map_err(|e| CmdError::Package(e.to_string()))?;
+    Ok(SkillInstallResult {
+        skill_id: outcome.id,
+        version: outcome.version,
+        dir: outcome.dir.to_string_lossy().into_owned(),
+        state: hpskill::state_label(outcome.state).to_string(),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Accounts / licensing (P1-09) + step-up (P1-09.8). The Rust core owns the
 // session: register/login/refresh/logout hit `/v1/auth` and persist the token
@@ -607,6 +634,7 @@ fn main() {
             entitlements_get,
             license_fetch,
             download_url,
+            skill_download_install,
             auth_register,
             auth_login,
             auth_logout,

@@ -736,6 +736,19 @@ pub struct SkillInstallResult {
     pub state: String,
 }
 
+/// `skill_download_install` args — the signed `.hpskill` blob URL `download_url`
+/// returned (the P1-08.x purchase-flow bridge into this P1-03.2 install pipeline).
+/// The Rust core fetches the bytes itself over `backend_client` (the webview CSP
+/// is `connect-src 'self'`, so it cannot reach the blob URL) and installs them
+/// through the SAME fail-closed `SkillInstaller::install_bytes` pipeline
+/// `skill_install` (path-based) uses — just sourced from a URL instead of a local
+/// file the caller already downloaded.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDownloadInstallArgs {
+    pub url: String,
+}
+
 /// `skill_uninstall` args — the skill id to remove (frees the disk, keeps
 /// ownership; §11.3 reinstall is free).
 #[derive(Debug, Clone, Deserialize)]

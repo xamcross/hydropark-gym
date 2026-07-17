@@ -24,6 +24,7 @@ import {
   ModelDownloadStatus,
   OrderCheckoutResult,
   OrderGetResult,
+  SkillInstallResult,
   StartTimerArgs,
   TelemetryEvent,
   TimerStateSnapshot,
@@ -157,6 +158,10 @@ export class MockIpcService extends IpcPort {
         return this.licenseFetch(args as IpcCommandMap['license_fetch']['args']) as IpcCommandMap[K]['result'];
       case 'download_url':
         return this.downloadUrl(args as IpcCommandMap['download_url']['args']) as IpcCommandMap[K]['result'];
+      case 'skill_download_install':
+        return this.skillDownloadInstall(
+          args as IpcCommandMap['skill_download_install']['args']
+        ) as IpcCommandMap[K]['result'];
       case 'open_external':
         // No system browser to hand off to in the mock — the SystemBrowserService
         // uses window.open in the web build and never reaches this.
@@ -524,6 +529,22 @@ export class MockIpcService extends IpcPort {
       expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
       watermark: this.token('wm'),
     };
+  }
+
+  /**
+   * No real Rust core / package bytes in the browser mock — simulate the same
+   * success shape the REAL `skill_download_install` command returns (fetch +
+   * `SkillInstaller::install_bytes` in `hpskill.rs`) so the demo purchase flow
+   * completes end-to-end. Recovers `skillId`/`version` from the URL `downloadUrl()`
+   * above minted (`.../skills/{id}/{version}.hpskill`) rather than trusting an
+   * opaque blob URL, mirroring how the real command only trusts the manifest
+   * INSIDE the fetched bytes, never the URL.
+   */
+  private skillDownloadInstall(args: IpcCommandMap['skill_download_install']['args']): SkillInstallResult {
+    const match = /\/skills\/([^/]+)\/([^/]+)\.hpskill(?:$|\?)/.exec(args.url);
+    const skillId = match?.[1] ?? 'mock-skill';
+    const version = match?.[2] ?? '1.0.0';
+    return { skillId, version, dir: `mock://skills/${skillId}`, state: 'installed_disabled' };
   }
 
   // ---- agent composition (mirrors client/src-tauri/src/composition.rs) ----

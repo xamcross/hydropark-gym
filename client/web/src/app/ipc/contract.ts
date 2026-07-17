@@ -877,6 +877,18 @@ export interface SkillInstallResult {
   state: string;
 }
 
+/**
+ * `skill_download_install` args — the signed `.hpskill` blob URL `download_url`
+ * returned (the purchase flow's bridge from P1-08.x commerce into this P1-03.2
+ * install pipeline). The Rust core fetches the bytes itself (the webview CSP is
+ * `connect-src 'self'`, so it cannot reach the blob URL) and installs them through
+ * the SAME fail-closed pipeline `skill_install` (path-based) uses, returning the
+ * SAME {@link SkillInstallResult} shape.
+ */
+export interface SkillDownloadInstallArgs {
+  url: string;
+}
+
 /** `skill_uninstall` args — the skill id to remove (frees disk, keeps ownership; §11.3). */
 export interface SkillUninstallArgs {
   skillId: string;
@@ -946,6 +958,8 @@ export interface IpcCommandMap {
 
   // --- P1 .hpskill install / uninstall (P1-03.2) ---
   skill_install: { args: SkillInstallArgs; result: SkillInstallResult };
+  /** Fetch + install the signed `.hpskill` blob at `download_url`'s URL (P1-08.x purchase-flow bridge). */
+  skill_download_install: { args: SkillDownloadInstallArgs; result: SkillInstallResult };
   skill_uninstall: { args: SkillUninstallArgs; result: SkillUninstallResult };
 
   // --- P1 app auto-update (P1-11.2) — offline-safe, never rejects (§18) ---

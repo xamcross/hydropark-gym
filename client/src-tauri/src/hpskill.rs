@@ -853,6 +853,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// The `skill_download_install` bridge, end to end: `backend_client::fetch_bytes`
+    /// pulls the `.hpskill` bytes off a local loopback stub (see
+    /// `backend_client::spawn_stub_server` — NOT the real network), and the fetched
+    /// bytes then go through the exact same `SkillInstaller::install_bytes` pipeline
+    /// the full-install-flow test above exercises. Proves bytes-over-HTTP -> verified
+    /// -> extracted -> registered -> persisted, the same path the real command drives.
+    #[tokio::test]
+    async fn download_then_install_flow_bytes_to_store() {
+        let sk = SigningKey::from_bytes(&[9u8; 32]);
+        let mut m = full_manifest("downloaded-skill", "1.0.0", true);
+        sign_into(&mut m, &sk, "pkg-key");
+        let trusted = trusted_with("pkg-key", &sk.verifying_key());
+        let zip = build_zip(&[("manifest.json", &to_vec(&m))]);
+
+        let url = crate::backend_client::spawn_stub_server("HTTP/1.1 200 OK", zip.clone());
+        let backend = crate::backend_client::BackendClient::new();
+        let bytes = backend.fetch_bytes(&url).await.expect("stub fetch succeeds");
+        assert_eq!(bytes, zip, "fetched bytes round-trip the served package exactly");
+
+        let root = temp_skills_root("download-flow");
+        let store = in_memory_store();
+        let env = HostEnv::new("1.5.0".parse().unwrap(), ModelTier::Small);
+        let installer = SkillInstaller::new(trusted, env, root.clone(), store.clone());
+
+        let outcome = installer.install_bytes(&bytes).expect("install succeeds");
+        assert_eq!(outcome.id, "downloaded-skill");
+        assert_eq!(outcome.version, "1.0.0");
+        assert_eq!(outcome.state, LifecycleState::InstalledDisabled);
+        assert!(root.join("downloaded-skill/manifest.json").exists());
+        assert!(store.lock().unwrap().load_installed_skill("downloaded-skill").unwrap().is_some());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn install_is_blocked_by_incompatible_min_app_version_and_writes_nothing() {
         let sk = SigningKey::from_bytes(&[4u8; 32]);

@@ -653,6 +653,24 @@ impl BackendClient {
         decode_download(&body)
     }
 
+    /// Fetch raw bytes from an absolute URL — used for the signed `.hpskill` blob
+    /// URL `download_url` returns (the bridge into `skill_download_install`,
+    /// P1-03.2). Unlike every other method here this does NOT join against
+    /// `self.base`: the URL is already absolute and may point at a different host
+    /// entirely (object storage). No bearer is attached — the URL is pre-signed
+    /// and self-authorizing.
+    pub async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>, BackendError> {
+        let resp = self.http.get(url).send().await.map_err(BackendError::network)?;
+        let status = resp.status();
+        let bytes = resp.bytes().await.map_err(BackendError::network)?;
+        if status.is_success() {
+            Ok(bytes.to_vec())
+        } else {
+            let body = String::from_utf8_lossy(&bytes).into_owned();
+            Err(BackendError::Status { status: status.as_u16(), body })
+        }
+    }
+
     // --- accounts / devices (P1-09.x) --------------------------------------
 
     pub async fn auth_register(
@@ -761,7 +779,42 @@ async fn read_ok(resp: reqwest::Response) -> Result<String, BackendError> {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — pure helpers only; no network I/O.
+// Test-only loopback HTTP stub (P1-03.2 download+install flow proof)
+// ---------------------------------------------------------------------------
+
+/// A minimal, single-request loopback HTTP stub used ONLY by tests — this file's
+/// `fetch_bytes` tests, and `hpskill.rs`'s download-then-install flow test. No mock-
+/// server crate needed: binds an ephemeral `127.0.0.1` port, accepts exactly one
+/// connection on a background thread, discards the request, and writes back
+/// `status_line` + `body`. Returns the `http://127.0.0.1:<port>/pkg` URL to fetch.
+/// Loopback-only — this never touches the real network, so it is deterministic and
+/// safe under `cargo test` (it does NOT hit the live backend).
+#[cfg(test)]
+pub(crate) fn spawn_stub_server(status_line: &'static str, body: Vec<u8>) -> String {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("local_addr").port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf); // drain the request line/headers; content unused
+            let header = format!(
+                "{status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&body);
+            let _ = stream.flush();
+        }
+    });
+    format!("http://127.0.0.1:{port}/pkg")
+}
+
+// ---------------------------------------------------------------------------
+// Tests — pure helpers only, EXCEPT `fetch_bytes*` below, which round-trips a
+// local loopback stub (see `spawn_stub_server`) rather than the real network.
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -1061,5 +1114,30 @@ mod tests {
         let d = decode_device(json).unwrap();
         assert_eq!(d.device_id, "dev_7");
         assert_eq!(d.status, "active");
+    }
+
+    // --- fetch_bytes (P1-03.2 download+install bridge) — local loopback only ---
+
+    #[tokio::test]
+    async fn fetch_bytes_returns_the_body_verbatim_on_200() {
+        let payload = b"hpskill-bytes-fixture-\x00\x01\x02".to_vec();
+        let url = spawn_stub_server("HTTP/1.1 200 OK", payload.clone());
+        let client = BackendClient::new();
+        let got = client.fetch_bytes(&url).await.expect("stub fetch succeeds");
+        assert_eq!(got, payload);
+    }
+
+    #[tokio::test]
+    async fn fetch_bytes_maps_non_2xx_to_status_error_with_body() {
+        let url = spawn_stub_server("HTTP/1.1 403 Forbidden", b"link expired".to_vec());
+        let client = BackendClient::new();
+        let err = client.fetch_bytes(&url).await.unwrap_err();
+        match err {
+            BackendError::Status { status, body } => {
+                assert_eq!(status, 403);
+                assert_eq!(body, "link expired");
+            }
+            other => panic!("expected Status error, got {other:?}"),
+        }
     }
 }

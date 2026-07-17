@@ -1,7 +1,7 @@
 import { DestroyRef, Injectable, effect, inject, signal } from '@angular/core';
 import { IPC_PORT } from '../ipc/ipc.port';
 import { isTauriRuntime } from '../ipc/tauri-ipc.service';
-import { EntitlementItem, PurchaseCallbackEvent } from '../ipc/contract';
+import { EntitlementItem, PurchaseCallbackEvent, SkillId } from '../ipc/contract';
 import { NotificationService } from '../shared/notify/notification.service';
 import { SystemBrowserService } from '../shared/system-browser.service';
 import { TelemetryService } from '../state/telemetry.service';
@@ -213,7 +213,19 @@ export class PurchaseService {
 
   // --- install / enable (P1-08.5 lifecycle) --------------------------------
 
-  /** Owned → (license_fetch + download_url) → installed, optionally auto-enabling. */
+  /**
+   * Owned → license_fetch → download_url → the REAL signed `.hpskill` fetch +
+   * install (`skill_download_install`) → installed, optionally auto-enabling.
+   *
+   * The Rust core owns the byte fetch AND the install (verify signature →
+   * re-validate manifest → compat gate → extract → register → persist,
+   * `hpskill.rs`) — the webview CSP (`connect-src 'self'`) forbids fetching the
+   * blob URL itself, and package bytes never cross the IPC boundary into JS.
+   * `stateFor(id)` only advances to `'installed'` once that command RESOLVES; any
+   * failure along the way (license, download-URL grant, or the install itself)
+   * routes through {@link fail}, which reverts to `'not-owned'` and surfaces the
+   * error via {@link errorFor} rather than leaving the button stuck mid-flow.
+   */
   async install(skillId: string, thenEnable = false): Promise<void> {
     this.clearError(skillId);
     this.setState(skillId, 'installing');
@@ -224,9 +236,10 @@ export class PurchaseService {
 
       const version = this.versions.get(skillId) ?? '1.0.0';
       this.telemetry.noteBackendCall();
-      await this.ipc.invoke('download_url', { skillId, version, bearer });
-      // A real build downloads + verifies the signed package here; the Rust core
-      // owns that. We advance to `installed` on the URL grant.
+      const { url } = await this.ipc.invoke('download_url', { skillId, version, bearer });
+
+      this.telemetry.noteBackendCall();
+      await this.ipc.invoke('skill_download_install', { url });
 
       this.setState(skillId, 'installed');
       if (thenEnable) await this.enable(skillId);
@@ -238,6 +251,15 @@ export class PurchaseService {
   /** Installed → enabling → active. Ties a real paid SKU into its in-app unlock. */
   async enable(skillId: string): Promise<void> {
     this.setState(skillId, 'enabling');
+    try {
+      // P0's fixed-catalog enable gate (kitchen-timer / cooking-assistant only —
+      // it predates the general P1 marketplace catalog). Non-fatal on rejection:
+      // a skill outside that pair simply has nothing further to gate here, and a
+      // rejection must never strand an already-installed skill mid-enable.
+      await this.ipc.invoke('skill_enable', { skill_id: skillId as SkillId });
+    } catch {
+      // See above — swallowed by design.
+    }
     // Close the loop for the one in-app paid SKU: a settled purchase unlocks the
     // Cooking Assistant so its Assistant-view toggle lights up. In a real Tauri
     // build the Rust core's post-purchase entitlement is authoritative and
