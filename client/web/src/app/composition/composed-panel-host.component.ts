@@ -128,14 +128,31 @@ export class ComposedPanelHostComponent {
     // root-scoped LayoutSnapshotService — see that file's header for why this
     // indirection exists (LayoutService is component-scoped, not root) and how
     // it handles the dock not being mounted yet when a template load restores.
+    //
+    // `clear()` only fires on a genuine mount→unmount TRANSITION (tracked via
+    // `dockHasMounted`), never merely because `dock()` hasn't resolved yet on
+    // an early tick. This matters: a template load that DOES end up enabling a
+    // skill buffers its layout restore in `LayoutSnapshotService` BEFORE this
+    // component (and its dock) exist; if an early "not mounted yet" tick of
+    // this same effect called `clear()`, it would drop that still-relevant
+    // buffered restore before the dock ever gets a chance to consume it. See
+    // `LayoutSnapshotService`'s class doc for the complementary fix (a
+    // `restore()` token + `invalidate()`) that handles the OTHER stale-buffer
+    // case this review caught (a load whose combo never mounts a dock at all).
+    let dockHasMounted = false;
     effect(() => {
       const d = this.dock();
       if (d) {
+        dockHasMounted = true;
         this.layoutSnapshot.register({
           capture: () => d.layout.serializeOverrides(),
           restore: (overrides) => d.layout.applyOverrides(overrides),
         });
-      } else {
+      } else if (dockHasMounted) {
+        // The dock WAS live and just went away (the agent went idle) — a
+        // stale bridge, and any restore still buffered for THIS component
+        // instance, must not linger for some future, unrelated dock to pick up.
+        dockHasMounted = false;
         this.layoutSnapshot.clear();
       }
     });

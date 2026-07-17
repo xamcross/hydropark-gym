@@ -187,6 +187,41 @@ describe('TemplatesService (Task 11b)', () => {
     expect(session.kitchenSkillEnabled()).toBe(true);
   });
 
+  // --- post-review fix: a load whose combo never mounts a dock must not leak
+  //     its buffered layout restore into a LATER, unrelated dock mount -------
+
+  it('load() whose entire combo ends up unresolved invalidates its buffered layout restore — a later, unrelated register() must not replay it', async () => {
+    // No bridge registered yet — mirrors "still on the Templates view" (no
+    // dock exists), which is when `TemplatesService.load()` actually calls
+    // `LayoutSnapshotService.restore()` in the real app.
+    const staleOverrides = [{ key: 'stale', collapsed: true, pinned: false, order: null, size: null }];
+    ipc.when('template_load', () => ({
+      ok: true,
+      // Resolves fine server-side, but isn't one of the two skills this
+      // client's enablement seam can auto-enable — so NOTHING ends up on.
+      skill_ids: ['completely-unknown-skill'],
+      ui_overrides: staleOverrides,
+      missing_skills: [],
+    }));
+
+    const outcome = await templates.load('tmpl_all_unresolved');
+
+    expect(outcome).toEqual({ ok: true, unresolved: ['completely-unknown-skill'] });
+    // Nothing got enabled — this load's own combo is empty, so no dock will
+    // EVER mount as a direct consequence of it.
+    expect(session.kitchenSkillEnabled()).toBe(false);
+    expect(cooking.enabled()).toBe(false);
+
+    // Simulate a LATER, causally-unrelated dock mount (e.g. the user manually
+    // toggles kitchen-timer on afterwards, for reasons that have nothing to
+    // do with the abandoned template load) registering a bridge for the
+    // first time. The stale overrides from the abandoned load must NOT replay.
+    const restoreSpy = jasmine.createSpy('restore');
+    layoutSnapshot.register({ capture: () => [], restore: restoreSpy });
+
+    expect(restoreSpy).not.toHaveBeenCalled();
+  });
+
   it('load() reports a still-locked paid skill (cooking-assistant) as unresolved rather than silently skipping it', async () => {
     ipc.when('template_load', () => ({ ok: true, skill_ids: ['cooking-assistant'], ui_overrides: [], missing_skills: [] }));
 

@@ -126,7 +126,17 @@ export class TemplatesService {
     }
 
     const unresolved = await this.applyCombo(res.skill_ids);
-    this.layoutSnapshot.restore(res.ui_overrides);
+    const restoreToken = this.layoutSnapshot.restore(res.ui_overrides);
+    // `applyCombo` already fully settled `enabledManifests()`'s two inputs, so
+    // `hasAgent()` here reflects THIS load's final combo. If it ended up
+    // empty (every named skill was unresolved — see `applyCombo`), no dock
+    // will EVER mount as a consequence of this specific load, so a buffered
+    // restore must not sit around waiting for some later, unrelated dock
+    // mount to misapply it (see LayoutSnapshotService's class doc, "scoping
+    // the buffer to the load that produced it").
+    if (restoreToken !== null && !this.composition.hasAgent()) {
+      this.layoutSnapshot.invalidate(restoreToken);
+    }
     this.composition.viaTemplate.set(true);
     return { ok: true, unresolved };
   }
