@@ -66,6 +66,17 @@ npm-debug.log*
 /IMPLEMENTATION-STATUS.md
 /PHASE0-GO-NO-GO-PROJECTED.md
 /PHASE0-H3-DECISION.md
+/DEMO-READINESS-DESIGN.md
+/DEMO-READINESS-PLAN.md
+/UX-PUNCH-LIST.md
+/DEMO-BEATS.md
+/H1-SESSION-SCRIPT.md
+/DEMO-SHOTLIST.md
+/demos/
+/.superpowers/
+# local dev-loop state (demo-readiness push): mongo replica-set data + blobstore root
+/.mongo-rs0/
+/blobstore-dev/
 /research/
 /sprint/
 backend/docs/KEY-COMPROMISE-RUNBOOK.md
