@@ -21,7 +21,7 @@
   } @else if (resolved === 'placeholder') {
     <p class="kv-placeholder">This panel needs a newer version of the app.</p>
   } @else if (resolved === 'empty') {
-    <p class="empty">{{ states.empty || 'No data' }}</p>
+    <p class="empty">{{ emptyMessage }}</p>
   } @else {
     @if (readonly && writer) {
       <p class="kv-provenance">Values from {{ writer }}</p>

@@ -7,6 +7,7 @@ import {
   OnInit,
   Output,
 } from '@angular/core';
+import { BoundState } from '../widget-contract';
 
 /* -----------------------------------------------------------------------------
  * key_value_panel widget (P1-06.4x) — a labeled, typed key/value readout.
@@ -21,6 +22,22 @@ import {
  *   - runtime state    → schema $defs/runtimeState (lifecycle/values/readonly/…)
  *   - @Output events   → schema `emits` (field_activated / value_copied), plus a
  *                        mechanical `retry` recovery affordance (contract §6).
+ *
+ * BOUND STATE (P1-06.1 · contract §5 · F08): two mount modes, SELECTED BY THE
+ * HOST, mirroring `editable_list`/`table`:
+ *  - SELF-SOURCED (`bound` absent): renders the declared `fields`/`values` props
+ *    exactly as authored — unchanged from before this ticket.
+ *  - BOUND (composed-panel-host, `bound` set): renders rows derived LIVE from the
+ *    bound slot's own value, and takes its read-only verdict + writer attribution
+ *    from it (§5's "Managed by {writer}" affordance, already in the template).
+ *    The derivation is DELIBERATELY HONEST — it never invents a number: a `list`
+ *    slot (e.g. the shared `ingredients` list) yields a live tracked-count row
+ *    plus one row per item's own name; a `record` slot echoes its own fields; a
+ *    `scalar` slot echoes its own value. No calorie/macro/health figure is ever
+ *    synthesized here — nutrition is informational-only and safety-sensitive
+ *    (SPEC §28.1); a skill that wants real macro figures must compute and hand
+ *    them over as its OWN typed `values`/`fields` (the self-sourced path above),
+ *    never have this widget guess them from a raw ingredient list.
  * -------------------------------------------------------------------------- */
 
 export type KvValueType =
@@ -132,6 +149,14 @@ export class KeyValuePanelComponent implements OnInit, OnChanges {
   @Input() writer: string | null = null;
   @Input() error: WidgetError | null = null;
 
+  /**
+   * The read-only-aware slot binding (contract §5 · P1-06.1). Absent ⇒ the
+   * self-sourced mount above (declared `fields`/`values` props, unchanged);
+   * present ⇒ render rows derived LIVE from the bound slot's own value — see
+   * the class doc for exactly what gets derived and why nothing is invented.
+   */
+  @Input() bound: BoundState<unknown> | null = null;
+
   // --- events (schema `emits`) ---
   @Output() fieldActivated = new EventEmitter<{ key: string }>();
   @Output() valueCopied = new EventEmitter<{ key: string }>();
@@ -185,8 +210,126 @@ export class KeyValuePanelComponent implements OnInit, OnChanges {
       return;
     }
 
+    if (this.bound) {
+      this.recomputeBound(this.bound);
+      return;
+    }
+
     this.rows = this.buildRows();
     this.resolved = this.lifecycle === 'empty' || this.rows.length === 0 ? 'empty' : 'populated';
+  }
+
+  /**
+   * BOUND path (contract §5 · F08). Takes the read-only verdict + writer
+   * attribution straight from the slot (the template already surfaces "Values
+   * from {writer}" off these two fields), and derives ROWS honestly from the
+   * slot's live value — see {@link deriveBoundRows}. `value === undefined`
+   * means the slot has not been populated yet (BoundState's own doc'd contract)
+   * so that renders `loading`, same affordance as the self-sourced path.
+   */
+  private recomputeBound(bound: BoundState<unknown>): void {
+    this.readonly = bound.readonly;
+    this.writer = bound.writer;
+
+    if (bound.value === undefined) {
+      this.resolved = 'loading';
+      this.rows = [];
+      return;
+    }
+
+    this.rows = this.deriveBoundRows(bound);
+    this.resolved = this.rows.length === 0 ? 'empty' : 'populated';
+  }
+
+  /**
+   * Derive HONEST key-value rows from a bound slot's live value. Never invents a
+   * figure — every row's display text is a literal count, a literal item name,
+   * or a literal field echoed straight from the slot:
+   *   - `list`   → a "tracked" count row, plus one row per item naming it (by its
+   *                own `name` field when present, else its raw string form).
+   *                This is the shape the shared `ingredients` list binds to.
+   *   - `record` → one row per field, echoing the field's own value verbatim.
+   *   - `scalar` → a single row echoing the value verbatim.
+   */
+  private deriveBoundRows(bound: BoundState<unknown>): KvRow[] {
+    const { kind, value } = bound;
+
+    if (kind === 'list') {
+      const items = Array.isArray(value) ? value : [];
+      if (items.length === 0) return [];
+      const rows: KvRow[] = [
+        {
+          key: '__count',
+          label: 'Ingredients tracked',
+          display: String(items.length),
+          present: true,
+          tone: null,
+          emphasis: 'strong',
+        },
+      ];
+      items.forEach((item, i) => {
+        rows.push({
+          key: `__item_${i}`,
+          label: `Ingredient ${i + 1}`,
+          display: this.itemLabel(item),
+          present: true,
+          tone: null,
+          emphasis: null,
+        });
+      });
+      return rows;
+    }
+
+    if (kind === 'record') {
+      if (!value || typeof value !== 'object') return [];
+      const entries = Object.entries(value as Record<string, unknown>);
+      return entries.map(([key, v]) => {
+        const present = v !== null && v !== undefined && v !== '';
+        return {
+          key,
+          label: this.humanize(key),
+          display: present ? String(v) : '—',
+          present,
+          tone: null,
+          emphasis: null,
+        };
+      });
+    }
+
+    // scalar
+    if (value === null || value === undefined || value === '') return [];
+    return [
+      {
+        key: 'value',
+        label: this.title ?? 'Value',
+        display: String(value),
+        present: true,
+        tone: null,
+        emphasis: null,
+      },
+    ];
+  }
+
+  /** The name to show for one bound list item — never a fabricated figure. */
+  private itemLabel(item: unknown): string {
+    if (item && typeof item === 'object' && 'name' in (item as Record<string, unknown>)) {
+      const name = (item as Record<string, unknown>)['name'];
+      if (typeof name === 'string' && name.trim().length > 0) return name;
+    }
+    if (typeof item === 'string' && item.trim().length > 0) return item;
+    return 'Unnamed item';
+  }
+
+  /**
+   * The empty-state copy: an explicit `states.empty` override wins (contract
+   * §6 — copy only); a bound-but-empty slot names ITSELF ("No ingredients yet"
+   * for the `ingredients` slot) rather than a generic message, since the panel
+   * now knows exactly what's missing; otherwise the widget-type default.
+   */
+  get emptyMessage(): string {
+    if (this.states.empty) return this.states.empty;
+    if (this.bound) return `No ${this.bound.slot.replace(/_/g, ' ')} yet`;
+    return 'No data';
   }
 
   /**

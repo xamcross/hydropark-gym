@@ -78,7 +78,11 @@ const REGISTRY = new Map<string, WidgetEntry>([
   ['table', { component: TableComponent, acceptsBoundState: true }],
   ['tabs', { component: TabsComponent }],
   ['progress', { component: ProgressComponent }],
-  ['key_value_panel', { component: KeyValuePanelComponent }],
+  // key_value_panel is bound-state-aware (P1-06.1 · F08): when the host feeds a
+  // `bound` slot it derives honest count/name rows from the live value (never a
+  // fabricated nutrition figure — see the component's class doc); absent, it
+  // self-sources its declared `fields`/`values` props, unchanged.
+  ['key_value_panel', { component: KeyValuePanelComponent, acceptsBoundState: true }],
   ['media_note', { component: MediaNoteComponent }],
   ['quick_actions', { component: QuickActionsComponent, inputs: () => ({ actions: [] }) }],
   ['slider_stepper', { component: SliderStepperComponent, inputs: () => ({ min: 0, max: 100 }) }],
