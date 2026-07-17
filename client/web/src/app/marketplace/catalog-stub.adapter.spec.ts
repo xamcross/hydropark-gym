@@ -1,4 +1,5 @@
 import { StubCatalogPort } from './catalog-stub.adapter';
+import { SAMPLE_PROMPTS } from './sample-prompts';
 
 /**
  * Task 17 (phase 2): the curated real-model preview transcripts
@@ -97,5 +98,93 @@ describe('StubCatalogPort#getPreview — curated real-model transcripts (Task 17
     expect(preview.skill_id).toBe('budget-planner');
     expect(preview.no_purchase).toBe(true);
     expect(preview.transcript.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Task 18: `getDetail()` sample prompts + screenshots. The "Try asking"
+ * section (SPEC §11.1) must show the real captured user turns for the 2
+ * skills the demo grid can reach that also have a capture (kitchen-timer,
+ * cooking-assistant) — winning over the record's own hand-authored
+ * placeholder prompts, mirroring the `getPreview()` curated-first pattern
+ * above. `budget-planner`/`code-reviewer` have no capture, so must be
+ * completely unaffected (regression guard). Separately, `sample-prompts.ts`
+ * itself must carry 2-3 authored prompts for ALL 10 manifest-certified
+ * skills, not just the 2 that happen to be reachable today (Task 17's own
+ * "7 skills, no catalog card yet" gap — tracked, not fixed, here either).
+ */
+describe('StubCatalogPort#getDetail — curated sample prompts & screenshots (Task 18)', () => {
+  let port: StubCatalogPort;
+
+  beforeEach(() => {
+    port = new StubCatalogPort();
+  });
+
+  it('kitchen-timer: sample_prompts are the real captured user turns', async () => {
+    const detail = await port.getDetail('kitchen-timer');
+    expect(detail.sample_prompts).toEqual([
+      'Set a 9 minute timer for the pasta.',
+      "What's 350F in Celsius?",
+      'What can I use instead of buttermilk?',
+    ]);
+  });
+
+  it('cooking-assistant: sample_prompts are the real captured user turns', async () => {
+    const detail = await port.getDetail('cooking-assistant');
+    expect(detail.sample_prompts).toEqual([
+      'Quick tomato pasta for two, please.',
+      'Start a 12 minute timer for the sauce.',
+      'Is this keto meal okay for my diabetes?',
+    ]);
+  });
+
+  it('kitchen-timer and cooking-assistant each carry at least one real (non-placeholder) screenshot', async () => {
+    const kt = await port.getDetail('kitchen-timer');
+    const ca = await port.getDetail('cooking-assistant');
+    expect(kt.media?.some((m) => !!m.uri)).toBe(true);
+    expect(ca.media?.some((m) => !!m.uri)).toBe(true);
+    // The gap (populated/composed-panel screenshots need the native app) is
+    // flagged via a placeholder tile, never faked with a fabricated uri.
+    expect(kt.media?.some((m) => !m.uri)).toBe(true);
+    expect(ca.media?.some((m) => !m.uri)).toBe(true);
+  });
+
+  it('budget-planner (no capture) keeps its original placeholder sample_prompts and media untouched', async () => {
+    const detail = await port.getDetail('budget-planner');
+    expect(detail.sample_prompts).toEqual([
+      'Budget $3,200/month',
+      'Add groceries at $600',
+      'How much is left this month?',
+    ]);
+    expect(detail.media?.every((m) => !m.uri)).toBe(true);
+  });
+
+  it('code-reviewer (no capture) keeps its original placeholder sample_prompts, unaffected by the curated lookup', async () => {
+    const detail = await port.getDetail('code-reviewer');
+    expect(detail.sample_prompts).toEqual(['Review this diff', 'Any correctness bugs?', 'Suggest a simpler version']);
+  });
+
+  it('every one of the 10 manifest-certified skills has 2-3 non-empty authored sample prompts', () => {
+    const ids = [
+      'kitchen-timer',
+      'packing-list',
+      'cooking-assistant',
+      'nutrition-coach',
+      'home-diy',
+      'garden-plants',
+      'car-care',
+      'budget-bills',
+      'study-flashcards',
+      'travel-planner',
+    ];
+    for (const id of ids) {
+      const prompts = SAMPLE_PROMPTS[id];
+      expect(prompts).withContext(id).toBeTruthy();
+      expect(prompts.length).withContext(`${id} prompt count`).toBeGreaterThanOrEqual(2);
+      expect(prompts.length).withContext(`${id} prompt count`).toBeLessThanOrEqual(3);
+      for (const p of prompts) {
+        expect(p.trim().length).withContext(`${id}: "${p}"`).toBeGreaterThan(0);
+      }
+    }
   });
 });

@@ -305,3 +305,80 @@ describe('SkillDetailComponent — F05: real backend capabilities win over tools
     expect(text).toContain('This skill can: set timers, convert units, manage a list');
   });
 });
+
+/**
+ * Task 18: the "Try asking" sample-prompts section and the screenshots strip
+ * (SPEC §11.1) already had a template + model shape (`SkillDetail.sample_prompts`
+ * / `.media`) — this locks that the component actually RENDERS both: every
+ * curated prompt string appears in the DOM, a media tile WITH a `uri` renders
+ * as a real `<img>` (not a placeholder), and a tile WITHOUT one still renders
+ * as the honest placeholder tile (never a broken-image fake).
+ */
+describe('SkillDetailComponent — sample prompts & screenshots render (Task 18)', () => {
+  const DETAIL: SkillDetail = {
+    id: 'kitchen-timer',
+    name: 'Kitchen Timer & Units',
+    category: 'Cooking',
+    is_free: true,
+    status: 'published',
+    price: null,
+    compressed_prompt: null,
+    has_preview: false,
+    min_model_tier: null,
+    requirements: null,
+    current_version: null,
+    changelog: null,
+    owned: true,
+    sample_prompts: ['Set a 9 minute timer for the pasta.', "What's 350F in Celsius?"],
+    media: [
+      { alt: 'Kitchen Timer & Units — skill detail page', uri: 'screenshots/03-skill-detail-kitchen-timer.png' },
+      { alt: 'Kitchen Timer & Units — live in a conversation (native-app capture pending)' },
+    ],
+  };
+
+  let ipc: ScriptedIpc;
+  let fixture: ReturnType<typeof TestBed.createComponent<SkillDetailComponent>>;
+
+  beforeEach(() => {
+    ipc = new ScriptedIpc();
+    const catalog = new StubCatalogPort(DETAIL, { skill_id: 'kitchen-timer', state: 'active' });
+
+    TestBed.configureTestingModule({
+      imports: [SkillDetailComponent],
+      providers: [
+        { provide: CATALOG_PORT, useValue: catalog },
+        { provide: IPC_PORT, useValue: ipc },
+      ],
+    });
+
+    fixture = TestBed.createComponent(SkillDetailComponent);
+    fixture.componentRef.setInput('skillId', 'kitchen-timer');
+  });
+
+  async function loaded(): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  it('renders every sample prompt under "Try asking"', async () => {
+    await loaded();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Try asking');
+    expect(text).toContain('Set a 9 minute timer for the pasta.');
+    expect(text).toContain("What's 350F in Celsius?");
+  });
+
+  it('renders a real <img> for a media tile with a uri, and a placeholder for one without', async () => {
+    await loaded();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const img = el.querySelector('img.shot-img') as HTMLImageElement | null;
+    expect(img).withContext('a media tile with a uri must render an <img>').toBeTruthy();
+    expect(img?.getAttribute('src')).toBe('screenshots/03-skill-detail-kitchen-timer.png');
+
+    const placeholders = el.querySelectorAll('.shot-ph');
+    expect(placeholders.length).withContext('the tile with no uri must still render as an honest placeholder').toBe(1);
+  });
+});

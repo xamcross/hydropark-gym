@@ -4,6 +4,7 @@ import {
   CatalogFilters,
   CatalogItem,
   CatalogPage,
+  MediaTile,
   Ownership,
   OwnershipState,
   Requirements,
@@ -13,9 +14,36 @@ import {
   runsOnThisPc,
 } from './catalog.model';
 import { buildCuratedPreview } from './preview-transcripts';
+import { SAMPLE_PROMPTS } from './sample-prompts';
 
 const USD = 'USD';
 const MB = 1024 * 1024;
+
+/**
+ * Task 18 — real (non-fabricated) app-chrome screenshots, captured via
+ * headless Chromium against this exact `ng serve` stub build (see
+ * `.superpowers/sdd/task-18-report.md` for the capture method). These are
+ * genuine screens — the marketplace grid, each skill's own detail page, the
+ * curated try-before-buy preview modal — NOT synthetic "skill panels in use"
+ * mockups: a screenshot of composed panels holding real conversation state
+ * (a running timer, a populated ingredient list) needs the driven native app,
+ * which this stub-only, ng-serve-only task cannot produce. That gap is
+ * flagged, not faked, via the trailing placeholder tile below. Only the 2
+ * skills actually reachable from the demo grid with a detail page to
+ * screenshot (kitchen-timer, cooking-assistant) have entries.
+ */
+const CAPTURED_MEDIA: Readonly<Record<string, MediaTile[]>> = {
+  'kitchen-timer': [
+    { alt: 'Browsing the marketplace grid', uri: 'screenshots/02-marketplace-grid.png' },
+    { alt: 'Kitchen Timer & Units — skill detail page', uri: 'screenshots/03-skill-detail-kitchen-timer.png' },
+    { alt: 'Kitchen Timer & Units — live in a conversation (native-app capture pending)' },
+  ],
+  'cooking-assistant': [
+    { alt: 'Cooking Assistant — skill detail page', uri: 'screenshots/04-skill-detail-cooking-assistant.png' },
+    { alt: 'Cooking Assistant — try-before-buy preview', uri: 'screenshots/05-skill-preview-modal.png' },
+    { alt: 'Cooking Assistant — live in a conversation (native-app capture pending)' },
+  ],
+};
 
 /** requirements presets — mirrors the backend "small"/"large" model tiers. */
 const REQ_SMALL: Requirements = { min_model_tier: 'small', min_app_version: '1.0.0' };
@@ -181,7 +209,17 @@ export class StubCatalogPort extends CatalogPort {
     await this.latency();
     const rec = this.records.find((r) => r.item.id === id);
     if (!rec) throw new Error(`unknown skill "${id}"`);
-    return rec.detail;
+    // Task 18: curated real-model sample prompts / captured screenshots win over
+    // the record's own placeholder content when available — same "curated wins"
+    // pattern `getPreview()` already uses for the transcript below.
+    const curatedPrompts = SAMPLE_PROMPTS[id];
+    const capturedMedia = CAPTURED_MEDIA[id];
+    if (!curatedPrompts?.length && !capturedMedia) return rec.detail;
+    return {
+      ...rec.detail,
+      ...(curatedPrompts?.length ? { sample_prompts: curatedPrompts } : {}),
+      ...(capturedMedia ? { media: capturedMedia } : {}),
+    };
   }
 
   async ownership(id: string): Promise<Ownership> {
