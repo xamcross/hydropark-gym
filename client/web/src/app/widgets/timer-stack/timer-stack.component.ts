@@ -1,8 +1,10 @@
-import { Component, computed, signal } from '@angular/core';
+import { Component, DestroyRef, Inject, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { SessionService, TimerViewState } from '../../state/session.service';
 import { ToolsService } from '../../tools/tools.service';
 import { InferenceService } from '../../inference/inference.service';
+import { IPC_PORT, IpcPort } from '../../ipc/ipc.port';
+import { BusService } from '../../shared/bus';
 
 @Component({
   selector: 'app-timer-stack',
@@ -18,7 +20,21 @@ export class TimerStackComponent {
   labelDraft = signal('');
   minutesDraft = signal(5);
 
-  constructor(private readonly session: SessionService, private readonly tools: ToolsService, inference: InferenceService) {
+  /**
+   * The per-agent bus (SPEC §9.3), present only when this instance is mounted
+   * inside a composed agent (`ComposedPanelHostComponent` provides it —
+   * `BusService` is NOT `providedIn: 'root'`). Optional because this same
+   * component also mounts standalone in the legacy P0 panel, which has no bus
+   * — see the class doc on `BusService`.
+   */
+  private readonly bus = inject(BusService, { optional: true });
+
+  constructor(
+    private readonly session: SessionService,
+    private readonly tools: ToolsService,
+    inference: InferenceService,
+    @Inject(IPC_PORT) ipc: IpcPort
+  ) {
     inference.onPrefillRequest((widget, args) => {
       if (widget !== 'timer_stack') return;
       const a = args as { label?: string; duration_sec?: number };
@@ -26,6 +42,26 @@ export class TimerStackComponent {
       if (a.label) this.labelDraft.set(a.label);
       if (a.duration_sec) this.minutesDraft.set(Math.round(a.duration_sec / 60));
     });
+
+    // SPEC §9.3 #4 — timer_finished is a `to_chat`, time-critical widget
+    // event: the first real producer of the bus's `to_chat` contract. Posts a
+    // system line ('⏱ "<label>" timer finished') through the bus — never
+    // directly through SessionService — so it flows through the same seam
+    // every future to_chat widget event uses. Posting NEVER runs inference:
+    // the bus holds no inference seam at all (see bus.service.ts), so there is
+    // no code path from here to InferenceService.send. No-op when this
+    // instance has no bus (legacy/standalone mount, see `bus` above).
+    const off = ipc.on('timer://finished', (e) => {
+      this.bus?.emitConversationEvent({
+        dir: 'widget->chat',
+        widgetId: 'timer_stack',
+        eventName: 'timer_finished',
+        to_chat: true,
+        time_critical: true,
+        line: `⏱ "${e.label}" timer finished`,
+      });
+    });
+    inject(DestroyRef).onDestroy(off);
   }
 
   formatRemaining(sec: number): string {

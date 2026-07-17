@@ -30,10 +30,11 @@ import {
   inject,
 } from '@angular/core';
 import { IPC_PORT } from '../ipc/ipc.port';
-import { BusService, StatePatch } from '../shared/bus';
+import { BUS_TRANSCRIPT_SINK, BusService, BusTranscriptSink, StatePatch, TranscriptLine } from '../shared/bus';
 import { ArrangedPanel } from '../shared/layout/layout.model';
 import { LayoutDockComponent, PanelBodyDirective } from '../shared/layout/layout-dock.component';
 import { PanelTransitionDirective } from '../shared/panel-transition/panel-transition.directive';
+import { SessionService } from '../state/session.service';
 import { BoundState } from '../widgets/widget-contract';
 import { boundStateEqual, boundStateFor } from './bound-state';
 import { CompositionService } from './composition.service';
@@ -46,7 +47,23 @@ import { ResolvedWidget, acceptsBoundState, isPlaceholder, resolveWidget } from 
   imports: [NgComponentOutlet, LayoutDockComponent, PanelBodyDirective, PanelTransitionDirective],
   templateUrl: './composed-panel-host.component.html',
   styleUrl: './composed-panel-host.component.css',
-  providers: [BusService],
+  providers: [
+    BusService,
+    // The `to_chat` bridge (SPEC §9.3 #4): forward every bus-appended
+    // TranscriptLine into the VISIBLE chat as a `role:'system'` ChatMessage.
+    // Scoped here (not root) because the bus itself is per-agent — see the
+    // BusService class doc. This NEVER calls InferenceService; SessionService
+    // holds no inference seam, so posting a transcript line structurally
+    // cannot auto-run the model (SPEC §9.3).
+    {
+      provide: BUS_TRANSCRIPT_SINK,
+      useFactory: (session: SessionService): BusTranscriptSink => ({
+        append: (line: TranscriptLine) =>
+          session.addMessage({ id: line.id, role: 'system', text: line.text, streaming: false }),
+      }),
+      deps: [SessionService],
+    },
+  ],
 })
 export class ComposedPanelHostComponent {
   readonly composition = inject(CompositionService);
