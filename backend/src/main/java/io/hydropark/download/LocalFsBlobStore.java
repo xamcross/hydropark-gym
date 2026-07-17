@@ -1,5 +1,6 @@
 package io.hydropark.download;
 
+import io.hydropark.port.Ports;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URLEncoder;
@@ -27,11 +28,16 @@ import org.springframework.stereotype.Component;
  * <p>{@link #store} persists real bytes under {@link BlobStoreProperties#getLocalRoot()}, and
  * {@link BlobServeController} serves them back for a URL that passes {@link #verify} - together
  * these make the whole signed-download contract exercisable without any external service.
+ *
+ * <p>Also implements {@link Ports.BlobStorePort} (the download package's port contribution -
+ * {@code io.hydropark.port.Ports}) so a cross-package publisher (e.g. {@code packaging}'s dev
+ * catalog publisher) can depend on the port rather than importing this concrete download-package
+ * class. {@link #store} already has the exact port signature - no new method needed.
  */
 @Component
 @ConditionalOnProperty(prefix = "hydropark.blobstore", name = "provider", havingValue = "local",
     matchIfMissing = true)
-public class LocalFsBlobStore implements BlobStore {
+public class LocalFsBlobStore implements BlobStore, Ports.BlobStorePort {
 
   private final BlobStoreProperties props;
 

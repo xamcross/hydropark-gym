@@ -1,6 +1,7 @@
 package io.hydropark.packaging;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +24,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.ObjectProvider;
 
 /**
  * P1-23.3 round-trip: {@link DevCatalogPublisher} publishes one certified manifest into a
@@ -65,6 +67,31 @@ class DevCatalogPublisherTest {
     return new PackageSignatureVerifier(new PackageTrustedKeySet(cfg, 5));
   }
 
+  /**
+   * A minimal {@link ObjectProvider} stub resolving to {@code signer}. {@code ObjectProvider}
+   * declares no abstract methods in Spring 6 (every method, including {@code getObject()}, has a
+   * default body) - overriding just {@code getIfAvailable()} is enough since that is the only
+   * method {@link DevCatalogPublisher} calls.
+   */
+  private static ObjectProvider<PackageSigner> providerOf(PackageSigner signer) {
+    return new ObjectProvider<>() {
+      @Override
+      public PackageSigner getIfAvailable() {
+        return signer;
+      }
+    };
+  }
+
+  /** An {@link ObjectProvider} that never resolves a bean - mirrors a zone with no signer wired. */
+  private static ObjectProvider<PackageSigner> emptyProvider() {
+    return new ObjectProvider<>() {
+      @Override
+      public PackageSigner getIfAvailable() {
+        return null;
+      }
+    };
+  }
+
   @Test
   void publishOneManifestProducesAnArchiveThePackageVerifierAccepts(@TempDir Path tempDir)
       throws Exception {
@@ -76,10 +103,10 @@ class DevCatalogPublisherTest {
     props.setLocalRoot(tempDir.toString());
     LocalFsBlobStore blobStore = new LocalFsBlobStore(props);
 
-    DevCatalogPublisher publisher = new DevCatalogPublisher(signer, blobStore);
+    DevCatalogPublisher publisher = new DevCatalogPublisher(providerOf(signer), blobStore);
     var catalogDir = DevCatalogPublisher.catalogDir();
 
-    publisher.publishOne(catalogDir, "kitchen-timer");
+    publisher.publishOne(catalogDir, "kitchen-timer", signer);
 
     // The objectKey convention DownloadService resolves GET /v1/download/skills/{id}/{version}
     // to (mirrors CatalogSeeder's skill_versions.package_uri = "skills/{id}/{version}/package.hpskill").
@@ -127,7 +154,7 @@ class DevCatalogPublisherTest {
     BlobStoreProperties props = new BlobStoreProperties();
     props.setLocalRoot(tempDir.toString());
     LocalFsBlobStore blobStore = new LocalFsBlobStore(props);
-    DevCatalogPublisher publisher = new DevCatalogPublisher(signerFor(k), blobStore);
+    DevCatalogPublisher publisher = new DevCatalogPublisher(providerOf(signerFor(k)), blobStore);
 
     publisher.run(null);
 
@@ -136,5 +163,23 @@ class DevCatalogPublisherTest {
       assertThat(p).as("published archive for %s", id).exists();
     }
     assertThat(DevCatalogPublisher.CATALOG_SKILL_IDS).hasSize(10);
+  }
+
+  @Test
+  void runThrowsAnActionableErrorWhenNoPackageSignerIsWired(@TempDir Path tempDir) {
+    // Mirrors a zone where hydropark.seed.publish-packages=true but hydropark.package-signing.enabled
+    // is not - PackageSignerConfig never wires a PackageSigner bean, so the ObjectProvider resolves
+    // to nothing (getIfAvailable() == null) rather than throwing itself.
+    BlobStoreProperties props = new BlobStoreProperties();
+    props.setLocalRoot(tempDir.toString());
+    LocalFsBlobStore blobStore = new LocalFsBlobStore(props);
+    DevCatalogPublisher publisher = new DevCatalogPublisher(emptyProvider(), blobStore);
+
+    assertThatThrownBy(() -> publisher.run(null))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage(DevCatalogPublisher.SIGNER_MISSING_MESSAGE)
+        .hasMessageContaining("hydropark.seed.publish-packages=true")
+        .hasMessageContaining("hydropark.package-signing.enabled=true")
+        .hasMessageContaining("HP_PACKAGE_SIGNING_ENABLED");
   }
 }

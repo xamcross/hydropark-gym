@@ -3,7 +3,7 @@ package io.hydropark.packaging;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.hydropark.download.BlobStore;
+import io.hydropark.port.Ports;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -14,6 +14,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -56,7 +57,17 @@ import org.springframework.stereotype.Component;
  * application.yml} profile — pass {@code --hydropark.seed.publish-packages=true} as a CLI arg to
  * run it). Requires a {@link PackageSigner} bean, i.e. {@code hydropark.package-signing.enabled=true}
  * with a private key configured (the same {@code HP_PACKAGE_SIGNING_*} secrets {@link
- * PackageSignerConfig} already requires) — this dev tool never holds or generates its own key.
+ * PackageSignerConfig} already requires) — this dev tool never holds or generates its own key. The
+ * {@link PackageSigner} dependency is an {@link ObjectProvider} rather than a direct constructor
+ * argument specifically so a zone that enables {@code hydropark.seed.publish-packages} without also
+ * enabling package-signing fails with an actionable {@link IllegalStateException} at {@link #run}
+ * time (see {@link #requireSigner()}) instead of a raw Spring {@code NoSuchBeanDefinitionException}
+ * at context-refresh time.
+ *
+ * <p>Depends on {@link Ports.BlobStorePort} rather than the concrete {@code
+ * io.hydropark.download.BlobStore}/{@code LocalFsBlobStore} — the cross-package contract {@code
+ * io.hydropark.port.Ports} exists precisely so a publishing tool in another package never imports
+ * the {@code download} domain directly (see the port's own doc comment).
  */
 @Component
 @Order(3)
@@ -86,35 +97,60 @@ public class DevCatalogPublisher implements ApplicationRunner {
           "budget-bills",
           "study-flashcards");
 
+  /**
+   * The actionable failure message when {@code hydropark.seed.publish-packages=true} but no {@link
+   * PackageSigner} bean was ever wired (i.e. {@code hydropark.package-signing.enabled} is not
+   * {@code true} on this zone). Exposed as a constant so the test asserting it can pin the exact
+   * string without duplicating it.
+   */
+  static final String SIGNER_MISSING_MESSAGE =
+      "hydropark.seed.publish-packages=true requires hydropark.package-signing.enabled=true"
+          + " (HP_PACKAGE_SIGNING_ENABLED)";
+
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
-  private final PackageSigner signer;
-  private final BlobStore blobStore;
+  private final ObjectProvider<PackageSigner> signerProvider;
+  private final Ports.BlobStorePort blobStore;
 
-  public DevCatalogPublisher(PackageSigner signer, BlobStore blobStore) {
-    this.signer = signer;
+  public DevCatalogPublisher(ObjectProvider<PackageSigner> signerProvider, Ports.BlobStorePort blobStore) {
+    this.signerProvider = signerProvider;
     this.blobStore = blobStore;
   }
 
   @Override
   public void run(ApplicationArguments args) {
+    PackageSigner signer = requireSigner();
     File dir = catalogDir();
     int count = 0;
     for (String skillId : CATALOG_SKILL_IDS) {
-      publishOne(dir, skillId);
+      publishOne(dir, skillId, signer);
       count++;
     }
     log.info("dev catalog publisher: published {} signed .hpskill package(s) to the blob root", count);
   }
 
+  /**
+   * Resolves the package-signing bean, failing loudly and actionably (naming both flags) rather
+   * than letting Spring's context refresh fail with an opaque {@code NoSuchBeanDefinitionException}
+   * — or, worse, letting this runner silently no-op if a future refactor ever made the dependency
+   * optional-and-ignored.
+   */
+  PackageSigner requireSigner() {
+    PackageSigner signer = signerProvider.getIfAvailable();
+    if (signer == null) {
+      throw new IllegalStateException(SIGNER_MISSING_MESSAGE);
+    }
+    return signer;
+  }
+
   /** Publishes one certified manifest's signed {@code .hpskill} archive. Package-private for tests. */
-  void publishOne(File catalogDir, String skillId) {
+  void publishOne(File catalogDir, String skillId, PackageSigner signer) {
     JsonNode manifest = readManifest(catalogDir, skillId);
     String version = manifest.path("version").asText("");
     if (version.isBlank()) {
       throw new IllegalStateException("manifest '" + skillId + "' has no 'version' field");
     }
-    byte[] signedManifestBytes = signManifest(manifest);
+    byte[] signedManifestBytes = signManifest(manifest, signer);
     byte[] archive = buildArchive(signedManifestBytes);
     String objectKey = objectKey(skillId, version);
     blobStore.store(objectKey, archive);
@@ -163,7 +199,7 @@ public class DevCatalogPublisher implements ApplicationRunner {
    * production caller signs a package today — {@code RegistrySubmissionController} only certifies,
    * P1-19/P1-20 — so this dev tool is the first real exerciser of {@link PackageSigner} end to end.)
    */
-  private byte[] signManifest(JsonNode manifest) {
+  private byte[] signManifest(JsonNode manifest, PackageSigner signer) {
     ObjectNode copy = (ObjectNode) manifest.deepCopy();
     PackageSignature sig = signer.sign(copy);
     copy.put(ManifestCanonicalizer.SIGNATURE_FIELD, sig.signature());

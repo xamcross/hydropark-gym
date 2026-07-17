@@ -1,5 +1,6 @@
 package io.hydropark.download;
 
+import io.hydropark.port.Ports;
 import java.time.Duration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -11,10 +12,15 @@ import org.springframework.stereotype.Component;
  * <p>Deliberately not implemented: a real adapter would presign a GET against the R2 S3-compatible
  * endpoint (AWS SigV4, short expiry), which needs an access key id / secret and the bucket + account
  * host. Rather than ship a half-built client, this fails loudly if selected.
+ *
+ * <p>Also implements {@link Ports.BlobStorePort} (the download package's port contribution -
+ * {@code io.hydropark.port.Ports}) so a cross-package publisher can depend on the port rather than
+ * this concrete package. {@code store} already has the exact port signature; the stub behavior
+ * (throw) satisfies it as-is.
  */
 @Component
 @ConditionalOnProperty(prefix = "hydropark.blobstore", name = "provider", havingValue = "r2")
-public class R2BlobStore implements BlobStore {
+public class R2BlobStore implements BlobStore, Ports.BlobStorePort {
 
   public R2BlobStore(BlobStoreProperties props) {
     // Creds (access key / secret / account host / bucket) would bind from props here.
