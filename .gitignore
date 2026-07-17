@@ -75,8 +75,10 @@ npm-debug.log*
 /demos/
 /.superpowers/
 # local dev-loop state (demo-readiness push): mongo replica-set data + blobstore root
+# (blobstore-dev unanchored: the backend resolves its default ./blobstore-dev against
+# its own working dir, so the root lands at backend/blobstore-dev in the dev loop)
 /.mongo-rs0/
-/blobstore-dev/
+blobstore-dev/
 /research/
 /sprint/
 backend/docs/KEY-COMPROMISE-RUNBOOK.md
