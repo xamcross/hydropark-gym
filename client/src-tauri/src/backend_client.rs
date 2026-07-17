@@ -310,6 +310,10 @@ mod wire {
         pub changelog: Option<String>,
         #[serde(default)]
         pub owned: Option<bool>,
+        /// F05: the manifest-derived capability-token array (SkillDetailDto.capabilities).
+        /// Defaulted so a backend that predates this field still decodes.
+        #[serde(default)]
+        pub capabilities: Vec<String>,
     }
 
     /// `POST /v1/orders/checkout` (CheckoutResponse). `checkout_url` is null for
@@ -445,6 +449,7 @@ fn map_skill_detail(w: wire::SkillDetail) -> SkillDetail {
         current_version,
         changelog: w.changelog,
         ownership: w.owned,
+        capabilities: w.capabilities,
     }
 }
 
@@ -978,7 +983,8 @@ mod tests {
             "sha256": "deadbeef", "is_current": true, "changelog": "fixes",
             "status": "published"
           },
-          "changelog": "fixes", "owned": true
+          "changelog": "fixes", "owned": true,
+          "capabilities": ["calculation", "unit_conversion", "list_management", "timers", "date_math"]
         }"#;
 
         let d = decode_skill_detail(json).expect("decodes");
@@ -990,6 +996,48 @@ mod tests {
         assert_eq!(d.size_bytes, Some(999));
         assert_eq!(d.hardware_badge, "Needs a mid-range PC");
         assert_eq!(d.ownership, Some(true));
+        assert_eq!(
+            d.capabilities,
+            vec!["calculation", "unit_conversion", "list_management", "timers", "date_math"]
+        );
+    }
+
+    /// F05: a real skill's capability tokens must reach the IPC `SkillDetail` the
+    /// capability-consent dialog's input is built from — this is the RED/GREEN case
+    /// that was missing before the fix (a real detail always yielded `capabilities: []`,
+    /// so the disclosure dialog fell back to "This skill uses no special capabilities."
+    /// for every skill).
+    #[test]
+    fn decode_skill_detail_carries_capabilities_onto_the_ipc_shape() {
+        let json = r#"{
+          "id": "cooking-assistant", "name": "Cooking Assistant", "category": "kitchen",
+          "is_free": false, "status": "published",
+          "price": { "amount": 500, "currency": "USD" },
+          "has_preview": false,
+          "capabilities": ["timers", "unit_conversion", "list_management"]
+        }"#;
+
+        let d = decode_skill_detail(json).expect("decodes");
+        assert_eq!(d.capabilities, vec!["timers", "unit_conversion", "list_management"]);
+
+        // Round-trips onto the camelCase IPC wire (the webview's actual input shape).
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v["capabilities"], serde_json::json!(["timers", "unit_conversion", "list_management"]));
+    }
+
+    /// A backend response with no `capabilities` key (predates F05, or a bundle/legacy row)
+    /// must decode to an empty list, never fail to decode.
+    #[test]
+    fn decode_skill_detail_defaults_capabilities_to_empty_when_absent() {
+        let json = r#"{
+          "id": "legacy-skill", "name": "Legacy Skill", "category": "home",
+          "is_free": false, "status": "published",
+          "price": { "amount": 500, "currency": "USD" },
+          "has_preview": false
+        }"#;
+
+        let d = decode_skill_detail(json).expect("decodes even with no capabilities key");
+        assert!(d.capabilities.is_empty());
     }
 
     #[test]

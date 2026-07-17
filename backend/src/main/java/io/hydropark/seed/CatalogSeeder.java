@@ -100,7 +100,8 @@ public class CatalogSeeder implements ApplicationRunner {
             "kitchen",
             true,
             0,
-            "Kitchen timers plus exact US/metric unit conversion and a tick-off ingredient checklist."),
+            "Kitchen timers plus exact US/metric unit conversion and a tick-off ingredient checklist.",
+            List.of("timers", "unit_conversion", "list_management")),
         new SkillSeed(
             "packing-list",
             "Packing List",
@@ -109,7 +110,8 @@ public class CatalogSeeder implements ApplicationRunner {
             0,
             "Turns a trip description into a grouped, tick-off packing checklist scaled to trip"
                 + " length, with date math to shift a departure date by the trip length to find"
-                + " your return date."),
+                + " your return date.",
+            List.of("list_management", "date_math", "calculation")),
 
         // --- paid (8), $5 each, base_currency USD ---
         // 6 named in landing-gym/index.html, plus budget-bills and study-flashcards:
@@ -120,7 +122,8 @@ public class CatalogSeeder implements ApplicationRunner {
             false,
             500,
             "Cooking specialist: recipes, ingredient substitutions with ratios, serving-scaling,"
-                + " and step timers, with deterministic allergen warnings."),
+                + " and step timers, with deterministic allergen warnings.",
+            List.of("timers", "unit_conversion", "list_management")),
         new SkillSeed(
             "nutrition-coach",
             "Nutrition Coach",
@@ -129,7 +132,8 @@ public class CatalogSeeder implements ApplicationRunner {
             500,
             "Educational nutrition helper: balanced-eating concepts, rough calorie and macro"
                 + " estimates, a food log, and unit conversion. Informational only, not medical"
-                + " advice."),
+                + " advice.",
+            List.of("calculation", "list_management", "unit_conversion")),
         new SkillSeed(
             "travel-planner",
             "Travel Planner",
@@ -138,7 +142,8 @@ public class CatalogSeeder implements ApplicationRunner {
             500,
             "Trip-planning specialist: day-by-day itineraries, date math to shift a departure or"
                 + " return date, rough budget splits, and C/F weather conversion — no live"
-                + " bookings or prices."),
+                + " bookings or prices.",
+            List.of("list_management", "date_math", "calculation", "unit_conversion")),
         new SkillSeed(
             "home-diy",
             "Home & DIY",
@@ -147,7 +152,8 @@ public class CatalogSeeder implements ApplicationRunner {
             500,
             "Home-improvement helper: material estimates (paint, tile, flooring, concrete),"
                 + " metric/US conversion, a tools-and-materials checklist, and drying timers."
-                + " Safety-critical work is referred to a professional."),
+                + " Safety-critical work is referred to a professional.",
+            List.of("calculation", "unit_conversion", "list_management", "timers", "date_math")),
         new SkillSeed(
             "garden-plants",
             "Garden & Plants",
@@ -156,7 +162,8 @@ public class CatalogSeeder implements ApplicationRunner {
             500,
             "Gardening companion: planting windows from frost dates, watering and care routines,"
                 + " spacing and fertilizer math, and care timers. It never identifies wild or"
-                + " foraged plants for eating."),
+                + " foraged plants for eating.",
+            List.of("date_math", "list_management", "calculation", "unit_conversion", "timers")),
         new SkillSeed(
             "car-care",
             "Car Care",
@@ -165,7 +172,8 @@ public class CatalogSeeder implements ApplicationRunner {
             500,
             "Routine car-care helper: service-interval reminders, a maintenance log, fuel-economy"
                 + " and fluid math, owner-level checks, and general warning-light explanations."
-                + " Safety-critical repairs go to a mechanic."),
+                + " Safety-critical repairs go to a mechanic.",
+            List.of("list_management", "date_math", "calculation", "unit_conversion", "timers")),
         new SkillSeed(
             "budget-bills",
             "Budget & Bills",
@@ -174,7 +182,8 @@ public class CatalogSeeder implements ApplicationRunner {
             500,
             "Everyday budgeting helper: a bills checklist with due-date math, totals and cost"
                 + " splits, percentage-of-income and savings-goal math, and plain explanations of"
-                + " budgeting frameworks. General education, not financial advice."),
+                + " budgeting frameworks. General education, not financial advice.",
+            List.of("list_management", "calculation", "date_math")),
         new SkillSeed(
             "study-flashcards",
             "Study & Flashcards",
@@ -183,7 +192,8 @@ public class CatalogSeeder implements ApplicationRunner {
             500,
             "Study coach: turns your notes into flashcards, quizzes with active recall, schedules"
                 + " spaced-repetition reviews, runs focus timers, and does grade math. It works"
-                + " only from material you provide."));
+                + " only from material you provide.",
+            List.of("list_management", "date_math", "timers", "calculation")));
   }
 
   private int seedSkills() {
@@ -215,6 +225,8 @@ public class CatalogSeeder implements ApplicationRunner {
         // Never a live curated demo transcript in seed data - left null deliberately.
         .append("preview_transcript_uri", null)
         .append("min_model_tier", "small")
+        // F05: the manifest's top-level capability-token array (install-time disclosure source).
+        .append("capabilities", s.capabilities())
         .append("created_at", createdAt)
         .append("updated_at", Instant.now());
   }
@@ -395,5 +407,11 @@ public class CatalogSeeder implements ApplicationRunner {
   }
 
   record SkillSeed(
-      String id, String name, String category, boolean free, long basePriceMinor, String compressedPrompt) {}
+      String id,
+      String name,
+      String category,
+      boolean free,
+      long basePriceMinor,
+      String compressedPrompt,
+      List<String> capabilities) {}
 }

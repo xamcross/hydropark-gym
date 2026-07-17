@@ -540,6 +540,13 @@ pub struct CatalogListResult {
 /// `GET /v1/catalog/skills/{id}` reshaped for the detail page. Carries the
 /// backend's `compressed_prompt` teaser ONLY — never a full system prompt
 /// (there is no such field on the wire; see SkillDetailDto's javadoc).
+///
+/// `capabilities` (F05) is the skill's manifest-derived capability-token
+/// array (e.g. `["timers","unit_conversion","list_management"]`) sourced
+/// from the backend's `SkillDetailDto.capabilities` — the REAL input to the
+/// install-time capability-consent dialog (Task 10's `capability_disclose`),
+/// as opposed to deriving it client-side from `tools`. Always present
+/// (possibly empty), never omitted.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillDetail {
@@ -558,6 +565,8 @@ pub struct SkillDetail {
     pub current_version: Option<String>,
     pub changelog: Option<String>,
     pub ownership: Option<bool>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 // --- orders (optional bearer) ----------------------------------------------

@@ -1,6 +1,7 @@
 package io.hydropark.catalog;
 
 import java.time.Instant;
+import java.util.List;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
@@ -46,6 +47,15 @@ public class Skill {
 
   @Field("min_model_tier")
   private String minModelTier;
+
+  /**
+   * The manifest's top-level {@code capabilities} token array (F05) - the v1 closed set (e.g.
+   * {@code "timers"}, {@code "unit_conversion"}, {@code "list_management"}, {@code "calculation"},
+   * {@code "date_math"}). This is the install-time capability-disclosure source (SPEC §8.5/§11);
+   * distinct from {@code tools}, which this document never carries.
+   */
+  @Field("capabilities")
+  private List<String> capabilities;
 
   @Field("created_at")
   private Instant createdAt;
@@ -133,6 +143,14 @@ public class Skill {
 
   public void setMinModelTier(String minModelTier) {
     this.minModelTier = minModelTier;
+  }
+
+  public List<String> getCapabilities() {
+    return capabilities;
+  }
+
+  public void setCapabilities(List<String> capabilities) {
+    this.capabilities = capabilities;
   }
 
   public Instant getCreatedAt() {

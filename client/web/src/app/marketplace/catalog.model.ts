@@ -133,6 +133,16 @@ export interface SkillDetail {
   tools?: string[];
   /** Example prompts to try. */
   sample_prompts?: string[];
+
+  /**
+   * F05: the skill's manifest-derived §8.5 capability tokens (e.g.
+   * `["timers","unit_conversion","list_management"]`), as sourced from the
+   * backend (`SkillDetailDto.capabilities` → `ipc::SkillDetail.capabilities`).
+   * Present (possibly empty array) on a real `CatalogIpcAdapter` detail;
+   * `undefined` on the `ng serve` stub, which supplies `tools` instead — see
+   * {@link effectiveCapabilities}, the single place that reconciles the two.
+   */
+  capabilities?: string[];
 }
 
 // ── try-before-buy preview (SPEC §11.4, P1-08.4) ─────────────────────────────
@@ -365,6 +375,20 @@ export function capabilitiesForTools(tools: string[] | undefined | null): string
     }
   }
   return out;
+}
+
+/**
+ * F05: the single place that decides what the capability-consent dialog
+ * discloses. `CatalogIpcAdapter` (the real backend path) now populates {@link
+ * SkillDetail.capabilities} directly from the backend's certified manifest
+ * data — that is the honest source and wins whenever it is present, even if
+ * empty. `StubCatalogPort` (the `ng serve` fallback) does not set it, only
+ * `tools`, so falling back to {@link capabilitiesForTools} keeps the stub's
+ * disclosure exactly as it was before this field existed.
+ */
+export function effectiveCapabilities(detail: Pick<SkillDetail, 'capabilities' | 'tools'>): string[] {
+  if (detail.capabilities !== undefined) return detail.capabilities;
+  return capabilitiesForTools(detail.tools);
 }
 
 // ── formatting + hardware-fit helpers (presentational, pure) ─────────────────

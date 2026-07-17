@@ -69,14 +69,16 @@ class CatalogSeederManifestConsistencyTest {
   }
 
   /** The manifest-derived fields the seeder must agree with, keyed by manifest {@code id}. */
-  private record ManifestExpectation(boolean free, long priceMinor, String compressedPrompt) {}
+  private record ManifestExpectation(
+      boolean free, long priceMinor, String compressedPrompt, Set<String> capabilities) {}
 
   /**
-   * Reads every certified manifest's {@code id}, {@code pricing.free}, price (minor units), and
-   * {@code persona.compressed_prompt}. Accepts either pricing shape the schema allows for a paid
-   * skill — {@code pricing.price.amount_minor} (what every current manifest uses) or the {@code
-   * pricing.price_usd} shorthand — so this test does not silently pass if a future manifest is
-   * authored with the shorthand form.
+   * Reads every certified manifest's {@code id}, {@code pricing.free}, price (minor units), {@code
+   * persona.compressed_prompt}, and top-level {@code capabilities} token array (F05 — the
+   * install-time capability-disclosure source, SPEC §8.5/§11). Accepts either pricing shape the
+   * schema allows for a paid skill — {@code pricing.price.amount_minor} (what every current
+   * manifest uses) or the {@code pricing.price_usd} shorthand — so this test does not silently pass
+   * if a future manifest is authored with the shorthand form.
    */
   private static Map<String, ManifestExpectation> loadManifestExpectations() throws Exception {
     Map<String, ManifestExpectation> byId = new TreeMap<>();
@@ -105,7 +107,11 @@ class CatalogSeederManifestConsistencyTest {
           .as("persona.compressed_prompt for manifest %s", id)
           .isNotBlank();
 
-      byId.put(id, new ManifestExpectation(free, priceMinor, compressedPrompt));
+      Set<String> capabilities = new TreeSet<>();
+      manifest.path("capabilities").forEach(node -> capabilities.add(node.asText()));
+      assertThat(capabilities).as("capabilities for manifest %s", id).isNotEmpty();
+
+      byId.put(id, new ManifestExpectation(free, priceMinor, compressedPrompt, capabilities));
     }
     return byId;
   }
@@ -154,6 +160,27 @@ class CatalogSeederManifestConsistencyTest {
   }
 
   @Test
+  void everySeederEntryExposesExactlyItsManifestCapabilities() throws Exception {
+    // F05: the install-time capability-disclosure dialog derives its "This skill can: …" summary
+    // from the skills document's capabilities field, ultimately sourced from CatalogService -
+    // this pins the seeder's half of that path to the certified manifests' top-level
+    // `capabilities` token array so a real skill never discloses an empty/stale set.
+    Map<String, ManifestExpectation> manifests = loadManifestExpectations();
+
+    for (SkillSeed s : seederCatalog()) {
+      ManifestExpectation expected = manifests.get(s.id());
+      assertThat(expected)
+          .as("seeder id '%s' has no certified manifest under %s", s.id(), catalogDir())
+          .isNotNull();
+
+      assertThat(s.capabilities())
+          .as("%s: capabilities", s.id())
+          .isNotEmpty()
+          .containsExactlyInAnyOrderElementsOf(expected.capabilities());
+    }
+  }
+
+  @Test
   void seededSkillDocumentsNeverCarrySystemPrompt() {
     // SF8: the full persona (system_prompt) is paid IP that lives only inside the signed
     // .hpskill package. Mongo — and therefore this seeder's output — must only ever hold
@@ -177,6 +204,10 @@ class CatalogSeederManifestConsistencyTest {
       assertThat(doc.getString("compressed_prompt"))
           .as("%s: document compressed_prompt must equal the SkillSeed value", s.id())
           .isEqualTo(s.compressedPrompt());
+
+      assertThat(doc.get("capabilities"))
+          .as("%s: document capabilities must equal the SkillSeed value (F05)", s.id())
+          .isEqualTo(s.capabilities());
     }
   }
 }

@@ -75,8 +75,10 @@ class StubCatalogPort extends CatalogPort {
 
 /** A structurally-complete `SkillDetail` fixture with `tools` set, so
  * `capabilitiesForTools` has something to derive (mirrors purchase.service.spec.ts's
- * `detail()` fixture, plus `tools`). */
-function detail(id: string, tools: string[]): SkillDetail {
+ * `detail()` fixture, plus `tools`). `capabilities`, when passed, models the REAL
+ * `CatalogIpcAdapter` path (F05) — undefined models the `ng serve` stub, which never
+ * sets it. */
+function detail(id: string, tools: string[], capabilities?: string[]): SkillDetail {
   return {
     id,
     name: 'Demo Skill',
@@ -100,6 +102,7 @@ function detail(id: string, tools: string[]): SkillDetail {
     changelog: null,
     owned: false,
     tools,
+    capabilities,
   };
 }
 
@@ -256,5 +259,49 @@ describe('SkillDetailComponent — install-time capability disclosure dialog (Ta
     expect(dispatchSpy).toHaveBeenCalledTimes(2);
     expect(dispatchSpy.calls.argsFor(0)).toEqual([DETAIL, 'disable']);
     expect(dispatchSpy.calls.argsFor(1)).toEqual([DETAIL, 'uninstall']);
+  });
+});
+
+describe('SkillDetailComponent — F05: real backend capabilities win over tools-derivation', () => {
+  // The exact bug Task 10's review flagged: a real `CatalogIpcAdapter` detail carries
+  // `capabilities` (from the backend's certified manifest data) but the derivable-from-`tools`
+  // set would be different/empty. The dialog must disclose the REAL capabilities, not what
+  // `tools` implies — proving `effectiveCapabilities` prefers `capabilities` when present.
+  const REAL_DETAIL = detail('cooking-assistant', [], ['timers', 'unit_conversion', 'list_management']);
+
+  let ipc: ScriptedIpc;
+  let component: SkillDetailComponent;
+  let fixture: ReturnType<typeof TestBed.createComponent<SkillDetailComponent>>;
+
+  beforeEach(() => {
+    ipc = new ScriptedIpc();
+    const catalog = new StubCatalogPort(REAL_DETAIL, { skill_id: 'cooking-assistant', state: 'not-owned' });
+
+    TestBed.configureTestingModule({
+      imports: [SkillDetailComponent],
+      providers: [
+        { provide: CATALOG_PORT, useValue: catalog },
+        { provide: IPC_PORT, useValue: ipc },
+      ],
+    });
+
+    fixture = TestBed.createComponent(SkillDetailComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('skillId', 'cooking-assistant');
+  });
+
+  it('discloses the real capabilities even though `tools` is empty (would derive nothing)', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    component.onAction('install');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.consentCapabilities()).toEqual(['timers', 'unit_conversion', 'list_management']);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('This skill can: set timers, convert units, manage a list');
   });
 });

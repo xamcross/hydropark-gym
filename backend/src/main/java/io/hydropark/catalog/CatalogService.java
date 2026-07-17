@@ -157,6 +157,8 @@ public class CatalogService {
     RequirementsDto requirements =
         new RequirementsDto(skill.getMinModelTier(), current == null ? null : current.getMinAppVersion());
     SkillVersionDto currentDto = current == null ? null : toVersionDto(current);
+    // F05: never null-vs-empty ambiguous for the capability-disclosure client path.
+    List<String> capabilities = skill.getCapabilities() == null ? List.of() : skill.getCapabilities();
 
     return new SkillDetailDto(
         skill.getId(),
@@ -171,7 +173,8 @@ public class CatalogService {
         requirements,
         currentDto,
         current == null ? null : current.getChangelog(),
-        owned);
+        owned,
+        capabilities);
   }
 
   // ---------------------------------------------------------------------------------------------

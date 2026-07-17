@@ -4,7 +4,7 @@ import {
   OwnershipAction,
   OwnershipState,
   SkillDetail,
-  capabilitiesForTools,
+  effectiveCapabilities,
   formatPrice,
   formatSize,
   runsOnThisPc,
@@ -35,14 +35,15 @@ type Phase = 'loading' | 'ready' | 'error';
  * enable) — whose live per-skill override, when present, wins over the baseline
  * ({@link displayState}). The `action` output is still emitted for the host.
  *
- * ── INSTALL-TIME CAPABILITY DISCLOSURE (SPEC §8.5 / §11, Task 10) ───────────
+ * ── INSTALL-TIME CAPABILITY DISCLOSURE (SPEC §8.5 / §11, Task 10 / F05) ─────
  * `'install'` and `'buy'` intents do NOT reach {@link PurchaseService} directly:
  * {@link onAction} first opens {@link CapabilityConsentComponent} — the B4 trust
- * surface, "This skill can: …" — derived from the skill's `tools` via
- * {@link capabilitiesForTools}. Only on Confirm does the real dispatch run;
- * Cancel aborts with no state change and no `action` emit. `'enable'` /
- * `'disable'` / `'uninstall'` are NOT intercepted — they dispatch immediately,
- * exactly as before.
+ * surface, "This skill can: …" — derived from the detail via {@link
+ * effectiveCapabilities}, which prefers the backend's real {@link
+ * SkillDetail.capabilities} and falls back to deriving from `tools` only for the
+ * `ng serve` stub. Only on Confirm does the real dispatch run; Cancel aborts with
+ * no state change and no `action` emit. `'enable'` / `'disable'` / `'uninstall'`
+ * are NOT intercepted — they dispatch immediately, exactly as before.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 @Component({
@@ -128,7 +129,7 @@ export class SkillDetailComponent {
 
   /** True while the capability-consent dialog is open. */
   readonly consentOpen = signal(false);
-  /** The capability tokens the open dialog discloses (derived from `detail().tools`). */
+  /** The capability tokens the open dialog discloses ({@link effectiveCapabilities} of `detail()`). */
   readonly consentCapabilities = signal<string[]>([]);
   /** The action awaiting confirmation ('install' | 'buy') — null once resolved. */
   private pendingAction: OwnershipAction | null = null;
@@ -144,7 +145,7 @@ export class SkillDetailComponent {
     if (!d) return;
     if (action === 'install' || action === 'buy') {
       this.pendingAction = action;
-      this.consentCapabilities.set(capabilitiesForTools(d.tools));
+      this.consentCapabilities.set(effectiveCapabilities(d));
       this.consentOpen.set(true);
       return;
     }

@@ -542,6 +542,14 @@ export interface SkillDetail {
   hasPreview?: boolean;
   currentVersion?: string;
   changelog?: string;
+  /**
+   * F05: the skill's manifest-derived capability-token array (e.g.
+   * `["timers","unit_conversion","list_management"]`), sourced from the backend's
+   * `SkillDetailDto.capabilities`. Mirrors `ipc::SkillDetail.capabilities` in
+   * `ipc.rs` — always present (possibly empty) on a real detail response, unlike
+   * `tools` (which the backend never populates).
+   */
+  capabilities?: string[];
 }
 
 export interface OrderCheckoutArgs {

@@ -165,6 +165,11 @@ function toModelDetail(d: IpcSkillDetail): SkillDetail {
     panels: d.panels,
     tools: d.tools,
     sample_prompts: d.samplePrompts,
+    // F05: the real capability-disclosure source (SkillDetailDto.capabilities via
+    // ipc::SkillDetail.capabilities) — always an array (possibly empty) from the
+    // real backend, never derived client-side from `tools` (which the backend
+    // never populates). See `catalog.model.ts#effectiveCapabilities`.
+    capabilities: d.capabilities ?? [],
   };
 }
 
