@@ -100,11 +100,19 @@ public class LocalFsBlobStore implements BlobStore {
   }
 
   /**
-   * Resolves {@code objectKey} against {@code local-root} and refuses to leave it - an absolute
-   * key or a {@code ..} segment that would climb above the root throws rather than silently
-   * reading or writing outside the dev blobstore directory. {@link BlobServeController} reuses
-   * this exact guard for every inbound {@code GET /blobs/...} request, so the two never disagree
-   * about what counts as an escape.
+   * Resolves {@code objectKey} against {@code local-root} and refuses to leave it.
+   *
+   * <p>A leading {@code /} or {@code \} is stripped first, so a Unix-style "absolute" key such as
+   * {@code /etc/passwd} is silently relativized to {@code etc/passwd} rather than rejected
+   * outright - containment for it (and for any relative key laced with {@code ..}, either slash
+   * style) comes entirely from the final {@code startsWith(root)} check after normalization. Only
+   * a key that is still absolute <em>after</em> that stripping - e.g. a drive-qualified {@code
+   * C:/Windows/win.ini} on Windows - throws immediately, before normalization even runs.
+   *
+   * <p>Either way, anything that would climb above the root throws rather than silently reading
+   * or writing outside the dev blobstore directory. {@link BlobServeController} reuses this exact
+   * guard for every inbound {@code GET /blobs/...} request, so the two never disagree about what
+   * counts as an escape.
    */
   Path resolve(String objectKey) {
     if (objectKey == null || objectKey.isBlank()) {
