@@ -49,7 +49,7 @@ use ipc::{
     SkillInstallResult, SkillUninstallArgs, SkillUninstallResult, StepUpAnswerArgs, StepUpAnswerResult,
     TelemetryEvent, TemplateLoadArgs, TemplateLoadResult, TemplateSaveArgs, TemplateView,
     TimerControlArgs, TimerStateSnapshot, ToolCallError, ToolCallErrorCode, ToolCallRequest,
-    ToolCallResponse, ToolName, UpdateCheckResult,
+    ToolCallResponse, ToolName, UiStateLoadArgs, UiStateSaveArgs, UpdateCheckResult,
 };
 use session::SessionManager;
 use store::Store;
@@ -658,6 +658,51 @@ fn template_load(
     template_load_with_store(args, session.inner().store())
 }
 
+// ---------------------------------------------------------------------------
+// UI / panel state (Task 12, SPEC §9) — the IPC counterpart of the Angular
+// `StorageBackend` seam's `set`/`get`, over the EXISTING `store.rs`
+// `save_panel_state`/`load_panel_state` (no new store logic). Same
+// `*_with_store` split as the template commands above, for the same reason:
+// testable without a Tauri runtime, and mirroring exactly how
+// `template_save`/`template_load` reach the managed store via
+// `session.inner().store()`.
+// ---------------------------------------------------------------------------
+
+/// **Save UI/panel state** (Task 12, SPEC §9) over a given store.
+fn ui_state_save_with_store(args: UiStateSaveArgs, store: &Arc<Mutex<Store>>) -> Result<(), CmdError> {
+    store
+        .lock()
+        .expect("ui state store mutex poisoned")
+        .save_panel_state(&args.agent_id, &args.body)
+        .map_err(|e| CmdError::UiState(e.to_string()))
+}
+
+/// **Load UI/panel state** (Task 12, SPEC §9) over a given store, or `None`
+/// when nothing has been saved yet for this agent.
+fn ui_state_load_with_store(
+    args: UiStateLoadArgs,
+    store: &Arc<Mutex<Store>>,
+) -> Result<Option<serde_json::Value>, CmdError> {
+    store
+        .lock()
+        .expect("ui state store mutex poisoned")
+        .load_panel_state(&args.agent_id)
+        .map_err(|e| CmdError::UiState(e.to_string()))
+}
+
+#[tauri::command]
+fn ui_state_save(args: UiStateSaveArgs, session: State<'_, SessionManager>) -> Result<(), CmdError> {
+    ui_state_save_with_store(args, session.inner().store())
+}
+
+#[tauri::command]
+fn ui_state_load(
+    args: UiStateLoadArgs,
+    session: State<'_, SessionManager>,
+) -> Result<Option<serde_json::Value>, CmdError> {
+    ui_state_load_with_store(args, session.inner().store())
+}
+
 /// Open (creating + migrating) the on-device SQLite store under the app-data dir.
 fn open_app_store(app: &AppHandle) -> Result<Store, Box<dyn std::error::Error>> {
     let dir = app.path().app_data_dir()?;
@@ -783,6 +828,8 @@ fn main() {
             template_save,
             template_list,
             template_load,
+            ui_state_save,
+            ui_state_load,
             unlock::unlock_redeem,
             unlock::unlock_status,
         ])
@@ -998,5 +1045,81 @@ mod template_tests {
     fn empty_list_before_any_save() {
         let store = store();
         assert!(template_list_with_store(&store).unwrap().is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Task 12 (`ui_state_save`/`ui_state_load` over IPC, SPEC §9).
+// Exercised directly against the `*_with_store` fns (no Tauri runtime
+// needed — mirrors `template_tests` above, which mirrors
+// `capability_disclose_tests`).
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod ui_state_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn store() -> Arc<Mutex<Store>> {
+        Arc::new(Mutex::new(Store::open_in_memory().expect("in-memory store opens + migrates")))
+    }
+
+    #[test]
+    fn save_then_load_round_trips_panel_state() {
+        let store = store();
+        assert_eq!(
+            ui_state_load_with_store(UiStateLoadArgs { agent_id: "agent-1".to_string() }, &store).unwrap(),
+            None,
+            "absent before any save"
+        );
+
+        let body = json!({
+            "order": ["timers", "ingredients"],
+            "panels": [{ "id": "timers", "collapsed": false }]
+        });
+        ui_state_save_with_store(
+            UiStateSaveArgs { agent_id: "agent-1".to_string(), body: body.clone() },
+            &store,
+        )
+        .unwrap();
+
+        let loaded =
+            ui_state_load_with_store(UiStateLoadArgs { agent_id: "agent-1".to_string() }, &store).unwrap();
+        assert_eq!(loaded, Some(body));
+    }
+
+    #[test]
+    fn state_is_isolated_per_agent() {
+        let store = store();
+        ui_state_save_with_store(
+            UiStateSaveArgs { agent_id: "agent-1".to_string(), body: json!({ "a": 1 }) },
+            &store,
+        )
+        .unwrap();
+
+        assert_eq!(
+            ui_state_load_with_store(UiStateLoadArgs { agent_id: "agent-2".to_string() }, &store).unwrap(),
+            None,
+            "state does not leak across agents"
+        );
+    }
+
+    #[test]
+    fn saving_again_replaces_the_stored_state() {
+        let store = store();
+        ui_state_save_with_store(
+            UiStateSaveArgs { agent_id: "agent-1".to_string(), body: json!({ "v": 1 }) },
+            &store,
+        )
+        .unwrap();
+        ui_state_save_with_store(
+            UiStateSaveArgs { agent_id: "agent-1".to_string(), body: json!({ "v": 2 }) },
+            &store,
+        )
+        .unwrap();
+
+        let loaded =
+            ui_state_load_with_store(UiStateLoadArgs { agent_id: "agent-1".to_string() }, &store).unwrap();
+        assert_eq!(loaded, Some(json!({ "v": 2 })), "upsert replaces, not duplicates");
     }
 }

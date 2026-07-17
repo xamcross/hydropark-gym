@@ -942,6 +942,32 @@ pub struct TemplateLoadResult {
 }
 
 // ---------------------------------------------------------------------------
+// UI / panel state (Task 12, SPEC §9) — persist the webview's panel/layout
+// state to the on-device store so it survives an app restart (B2 reload
+// continuity: arrange panels → quit → relaunch → arrangement restored). A
+// pure on-device feature (no backend network call), same shape as templates
+// above; this layer only forwards to `store.rs`'s EXISTING
+// `save_panel_state`/`load_panel_state` (Task 10.1/.4) — no new store logic.
+// `body` is opaque JSON: the Angular `StorageBackend` seam
+// (client/web/.../persistence/storage-backend.ts) owns what it contains, this
+// layer just round-trips it keyed by `agent_id`.
+// ---------------------------------------------------------------------------
+
+/// `ui_state_save` args — the opaque panel/UI state blob to persist, keyed by
+/// `agent_id`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiStateSaveArgs {
+    pub agent_id: String,
+    pub body: serde_json::Value,
+}
+
+/// `ui_state_load` args — the agent id to load panel/UI state for.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiStateLoadArgs {
+    pub agent_id: String,
+}
+
+// ---------------------------------------------------------------------------
 // Command errors
 // ---------------------------------------------------------------------------
 
@@ -988,6 +1014,10 @@ pub enum CmdError {
     /// message.
     #[error("template store error: {0}")]
     Template(String),
+    /// A local UI/panel-state (SPEC §9) store operation failed — the on-device
+    /// `panel_state` table (save/load). Carries the `store::StoreError` message.
+    #[error("ui state store error: {0}")]
+    UiState(String),
 }
 
 impl From<std::io::Error> for CmdError {

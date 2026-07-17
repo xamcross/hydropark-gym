@@ -1005,6 +1005,28 @@ export interface TemplateLoadResult {
 }
 
 // ---------------------------------------------------------------------------
+// UI / panel state (Task 12, SPEC §9) — persist the webview's panel/layout
+// state to the on-device SQLite store so it survives an app restart (B2
+// reload continuity: arrange panels → quit → relaunch → arrangement
+// restored). Mirrors `ipc.rs` `UiStateSaveArgs`/`UiStateLoadArgs` field-for-
+// field — snake_case wire names, same convention as the Templates block
+// above (a pure on-device feature, no backend network call). Not called
+// directly by feature code — it's the transport the `SqliteStorageBackend`
+// (shared/persistence/sqlite-storage.backend.ts) drives; see that file for
+// how the generic `(agent_id, body)` shape maps onto the `StorageBackend`
+// seam's `(key, value)` shape.
+// ---------------------------------------------------------------------------
+
+export interface UiStateSaveArgs {
+  agent_id: string;
+  body: unknown;
+}
+
+export interface UiStateLoadArgs {
+  agent_id: string;
+}
+
+// ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
 // ---------------------------------------------------------------------------
 
@@ -1067,6 +1089,11 @@ export interface IpcCommandMap {
   template_save: { args: TemplateSaveArgs; result: TemplateView };
   template_list: { args: void; result: TemplateView[] };
   template_load: { args: TemplateLoadArgs; result: TemplateLoadResult };
+
+  // --- Task 12: on-device SQLite persistence for panel/UI state (SPEC §9) ---
+  ui_state_save: { args: UiStateSaveArgs; result: void };
+  /** `null` when nothing has been saved yet for this `agent_id`. */
+  ui_state_load: { args: UiStateLoadArgs; result: unknown };
 }
 
 export type IpcCommand = keyof IpcCommandMap;

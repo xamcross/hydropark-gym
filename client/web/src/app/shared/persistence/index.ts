@@ -29,5 +29,6 @@ export type {
 } from './persistence.model';
 
 export { STORAGE_BACKEND, createDefaultStorageBackend, LocalStorageBackend, InMemoryStorageBackend } from './storage-backend';
+export { SqliteStorageBackend } from './sqlite-storage.backend';
 
 export { PersistenceService } from './persistence.service';

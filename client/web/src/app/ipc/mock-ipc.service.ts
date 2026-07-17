@@ -99,6 +99,12 @@ export class MockIpcService extends IpcPort {
   /** In-memory "My Templates" gallery — save/list/load round-trip within a session. */
   private readonly templates = new Map<string, { view: TemplateView; uiOverrides: unknown; updatedAt: number }>();
 
+  // --- panel/UI state (Task 12, SPEC §9) ----------------------------------
+  /** In-memory stand-in for the on-device `panel_state` table (store.rs) —
+   * generic `agent_id -> opaque body` upsert, same shape the real IPC commands
+   * expose, so `SqliteStorageBackend` round-trips identically under `ng serve`. */
+  private readonly uiState = new Map<string, unknown>();
+
   // ---- IpcPort ------------------------------------------------------------
 
   async invoke<K extends IpcCommand>(cmd: K, args: IpcCommandMap[K]['args']): Promise<IpcCommandMap[K]['result']> {
@@ -203,6 +209,13 @@ export class MockIpcService extends IpcPort {
         return this.templateList() as IpcCommandMap[K]['result'];
       case 'template_load':
         return this.templateLoad(args as IpcCommandMap['template_load']['args']) as IpcCommandMap[K]['result'];
+
+      // --- Task 12: on-device SQLite persistence for panel/UI state (SPEC §9) ---
+      case 'ui_state_save':
+        this.uiStateSave(args as IpcCommandMap['ui_state_save']['args']);
+        return undefined as IpcCommandMap[K]['result'];
+      case 'ui_state_load':
+        return this.uiStateLoad(args as IpcCommandMap['ui_state_load']['args']) as IpcCommandMap[K]['result'];
 
       default:
         throw new Error(`MockIpcService: unhandled command "${String(cmd)}"`);
@@ -534,6 +547,22 @@ export class MockIpcService extends IpcPort {
       return { ok: false, skill_ids: [], ui_overrides: null, missing_skills: missing };
     }
     return { ok: true, skill_ids: saved.view.skill_refs, ui_overrides: saved.uiOverrides, missing_skills: [] };
+  }
+
+  // ---- panel/UI state (Task 12, SPEC §9) ---------------------------------
+  //
+  // Mirrors the real `ui_state_save`/`ui_state_load` commands' semantics
+  // exactly (generic `agent_id -> opaque body` upsert over `store.rs`'s
+  // `panel_state` table) — no interpretation of `body`, same as the real
+  // Rust side. `SqliteStorageBackend` is what gives this generic shape
+  // StorageBackend key/value meaning; this mock doesn't need to know that.
+
+  private uiStateSave(args: IpcCommandMap['ui_state_save']['args']): void {
+    this.uiState.set(args.agent_id, args.body);
+  }
+
+  private uiStateLoad(args: IpcCommandMap['ui_state_load']['args']): unknown {
+    return this.uiState.has(args.agent_id) ? this.uiState.get(args.agent_id) : null;
   }
 
   // ---- simulated account + commerce (P1-08/09) --------------------------

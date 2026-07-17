@@ -193,7 +193,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
       // the constructor's isAuthenticated()-watching effect that self-triggers
       // restore()/entitlements_refresh (that effect only fires on 'authenticated').
       const auth = TestBed.inject(AuthService);
-      ipc.when('auth_status', () => ({ status: 'device', deviceId: 'dev-1' }));
+      ipc.when('auth_status', () => ({ status: 'device' as const, deviceId: 'dev-1' }));
       await auth.refreshStatus();
 
       ipc.when('order_checkout', () => ({ orderId: 'ord-1', checkoutUrl: 'https://checkout.example/ord-1' }));
