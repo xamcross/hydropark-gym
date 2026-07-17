@@ -867,8 +867,24 @@ pub mod real {
                 break;
             }
 
+            // `LlamaSampler::sample` already accepts the chosen token into every
+            // sampler in the chain as part of its own contract ("Sample and
+            // accept a token…", `llama-cpp-2` sampling.rs; confirmed against the
+            // vendored C source, `llama_sampler_sample` calls
+            // `llama_sampler_accept` internally as its last step —
+            // llama-cpp-sys-2 0.1.151 `llama.cpp/src/llama-sampler.cpp:870`).
+            // A second, explicit `sampler.accept(token)` here fed every token to
+            // the GBNF grammar sampler's accept() TWICE, silently desyncing the
+            // grammar's internal parse-stack state from the actual generated
+            // text after the very first token. For any fixed (non-repeating)
+            // grammar literal — e.g. this crate's `"<tool_call>"` opening tag —
+            // re-accepting the same already-consumed text a second time is
+            // structurally impossible from the (already-advanced) parser state,
+            // which collapses `stacks` to zero and crashes the NEXT decode step
+            // with `GGML_ASSERT(!stacks.empty())` in llama.cpp's grammar engine
+            // (llama-grammar.cpp:940) — an unrecoverable process abort, not a
+            // catchable Rust error. Do not re-add the extra accept() call.
             let token = sampler.sample(&ctx, batch.n_tokens() - 1);
-            sampler.accept(token);
             if engine.model.is_eog_token(token) {
                 break;
             }
@@ -1091,6 +1107,57 @@ pub mod real {
                 GenOutput::ToolCall(name, args) => eprintln!("parsed tool_call: {name} {args}"),
                 GenOutput::Prose(_) => eprintln!("model chose prose this run"),
                 GenOutput::Malformed(m) => panic!("grammar-constrained output was malformed: {m}"),
+            }
+        }
+
+        /// Regression test for Task 17's `GGML_ASSERT(!stacks.empty())` crash.
+        ///
+        /// ROOT CAUSE (see the Task 17 report for the full derivation, incl. a
+        /// standalone probe of the vendored llama.cpp grammar engine): the old
+        /// decode loop called `sampler.sample(..)` — which, per `llama-cpp-2`'s
+        /// own doc comment ("Sample and accept a token…") and the vendored C
+        /// source (`llama_sampler_sample`, `llama-sampler.cpp:870`, calls
+        /// `llama_sampler_accept` on the whole chain as its last step) —
+        /// ALREADY accepts the chosen token into the grammar sampler, and THEN
+        /// called `sampler.accept(token)` a second time. Every generated token
+        /// was fed to the GBNF grammar's parse-stack advance TWICE. For any
+        /// fixed (non-repeating) grammar literal this is structurally
+        /// impossible from the already-advanced state and collapses the
+        /// grammar's stack set to zero, aborting the process on the very next
+        /// decode step. This is NOT reachable under `mock-inference` (the mock
+        /// engine never touches `LlamaSampler`), so this real-inference test —
+        /// several grammar-constrained turns back to back, covering multiple
+        /// tools and prompts likely to open with the literal `<tool_call>` tag
+        /// — is the regression coverage for it. Before the fix this reliably
+        /// hard-aborted the test process (`GGML_ASSERT` -> `abort()`, not a
+        /// catchable `Result`) on (or near) the very first constrained turn;
+        /// after the fix every turn should complete normally.
+        #[test]
+        fn constrained_tool_calls_survive_multiple_turns_without_grammar_desync() {
+            let engine = match Engine::load() {
+                Ok(e) => e,
+                Err(msg) => {
+                    eprintln!("SKIP constrained_tool_calls_survive_multiple_turns_without_grammar_desync: {msg}");
+                    return;
+                }
+            };
+
+            let grammar = crate::grammar::tool_call_grammar();
+            let prompts: &[(&str, &str)] = &[
+                ("start_timer", "Start a 9 minute timer labelled Pasta."),
+                ("convert_units", "What's 350F in Celsius?"),
+                ("list_manage", "Add eggs, milk, and butter to my list."),
+                ("date_math", "What date is 3 days after 2026-07-17?"),
+            ];
+            for (label, user) in prompts {
+                let out = run_prompt(&engine, label, user, true, 256, Some(grammar.as_str()));
+                match parse_generation(&out) {
+                    GenOutput::ToolCall(name, args) => eprintln!("{label}: parsed tool_call: {name} {args}"),
+                    GenOutput::Prose(_) => eprintln!("{label}: model chose prose this run"),
+                    GenOutput::Malformed(m) => {
+                        panic!("{label}: grammar-constrained output was malformed: {m}")
+                    }
+                }
             }
         }
     }
