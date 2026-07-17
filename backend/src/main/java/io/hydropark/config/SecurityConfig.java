@@ -82,6 +82,13 @@ public class SecurityConfig {
                     // limits, never by gating). Handler: DownloadController#model.
                     .requestMatchers(HttpMethod.GET, "/v1/download/models/**")
                     .permitAll()
+                    // Dev-loop blob serving (LocalFs adapter): /blobs/** URLs are minted by
+                    // LocalFsBlobStore as short-TTL HMAC-signed URLs, and BlobServeController
+                    // re-verifies that signature before streaming a byte - the signature IS the
+                    // authorization (the same contract a prod signed CDN URL carries), so no
+                    // bearer token is required here. Handler: BlobServeController#serve.
+                    .requestMatchers(HttpMethod.GET, "/blobs/**")
+                    .permitAll()
                     // P1-19.2: paid skill packages require a valid access token; DownloadController
                     // additionally enforces free-or-active-grant entitlement and 403s otherwise.
                     // Redundant with anyRequest().authenticated() below, kept explicit so the paid
