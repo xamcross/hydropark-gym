@@ -1,3 +1,4 @@
+import { buildApp } from './app-lifecycle.js';
 import { runScenario } from './scenario.js';
 import { smoke } from '../scenarios/00-smoke.js';
 import { freeInstall } from '../scenarios/10-free-install.js';
@@ -10,6 +11,9 @@ const scenarios: { name: string; fn: Parameters<typeof runScenario>[1]; fresh: b
   { name: 'paid-buy', fn: paidBuy, fresh: true },
   { name: 'chat-tool-render', fn: chatToolRender, fresh: true },
 ];
+
+console.log('=== building mock-inference binary (once) ===');
+buildApp();
 
 let failed = 0;
 for (const s of scenarios) {

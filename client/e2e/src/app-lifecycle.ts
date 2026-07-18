@@ -4,35 +4,80 @@ import { join } from 'node:path';
 
 const APP_DATA = join(process.env.APPDATA ?? '', 'app.hydropark.phase0');
 const TAURI_DIR = join(process.cwd(), '..', 'src-tauri');
+const APP_BIN = join(TAURI_DIR, 'target', 'debug', 'hydropark.exe');
+
+/**
+ * Build the mock-inference binary ONCE (no llama/native toolchain needed).
+ * Call before any scenario so `launchApp` can exec the prebuilt binary directly
+ * — which avoids the `cargo run` build-lock contention that made relaunch between
+ * scenarios hang (a lingering `cargo` from the previous scenario held `target/`).
+ */
+export function buildApp(): void {
+  execSync('cargo build --bin hydropark --no-default-features --features mock-inference', {
+    cwd: TAURI_DIR,
+    stdio: 'inherit',
+  });
+}
 
 export async function stopApp(): Promise<void> {
-  try { execSync('powershell -NoProfile -Command "Get-Process hydropark -ErrorAction SilentlyContinue | Stop-Process -Force"'); } catch { /* none running */ }
-  await new Promise((r) => setTimeout(r, 800));
+  try {
+    execSync('powershell -NoProfile -Command "Get-Process hydropark -ErrorAction SilentlyContinue | Stop-Process -Force"');
+  } catch {
+    /* none running */
+  }
+  // Wait for the CDP port to be released so the next launch can bind :9222.
+  for (let i = 0; i < 20; i++) {
+    try {
+      execSync(
+        'powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 9222 -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }"',
+      );
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
 }
 
 export async function resetStore(): Promise<void> {
   await stopApp();
   if (!existsSync(APP_DATA)) return;
   for (const f of readdirSync(APP_DATA, { withFileTypes: true }).filter((d) => d.name.startsWith('hydropark.db'))) {
-    try { rmSync(join(APP_DATA, f.name), { force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(join(APP_DATA, f.name), { force: true });
+    } catch {
+      /* ignore */
+    }
   }
 }
 
+/**
+ * Launch the PREBUILT mock binary directly (no `cargo run`). Inherits
+ * `process.env` — which must carry `HYDROPARK_PACKAGE_SIGNING_KEYS` (set by
+ * `e2e-up.ps1` via `Get-HpPackageKeys`) or the real fail-closed installer rejects
+ * every skill. The binary was built without `custom-protocol`, so it loads the
+ * frontend from the running ng dev server on :4200.
+ */
 export async function launchApp(): Promise<void> {
-  const env = { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222', HYDROPARK_APP_VERSION: '1.0.0' };
-  const child = spawn('cargo', ['run', '--bin', 'hydropark', '--no-default-features', '--features', 'mock-inference'],
-    { cwd: TAURI_DIR, env, detached: true, stdio: 'ignore', shell: true });
+  if (!existsSync(APP_BIN)) throw new Error(`launchApp: ${APP_BIN} missing — call buildApp() first`);
+  const env = {
+    ...process.env,
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222',
+    HYDROPARK_APP_VERSION: '1.0.0',
+  };
+  const child = spawn(APP_BIN, [], { cwd: TAURI_DIR, env, detached: true, stdio: 'ignore' });
   child.unref();
 }
 
-export async function waitForCdp(timeoutMs = 180_000): Promise<void> {
+export async function waitForCdp(timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const r = await fetch('http://127.0.0.1:9222/json/version');
       if (r.ok) return;
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 1000));
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error('waitForCdp: WebView2 CDP endpoint never came up (build/launch failed?)');
+  throw new Error('waitForCdp: WebView2 CDP endpoint never came up (launch failed?)');
 }
