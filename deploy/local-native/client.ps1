@@ -46,6 +46,12 @@ $env:LIBCLANG_PATH = $Hp.LibclangPath
 if ($Hp.CmakeBin) { $env:PATH = "$env:PATH;$($Hp.CmakeBin)" }
 $env:HYDROPARK_MODEL_PATH = $Hp.ModelPath
 $env:HYDROPARK_PACKAGE_SIGNING_KEYS = Get-HpPackageKeys
+# The published .hpskill manifests declare min_app_version 1.0.0, but this phase-0
+# build's CARGO_PKG_VERSION is 0.1.0, so the install-time compatibility gate rejects
+# every skill ("needs app version >= 1.0.0, but this app is 0.1.0"). Report a
+# compatible host version for the dev/demo run. (Deeper fix: reconcile the package
+# build's min_app_version with the catalog's 0.1.0 — they currently disagree.)
+$env:HYDROPARK_APP_VERSION = "1.0.0"
 
 # Best-effort: import MSVC vars so a clean/from-scratch link works from a plain
 # shell. Harmless if the crate is already built (cargo just relinks).
