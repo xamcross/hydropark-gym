@@ -110,7 +110,11 @@ export class PurchaseService {
         void this.buy(detail);
         return;
       case 'install':
-        void this.install(detail.id);
+        // A FREE skill needs no license (bug A1) — the SkillDetail here is the one place that
+        // reliably knows `is_free`, so thread it straight through. Every other caller of
+        // `install()` either has no SkillDetail at all (defaults to the paid path, unchanged
+        // behaviour) or is already known-paid (a settled `buy()`, see `onSettled` below).
+        void this.install(detail.id, /* thenEnable */ false, detail.is_free);
         return;
       case 'enable':
         void this.enable(detail.id);
@@ -253,8 +257,20 @@ export class PurchaseService {
    * silently mints a device identity via {@link AuthService.ensureDevice} when
    * none exists yet, the same no-email path the dialog's "Continue on this
    * device" button drives.
+   *
+   * ── BUG A1 FIX — a FREE skill needs NO license ───────────────────────────────
+   * `license_fetch` (→ `POST /v1/licenses/issue`) requires step-up AND a paid
+   * entitlement; a free skill has neither, so calling it unconditionally made
+   * every free "Get" 403 with `step_up_required`. `isFree` (default `false`, so
+   * every existing/paid call site is unchanged) skips `license_fetch` entirely
+   * for a free skill and goes straight to `download_url` + `skill_download_install`
+   * — the download itself only ever needed the device bearer. `dispatch()` passes
+   * the real `SkillDetail.is_free` here (the one place that reliably knows it);
+   * every other caller either has no detail (defaults to the paid/unchanged path)
+   * or is already known-paid ({@link onSettled}, reached only via a real `buy()`).
+   * ──────────────────────────────────────────────────────────────────────────────
    */
-  async install(skillId: string, thenEnable = false): Promise<void> {
+  async install(skillId: string, thenEnable = false, isFree = false): Promise<void> {
     this.clearError(skillId);
     if (!this.auth.hasIdentity()) {
       const ready = await this.auth.ensureDevice();
@@ -266,8 +282,10 @@ export class PurchaseService {
     this.setState(skillId, 'installing');
     try {
       const bearer = this.auth.bearer();
-      this.telemetry.noteBackendCall();
-      await this.ipc.invoke('license_fetch', { skillId, bearer });
+      if (!isFree) {
+        this.telemetry.noteBackendCall();
+        await this.ipc.invoke('license_fetch', { skillId, bearer });
+      }
 
       const version = this.versions.get(skillId) ?? '1.0.0';
       this.telemetry.noteBackendCall();

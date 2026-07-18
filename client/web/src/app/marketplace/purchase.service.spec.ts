@@ -230,6 +230,73 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
     expect(purchase.errorFor('demo-skill')).toBe('account store error: no session');
   });
 
+  // --- Bug A1 fix: a FREE skill needs no license (never call license_fetch) --
+
+  it(
+    'install(id, false, true) for a FREE skill skips license_fetch entirely and runs ' +
+      'download_url -> skill_download_install, reaching "installed"',
+    async () => {
+      await withDeviceIdentity(ipc);
+      // Registered but must NEVER be invoked for a free skill — the real backend 403s
+      // `step_up_required` here (no paid entitlement to license), which is exactly bug A1.
+      ipc.when('license_fetch', () => Promise.reject(new Error('step_up_required')));
+      ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+      ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+
+      await purchase.install('demo-skill', false, /* isFree */ true);
+
+      expect(ipc.calls.map((c) => c.cmd)).toEqual(['download_url', 'skill_download_install']);
+      expect(purchase.stateFor('demo-skill')).toBe('installed');
+      expect(purchase.errorFor('demo-skill')).toBeNull();
+    }
+  );
+
+  it('install(id, true, true) for a FREE skill installs and enables without ever calling license_fetch', async () => {
+    await withDeviceIdentity(ipc);
+    ipc.when('license_fetch', () => Promise.reject(new Error('step_up_required')));
+    ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+    ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+
+    await purchase.install('demo-skill', true, true);
+
+    expect(ipc.calls.map((c) => c.cmd)).toEqual(['download_url', 'skill_download_install']);
+    expect(enabledSkills.has('demo-skill')).toBe(true);
+    expect(purchase.stateFor('demo-skill')).toBe('active');
+  });
+
+  it(
+    'dispatch(detail, "install") for a skill whose SkillDetail.is_free is true routes to install() ' +
+      'with isFree=true, so license_fetch is never called (the "Get · Free" button, end to end)',
+    async () => {
+      await withDeviceIdentity(ipc);
+      ipc.when('license_fetch', () => Promise.reject(new Error('step_up_required')));
+      ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+      ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+
+      purchase.dispatch({ ...detail('free-skill'), is_free: true }, 'install');
+      await waitUntil(() => purchase.stateFor('free-skill') === 'installed');
+
+      expect(ipc.calls.map((c) => c.cmd)).toEqual(['download_url', 'skill_download_install']);
+      expect(purchase.errorFor('free-skill')).toBeNull();
+    }
+  );
+
+  it(
+    'dispatch(detail, "install") for a PAID skill (is_free=false) still calls license_fetch ' +
+      '(the paid path is unchanged)',
+    async () => {
+      await withDeviceIdentity(ipc);
+      ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
+      ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+      ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+
+      purchase.dispatch(detail('paid-skill'), 'install'); // detail()'s default is_free: false
+      await waitUntil(() => purchase.stateFor('paid-skill') === 'installed');
+
+      expect(ipc.calls.map((c) => c.cmd)).toEqual(['license_fetch', 'download_url', 'skill_download_install']);
+    }
+  );
+
   // --- P0 fix: install()'s identity gate (an anonymous "Get") ---------------
 
   it(
