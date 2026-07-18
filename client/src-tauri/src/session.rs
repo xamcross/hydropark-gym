@@ -25,6 +25,7 @@ use base64::Engine as _;
 use serde_json::Value;
 
 use crate::backend_client::{AuthSession, BackendClient, BackendError};
+use crate::device;
 use crate::ipc::EntitlementItem;
 use crate::store::{Store, StoreError, StoredSession};
 
@@ -127,12 +128,34 @@ impl SessionManager {
     /// Idempotent: a session already exists (device-only OR a full account) →
     /// no-op, so repeated calls (e.g. every `device_ensure` invocation) never
     /// mint a second account for the same install.
+    ///
+    /// P0 step-up fix: a device-only register response also carries a one-time
+    /// `recovery_code` — this account's ONLY step-up factor (SPEC §8;
+    /// `StepUpService.begin` returns `factor="recovery_code"` for an email-less
+    /// account, presented directly as `X-Step-Up-Token`, no challenge
+    /// round-trip). It must be captured HERE, at the moment the account and its
+    /// server-side `recovery_code_hash` are minted together — there is no later
+    /// endpoint that reissues or re-displays it. Persisted alongside the device
+    /// identity (`device::save_recovery_code`), not in `auth_session`, so it
+    /// survives independently of the token pair's own lifecycle. Best-effort:
+    /// a failure to persist it must not fail registration itself (the caller
+    /// already has a working session; losing the step-up factor only means a
+    /// later `license.issue` 403s and can be retried after re-registering).
     pub async fn ensure_device_session(&self) -> Result<(), SessionError> {
         if self.current().is_some() {
             return Ok(());
         }
         let issued = self.client.auth_register_device().await?;
         self.persist(&issued)?;
+        if let Some(code) = issued.recovery_code.as_deref().filter(|c| !c.trim().is_empty()) {
+            // Best-effort: ensure the device_identity row exists (idempotent —
+            // `device_ensure` normally already minted it before calling this),
+            // then persist the recovery code onto it.
+            let _ = device::ensure_identity(&self.store);
+            if let Err(e) = device::save_recovery_code(&self.store, code) {
+                eprintln!("[session] failed to persist device-only recovery code: {e}");
+            }
+        }
         Ok(())
     }
 
@@ -309,5 +332,40 @@ mod tests {
         let after = mgr.current().expect("existing session preserved");
         assert_eq!(after.access_token, access, "no-op must not overwrite the existing session");
         assert_eq!(after.refresh_token, "refresh-xyz");
+    }
+
+    /// P0 step-up fix, end-to-end through this layer: a fresh device-only
+    /// register (a real request/response round-trip against a loopback stub,
+    /// not just a pure decode check) must persist BOTH the session token pair
+    /// AND the recovery code the response carries — the code lands in the
+    /// device_identity row (`device::recovery_code`), not just somewhere in
+    /// memory, so a later `license_fetch` command reading the store back out
+    /// after a restart still finds it.
+    #[tokio::test]
+    async fn ensure_device_session_persists_the_recovery_code_alongside_device_identity() {
+        let auth_response = br#"{
+            "access_jwt": "a.b.c",
+            "refresh_token": "rt-device",
+            "user": { "id": "usr_1" },
+            "recovery_code": "rc-live-9f8e"
+        }"#
+        .to_vec();
+        let url = crate::backend_client::spawn_stub_server("HTTP/1.1 200 OK", auth_response);
+        let origin = url.trim_end_matches("/pkg");
+        let store = Arc::new(Mutex::new(Store::open_in_memory().unwrap()));
+        let mgr = SessionManager::new(store.clone(), BackendClient::with_base(origin));
+
+        mgr.ensure_device_session().await.expect("registers a device-only session against the stub");
+
+        let session = mgr.current().expect("session persisted");
+        assert_eq!(session.access_token, "a.b.c");
+        assert_eq!(session.refresh_token, "rt-device");
+
+        let code = device::recovery_code(&store).unwrap();
+        assert_eq!(
+            code.as_deref(),
+            Some("rc-live-9f8e"),
+            "recovery code must be persisted alongside the device identity, not discarded"
+        );
     }
 }

@@ -77,6 +77,7 @@ pub fn ensure_identity(store: &Arc<Mutex<Store>>) -> Result<StoredDeviceIdentity
         fingerprint: Some(fingerprint),
         server_device_id: None,
         registered: false,
+        recovery_code: None,
     })
 }
 
@@ -97,6 +98,23 @@ pub fn mark_registered(
         true,
     )?;
     Ok(())
+}
+
+/// Persist the device-only account's recovery code (P0 step-up fix — see
+/// `store::migrate_v3_to_v4`'s doc for the full root-cause chain). Best-effort
+/// safe to call any time after `ensure_identity` — writing before an identity
+/// row exists is a harmless no-op in the store layer, but callers should still
+/// ensure an identity first so the write actually lands.
+pub fn save_recovery_code(store: &Arc<Mutex<Store>>, recovery_code: &str) -> Result<(), DeviceError> {
+    lock(store).save_recovery_code(recovery_code)?;
+    Ok(())
+}
+
+/// The persisted recovery code for this install's device-only account, if any
+/// was ever captured (`None` for a full email/password account, or before any
+/// identity/session exists at all).
+pub fn recovery_code(store: &Arc<Mutex<Store>>) -> Result<Option<String>, DeviceError> {
+    Ok(lock(store).load_device_identity()?.and_then(|d| d.recovery_code))
 }
 
 /// Sign a server-issued step-up `challenge` with the persisted device secret key
@@ -219,6 +237,22 @@ mod tests {
 
         // ...and does not verify over a different challenge.
         assert!(vk.verify_strict(b"a different challenge", &sig).is_err());
+    }
+
+    /// P0 step-up fix: the recovery code round-trips through the device
+    /// module's helpers exactly like the rest of the identity does.
+    #[test]
+    fn recovery_code_round_trips_once_an_identity_exists() {
+        let s = store();
+        assert_eq!(recovery_code(&s).unwrap(), None, "nothing captured yet");
+
+        ensure_identity(&s).unwrap();
+        save_recovery_code(&s, "rc-9f8e7d").unwrap();
+        assert_eq!(recovery_code(&s).unwrap().as_deref(), Some("rc-9f8e7d"));
+
+        // Preserved across an unrelated identity update (mirrors mark_registered).
+        mark_registered(&s, "srv-dev-1").unwrap();
+        assert_eq!(recovery_code(&s).unwrap().as_deref(), Some("rc-9f8e7d"));
     }
 
     #[test]

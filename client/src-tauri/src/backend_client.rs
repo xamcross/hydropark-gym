@@ -379,13 +379,17 @@ mod wire {
     }
 
     /// `POST /v1/auth/register|login` (AuthResponse). `recovery_code` is present
-    /// only for a device-only registration; we do not surface it here.
+    /// only for a device-only registration (the account's one-time step-up
+    /// factor — see `AuthSession::recovery_code`'s doc for why it must be
+    /// captured here rather than discarded).
     #[derive(Debug, Deserialize)]
     pub struct AuthResponse {
         pub access_jwt: String,
         pub refresh_token: String,
         #[serde(default)]
         pub user: Option<AuthUser>,
+        #[serde(default)]
+        pub recovery_code: Option<String>,
     }
 
     /// `POST /v1/auth/refresh` (TokenPair) — rotated tokens, no user echo.
@@ -514,6 +518,17 @@ pub struct AuthSession {
     pub access_token: String,
     pub refresh_token: String,
     pub email: Option<String>,
+    /// The device-only account's one-time recovery code (P0 step-up fix),
+    /// present only on the response to a device-only `POST /v1/auth/register`
+    /// (`auth_register_device`). This is the account's step-up factor: TOFU is
+    /// consumed the moment this install binds its first device, so every
+    /// `POST /v1/licenses/issue` call after that requires a real step-up proof,
+    /// and for an email-less account that proof IS this code presented verbatim
+    /// as `X-Step-Up-Token` (`StepUpService.begin` returns
+    /// `factor="recovery_code"` with a null `challengeId` — no begin/complete
+    /// round-trip). `None` for a full email/password account (no such factor)
+    /// or a bare `/v1/auth/refresh` (the endpoint never echoes it).
+    pub recovery_code: Option<String>,
 }
 
 /// The outcome of a device registration: the server-assigned device id + status.
@@ -529,12 +544,18 @@ fn decode_auth_response(json: &str) -> Result<AuthSession, BackendError> {
         access_token: w.access_jwt,
         refresh_token: w.refresh_token,
         email: w.user.and_then(|u| u.email),
+        recovery_code: w.recovery_code,
     })
 }
 
 fn decode_token_pair(json: &str) -> Result<AuthSession, BackendError> {
     let w: wire::TokenPair = serde_json::from_str(json).map_err(BackendError::decode)?;
-    Ok(AuthSession { access_token: w.access_jwt, refresh_token: w.refresh_token, email: None })
+    Ok(AuthSession {
+        access_token: w.access_jwt,
+        refresh_token: w.refresh_token,
+        email: None,
+        recovery_code: None,
+    })
 }
 
 fn decode_device(json: &str) -> Result<RegisteredDevice, BackendError> {
@@ -635,11 +656,20 @@ impl BackendClient {
         decode_entitlements(&body)
     }
 
+    /// `POST /v1/licenses/issue`. `LicenseController` unconditionally requires a
+    /// valid step-up proof (`assertStepUp`) before issuing — TOFU only covers the
+    /// FIRST device this account ever binds, so by the time this call happens
+    /// (after `/v1/devices/register`) it is always required. `step_up_token`
+    /// mirrors [`Self::device_register`]'s pattern exactly: attached as
+    /// `X-Step-Up-Token` when non-empty, omitted otherwise. For a device-only
+    /// account the caller passes the persisted recovery code (see `device.rs`'s
+    /// `recovery_code`/`save_recovery_code` and `AuthSession::recovery_code`).
     pub async fn license_fetch(
         &self,
         skill_id: &str,
         bearer: Option<&str>,
         device_id: Option<&str>,
+        step_up_token: Option<&str>,
     ) -> Result<LicenseResult, BackendError> {
         let url = license_route(&self.base);
         // Prefer the persisted install id (passed by the command layer); fall back
@@ -649,10 +679,13 @@ impl BackendClient {
             .filter(|d| !d.is_empty())
             .map(str::to_string)
             .unwrap_or_else(env_device_id);
-        let req = with_bearer(
+        let mut req = with_bearer(
             self.http.post(&url).json(&license_body(skill_id, &device)),
             bearer,
         );
+        if let Some(token) = step_up_token.map(str::trim).filter(|t| !t.is_empty()) {
+            req = req.header("X-Step-Up-Token", token);
+        }
         let resp = req.send().await.map_err(BackendError::network)?;
         let body = read_ok(resp).await?;
         decode_license(&body)
@@ -902,6 +935,44 @@ pub(crate) fn spawn_redirect_stub_server(
         }
     });
     format!("http://127.0.0.1:{port}/pkg")
+}
+
+/// Like [`spawn_stub_server`], but the raw request text (request line + headers,
+/// no body) is captured and sent back over the returned channel instead of
+/// being discarded — used only by the `license_fetch` step-up-header tests
+/// below to prove `X-Step-Up-Token` is actually attached to (or absent from)
+/// the wire request, not just that the pure body-builder function is correct.
+/// Returns the stub's own origin (no path — callers build a `BackendClient`
+/// with it via `with_base`, letting the client's own route builder construct
+/// the full URL, exactly like a real base).
+#[cfg(test)]
+pub(crate) fn spawn_capturing_stub_server(
+    status_line: &'static str,
+    body: Vec<u8>,
+) -> (String, std::sync::mpsc::Receiver<String>) {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("local_addr").port();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let captured = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let _ = tx.send(captured);
+            let header = format!(
+                "{status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&body);
+            let _ = stream.flush();
+        }
+    });
+    (format!("http://127.0.0.1:{port}"), rx)
 }
 
 // ---------------------------------------------------------------------------
@@ -1233,6 +1304,7 @@ mod tests {
         assert_eq!(s.access_token, "eyJ.aaa.sig");
         assert_eq!(s.refresh_token, "rt-abc");
         assert_eq!(s.email.as_deref(), Some("chef@example.com"));
+        assert_eq!(s.recovery_code, None, "a full email account gets no recovery code");
     }
 
     #[test]
@@ -1243,6 +1315,24 @@ mod tests {
         assert_eq!(s.email, None);
     }
 
+    /// P0 step-up fix — root cause of the paid-skill purchase 403: the client
+    /// used to decode `AuthResponse` WITHOUT a `recovery_code` field at all, so
+    /// even though the backend's device-only register response carries it, the
+    /// value was silently discarded and never available to attach as
+    /// `X-Step-Up-Token` on the later `license.issue` call. This is the RED test
+    /// that would have failed against the old struct (no such field to read).
+    #[test]
+    fn decode_auth_response_surfaces_the_device_only_recovery_code() {
+        let json = r#"{
+            "access_jwt": "a.b.c",
+            "refresh_token": "rt-device",
+            "user": { "id": "usr_3" },
+            "recovery_code": "rc-7f3a9c1e"
+        }"#;
+        let s = decode_auth_response(json).unwrap();
+        assert_eq!(s.recovery_code.as_deref(), Some("rc-7f3a9c1e"));
+    }
+
     #[test]
     fn decode_token_pair_has_no_email() {
         let json = r#"{"access_jwt":"a.b.c","refresh_token":"rt-2"}"#;
@@ -1250,6 +1340,7 @@ mod tests {
         assert_eq!(s.access_token, "a.b.c");
         assert_eq!(s.refresh_token, "rt-2");
         assert_eq!(s.email, None);
+        assert_eq!(s.recovery_code, None, "a bare refresh never echoes a recovery code");
     }
 
     #[test]
@@ -1360,5 +1451,76 @@ mod tests {
             }
             other => panic!("expected Err(Status{{302, \"\"}}), got {other:?}"),
         }
+    }
+
+    // --- license_fetch step-up header (P0 fix) — local loopback only ----------
+    //
+    // `assertStepUp` on the backend's `LicenseController` unconditionally
+    // requires `X-Step-Up-Token` once TOFU is spent (see this module's
+    // `license_fetch` doc). These round-trip a real request through a capturing
+    // loopback stub (`spawn_capturing_stub_server`) rather than only checking
+    // the pure `license_body` JSON builder, because the header is attached
+    // inline in the async method — a body-only test could pass while the header
+    // was silently never sent (exactly the shape of the original bug: a value
+    // decoded correctly but never reaching the wire).
+
+    #[tokio::test]
+    async fn license_fetch_attaches_the_step_up_token_header_when_present() {
+        let (origin, rx) = spawn_capturing_stub_server(
+            "HTTP/1.1 200 OK",
+            br#"{"token":"license.jws.compact"}"#.to_vec(),
+        );
+        let client = BackendClient::with_base(&origin);
+        let result = client
+            .license_fetch("cooking-assistant", Some("bearer-tok"), Some("dev-123"), Some("rc-7f3a9c1e"))
+            .await
+            .expect("stub answers 200");
+        assert_eq!(result.compact_jws, "license.jws.compact");
+
+        let raw = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("request was captured");
+        assert!(
+            raw.to_ascii_lowercase().contains("x-step-up-token: rc-7f3a9c1e"),
+            "expected the recovery code on X-Step-Up-Token, got request:\n{raw}"
+        );
+    }
+
+    #[tokio::test]
+    async fn license_fetch_omits_the_step_up_token_header_when_absent() {
+        let (origin, rx) = spawn_capturing_stub_server(
+            "HTTP/1.1 200 OK",
+            br#"{"token":"license.jws.compact"}"#.to_vec(),
+        );
+        let client = BackendClient::with_base(&origin);
+        client
+            .license_fetch("cooking-assistant", Some("bearer-tok"), Some("dev-123"), None)
+            .await
+            .expect("stub answers 200");
+
+        let raw = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("request was captured");
+        assert!(
+            !raw.to_ascii_lowercase().contains("x-step-up-token"),
+            "no step-up token was supplied, so the header must be absent entirely, got request:\n{raw}"
+        );
+    }
+
+    /// An all-whitespace token must be treated the same as `None` — mirrors
+    /// `device_register`'s existing `.filter(|t| !t.is_empty())` guard exactly.
+    #[tokio::test]
+    async fn license_fetch_omits_the_step_up_token_header_when_blank() {
+        let (origin, rx) = spawn_capturing_stub_server(
+            "HTTP/1.1 200 OK",
+            br#"{"token":"license.jws.compact"}"#.to_vec(),
+        );
+        let client = BackendClient::with_base(&origin);
+        client
+            .license_fetch("cooking-assistant", Some("bearer-tok"), Some("dev-123"), Some("   "))
+            .await
+            .expect("stub answers 200");
+
+        let raw = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("request was captured");
+        assert!(
+            !raw.to_ascii_lowercase().contains("x-step-up-token"),
+            "a blank token must not be sent as a header, got request:\n{raw}"
+        );
     }
 }

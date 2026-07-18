@@ -77,7 +77,7 @@ pub enum StoreError {
 /// the end — never edit, remove, or reorder an existing step, or an already-migrated
 /// user's database would diverge from a fresh one (P1-10.4).
 const MIGRATIONS: &[fn(&Connection) -> Result<(), StoreError>] =
-    &[migrate_v0_to_v1, migrate_v1_to_v2, migrate_v2_to_v3];
+    &[migrate_v0_to_v1, migrate_v1_to_v2, migrate_v2_to_v3, migrate_v3_to_v4];
 
 /// The schema version this build targets — the number of migration steps.
 const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -174,6 +174,37 @@ fn migrate_v2_to_v3(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// v3 → v4: append a `recovery_code` column to the existing `device_identity`
+/// row (P0 fix — buying a paid skill from a device-only account). Root cause:
+/// TOFU (trust-on-first-use) is consumed the moment this install binds its
+/// FIRST device (`/v1/devices/register`), so by the time `POST
+/// /v1/licenses/issue` runs, the backend's `LicenseController` unconditionally
+/// requires a real step-up proof. For a device-only account (no email) that
+/// proof factor IS the one-time recovery code `/v1/auth/register` mints
+/// alongside the account (`StepUpService.begin` returns
+/// `factor="recovery_code"` with a null `challengeId`, meaning the client
+/// presents the code directly as `X-Step-Up-Token` — no begin/complete
+/// round-trip). It must be captured at register time (when it and the
+/// account's stored hash are minted together) and survive restarts, so it is
+/// persisted here, alongside the rest of this install's identity, rather than
+/// in `auth_session` (which `clear_session`/sign-out deletes).
+///
+/// `ALTER TABLE ... ADD COLUMN` rather than a new table — this is a single
+/// nullable column on an existing singleton row. Guarded by a `pragma_table_info`
+/// check (not `IF NOT EXISTS`, which `ADD COLUMN` doesn't support) so a crash
+/// between the `ALTER` and the `user_version` bump can safely re-run this step
+/// without erroring on "duplicate column name" (the same half-applied-migration
+/// safety the earlier `CREATE TABLE IF NOT EXISTS` steps have).
+fn migrate_v3_to_v4(conn: &Connection) -> Result<(), StoreError> {
+    let has_column: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('device_identity') WHERE name = 'recovery_code'")?
+        .exists([])?;
+    if !has_column {
+        conn.execute_batch("ALTER TABLE device_identity ADD COLUMN recovery_code TEXT;")?;
+    }
+    Ok(())
+}
+
 /// Run every pending migration in order. Forward-only and idempotent; leaves a
 /// newer-than-known database untouched (never downgrades).
 fn run_migrations(conn: &Connection) -> Result<(), StoreError> {
@@ -232,6 +263,13 @@ pub struct StoredDeviceIdentity {
     pub fingerprint: Option<String>,
     pub server_device_id: Option<String>,
     pub registered: bool,
+    /// The device-only account's one-time recovery code (P0 step-up fix),
+    /// captured from `/v1/auth/register`'s response at the moment this
+    /// install's account was minted. `None` until `save_recovery_code` writes
+    /// it (a full email/password account never has one — the response simply
+    /// omits it). It is this install's step-up proof for `license.issue` once
+    /// TOFU is spent by the first device bind (SPEC §8 step-up factors).
+    pub recovery_code: Option<String>,
 }
 
 /// One cached entitlement row (P1-09.7) — the local mirror of `GET /v1/entitlements`.
@@ -493,7 +531,7 @@ impl Store {
         let row = self
             .conn
             .query_row(
-                "SELECT install_id, signing_key, fingerprint, server_device_id, registered
+                "SELECT install_id, signing_key, fingerprint, server_device_id, registered, recovery_code
                  FROM device_identity WHERE id = 0",
                 [],
                 |row| {
@@ -503,11 +541,26 @@ impl Store {
                         fingerprint: row.get(2)?,
                         server_device_id: row.get(3)?,
                         registered: row.get(4)?,
+                        recovery_code: row.get(5)?,
                     })
                 },
             )
             .optional()?;
         Ok(row)
+    }
+
+    /// Persist the device-only account's recovery code (P0 step-up fix) — see
+    /// `migrate_v3_to_v4`'s doc for why this lives alongside the device
+    /// identity rather than in `auth_session`. Assumes the `device_identity`
+    /// row already exists (the caller ensures this — `device::ensure_identity`
+    /// mints it before this is ever reached); called before that, this is a
+    /// harmless no-op (`UPDATE` affects 0 rows).
+    pub fn save_recovery_code(&self, recovery_code: &str) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE device_identity SET recovery_code = ?1, updated_at = ?2 WHERE id = 0",
+            params![recovery_code, now_ms()],
+        )?;
+        Ok(())
     }
 
     // ---- entitlements cache (P1-09.7) ------------------------------------
@@ -756,15 +809,15 @@ mod tests {
     fn migrations_run_once_and_are_a_no_op_the_second_time() {
         let s = store();
         // A fresh open leaves the DB at the target version.
-        assert_eq!(SCHEMA_VERSION, 3);
-        assert_eq!(s.schema_version().unwrap(), 3);
+        assert_eq!(SCHEMA_VERSION, 4);
+        assert_eq!(s.schema_version().unwrap(), 4);
 
         // Seed data, then re-run the runner: it must not touch the version...
         let tpl = sample_template("Weeknight Chef");
         s.save_template(&tpl).unwrap();
 
         run_migrations(&s.conn).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 3, "no re-bump / no downgrade");
+        assert_eq!(s.schema_version().unwrap(), 4, "no re-bump / no downgrade");
 
         // ...and must not destroy existing offline data.
         assert_eq!(
@@ -781,6 +834,19 @@ mod tests {
         s.conn.pragma_update(None, "user_version", 99_i64).unwrap();
         run_migrations(&s.conn).unwrap();
         assert_eq!(s.schema_version().unwrap(), 99, "a newer DB is left untouched");
+    }
+
+    /// `migrate_v3_to_v4` (the recovery-code column) must survive being invoked
+    /// twice against the same connection without erroring — the crash-between-
+    /// ALTER-and-version-bump scenario `run_migrations` itself guards against by
+    /// only ever calling a step once per version, but the step must ALSO be safe
+    /// in isolation (a plain unguarded `ALTER TABLE ADD COLUMN` would fail its
+    /// second call with "duplicate column name").
+    #[test]
+    fn migrate_v3_to_v4_is_safe_to_run_twice() {
+        let s = store();
+        migrate_v3_to_v4(&s.conn).expect("first call (schema already at v4) is a no-op");
+        migrate_v3_to_v4(&s.conn).expect("second call must not error on a duplicate column");
     }
 
     // ---- templates: round-trip + upsert --------------------------------------
@@ -905,6 +971,7 @@ mod tests {
                 fingerprint: Some("fp1-abc".into()),
                 server_device_id: None,
                 registered: false,
+                recovery_code: None,
             })
         );
 
@@ -915,6 +982,38 @@ mod tests {
         assert_eq!(d.install_id, "inst-1");
         assert!(d.registered);
         assert_eq!(d.server_device_id.as_deref(), Some("srv-dev-7"));
+    }
+
+    /// P0 step-up fix: the recovery code minted at device-only register time
+    /// persists alongside the device identity (not in `auth_session`, which
+    /// sign-out deletes), survives an unrelated `save_device_identity` upsert
+    /// (e.g. `mark_registered`), and a save before any identity row exists is a
+    /// harmless no-op rather than an error.
+    #[test]
+    fn recovery_code_persists_alongside_device_identity() {
+        let s = store();
+
+        // Saving before any device_identity row exists is a no-op, not an error.
+        s.save_recovery_code("orphan-code").unwrap();
+        assert_eq!(s.load_device_identity().unwrap(), None);
+
+        let seed = vec![7u8; 32];
+        s.save_device_identity("inst-1", &seed, Some("fp1-abc"), None, false).unwrap();
+        assert_eq!(s.load_device_identity().unwrap().unwrap().recovery_code, None);
+
+        s.save_recovery_code("rc-abc123").unwrap();
+        let d = s.load_device_identity().unwrap().unwrap();
+        assert_eq!(d.recovery_code.as_deref(), Some("rc-abc123"));
+        assert_eq!(d.install_id, "inst-1", "unrelated fields untouched");
+
+        // A later save_device_identity upsert (e.g. mark_registered) must not
+        // wipe the recovery code back out — it only ever writes the columns it
+        // is given, and the caller (device::mark_registered) always re-passes
+        // the loaded identity's own fields, never overwriting this column.
+        s.save_device_identity("inst-1", &seed, Some("fp1-abc"), Some("srv-dev-7"), true)
+            .unwrap();
+        let after = s.load_device_identity().unwrap().unwrap();
+        assert_eq!(after.recovery_code.as_deref(), Some("rc-abc123"));
     }
 
     // ---- entitlements cache: wholesale replace -------------------------------

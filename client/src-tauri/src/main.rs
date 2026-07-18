@@ -373,9 +373,20 @@ async fn license_fetch(
     // Bind the license to this install's stable device id (issuance-time binding;
     // never re-derived offline to verify — see license_verify.rs / §13.12).
     let device_id = device::ensure_identity(session.store())?.install_id;
+    // P0 fix: `LicenseController` unconditionally requires a valid step-up
+    // proof (`assertStepUp`) before issuing — TOFU only covers the FIRST device
+    // this account ever binds, and `device_ensure` already spends it via
+    // `/v1/devices/register` before any purchase happens, so by the time this
+    // command runs step-up is always required. For a device-only account the
+    // proof factor IS the one-time recovery code captured at register time
+    // (`session::ensure_device_session`) and persisted alongside the device
+    // identity — read it back here and always send it when present (harmless
+    // if TOFU somehow still applied; the backend simply ignores an unneeded
+    // proof — but required otherwise, which is the normal case).
+    let step_up_token = device::recovery_code(session.store())?;
     Ok(session
         .client()
-        .license_fetch(&args.skill_id, bearer.as_deref(), Some(&device_id))
+        .license_fetch(&args.skill_id, bearer.as_deref(), Some(&device_id), step_up_token.as_deref())
         .await?)
 }
 
