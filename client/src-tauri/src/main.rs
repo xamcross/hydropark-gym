@@ -370,9 +370,17 @@ async fn license_fetch(
 ) -> Result<LicenseResult, CmdError> {
     let session = session.inner().clone();
     let bearer = session.bearer().await;
-    // Bind the license to this install's stable device id (issuance-time binding;
-    // never re-derived offline to verify — see license_verify.rs / §13.12).
-    let device_id = device::ensure_identity(session.store())?.install_id;
+    // Bind the license to the SERVER-side device id (the slot id
+    // `POST /v1/devices/register` returned and `mark_registered` persisted), NOT the
+    // local install id: the backend's LICENSE_ISSUE path calls
+    // `DeviceSlotPort.assertActiveSlot(userId, deviceId)` and returns 404
+    // ("device not found") for any id it never registered — the local install id is
+    // never sent to the server. Offline verification never re-derives device_id
+    // (license_verify.rs / §13.12), so this is purely the issuance-binding id.
+    let identity = device::ensure_identity(session.store())?;
+    let device_id = identity.server_device_id.ok_or_else(|| {
+        CmdError::Backend("device is not registered with the server yet".to_string())
+    })?;
     // P0 fix: `LicenseController` unconditionally requires a valid step-up
     // proof (`assertStepUp`) before issuing — TOFU only covers the FIRST device
     // this account ever binds, and `device_ensure` already spends it via
