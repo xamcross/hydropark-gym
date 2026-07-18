@@ -448,13 +448,21 @@ mod capture_tests {
     }
 
     /// An [`Engine`] that always emits a tool call, forcing `run_turn`'s hop
-    /// cap so `final_reply`'s diagnostic-placeholder branch is exercised.
-    struct AlwaysToolCallEngine;
+    /// cap so `final_reply`'s diagnostic-placeholder branch is exercised. Each
+    /// call uses a DIFFERENT `duration_sec` so `run_turn`'s W02b dedupe (which
+    /// skips an identical-consecutive call instead of re-executing it) never
+    /// intercepts this loop before the hop cap is reached — this engine is
+    /// specifically testing the hop-limit fallback, not the dedupe path
+    /// (which has its own coverage in `turn.rs`).
+    struct AlwaysToolCallEngine {
+        n: i64,
+    }
     impl Engine for AlwaysToolCallEngine {
         fn generate(&mut self, _prompt: &str, _grammar: &str) -> turn::GenOutput {
+            self.n += 1;
             turn::GenOutput::ToolCall(
                 "start_timer".to_string(),
-                serde_json::json!({"label": "Loop", "duration_sec": 60}),
+                serde_json::json!({"label": "Loop", "duration_sec": 60 + self.n}),
             )
         }
     }
@@ -523,7 +531,7 @@ mod capture_tests {
 
     #[test]
     fn hop_limit_without_prose_falls_back_to_a_visible_diagnostic() {
-        let mut engine = AlwaysToolCallEngine;
+        let mut engine = AlwaysToolCallEngine { n: 0 };
         let mut runner = PreviewToolRunner;
         let t = turn::run_turn(&mut engine, &mut runner, "loop forever", &TurnConfig::default());
         let reply = final_reply(&t);

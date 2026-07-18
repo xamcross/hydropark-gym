@@ -119,6 +119,12 @@ pub enum Step {
     Fallback(Fallback),
     /// The bounded tool-hop cap was hit; the turn ends.
     HopLimitReached { limit: usize },
+    /// A tool call identical (same tool + same args) to the immediately prior
+    /// EXECUTED call was skipped rather than re-run (W02b: a small model can
+    /// re-issue an identical single-action call — e.g. two `start_timer` calls
+    /// for the same timer — instead of concluding). The model is nudged toward
+    /// a prose confirmation instead; see [`TurnContext::push_duplicate_notice`].
+    DuplicateCallSkipped { tool: ToolName, args: Value },
 }
 
 /// The ordered record of everything that happened in a turn.
@@ -141,6 +147,12 @@ impl Transcript {
     /// Number of repair re-prompts triggered.
     pub fn repairs(&self) -> usize {
         self.steps.iter().filter(|s| matches!(s, Step::RepairAttempt { .. })).count()
+    }
+
+    /// Number of identical-consecutive tool calls that were deduped (skipped
+    /// rather than re-executed) — see [`Step::DuplicateCallSkipped`].
+    pub fn duplicate_skips(&self) -> usize {
+        self.steps.iter().filter(|s| matches!(s, Step::DuplicateCallSkipped { .. })).count()
     }
 
     /// The graceful fallback, if the turn ended in one.
@@ -179,6 +191,11 @@ pub fn run_turn<E: Engine, R: ToolRunner>(
     let mut ctx = TurnContext::new(user_message);
     let mut steps: Vec<Step> = Vec::new();
     let mut hops: usize = 0;
+    // W02b — dedupe: the tool + args of the immediately prior EXECUTED (or
+    // execution-attempted) call, and how many times in a row we've already
+    // nudged the model instead of re-running an identical repeat.
+    let mut last_executed: Option<(ToolName, Value)> = None;
+    let mut duplicate_nudges: usize = 0;
 
     loop {
         let out = engine.generate(&ctx.prompt(), &grammar);
@@ -188,8 +205,9 @@ pub fn run_turn<E: Engine, R: ToolRunner>(
                 break;
             }
             Interpreted::Valid { tool, args, typed } => {
-                match execute_validated(
+                match handle_valid(
                     runner, tool, args, typed, &mut steps, &mut ctx, &mut hops, config,
+                    &mut last_executed, &mut duplicate_nudges,
                 ) {
                     Flow::Continue => continue,
                     Flow::Stop => break,
@@ -207,8 +225,9 @@ pub fn run_turn<E: Engine, R: ToolRunner>(
                         break;
                     }
                     Interpreted::Valid { tool, args, typed } => {
-                        match execute_validated(
+                        match handle_valid(
                             runner, tool, args, typed, &mut steps, &mut ctx, &mut hops, config,
+                            &mut last_executed, &mut duplicate_nudges,
                         ) {
                             Flow::Continue => continue,
                             Flow::Stop => break,
@@ -273,6 +292,55 @@ fn interpret(out: GenOutput) -> Interpreted {
             }
         },
     }
+}
+
+/// How many consecutive identical-call nudges the machine tolerates before it
+/// gives up steering the model toward prose and ends the turn itself. Kept at
+/// 1 — the same "single retry, then degrade" shape as the repair path — so a
+/// model that ignores the nudge can never loop forever.
+const MAX_DUPLICATE_NUDGES: usize = 1;
+
+/// A generic closing line used ONLY when the model repeats an identical tool
+/// call even after being nudged once to stop and confirm in prose instead
+/// (W02b's last-resort bound — never leaves the turn silent or looping).
+const DUPLICATE_GIVEUP_PROSE: &str = "All set — that's already done, so I won't repeat it.";
+
+/// Resolve one validated call: if it is IDENTICAL (same tool + same args) to
+/// the immediately prior EXECUTED call, skip re-running it (W02b — a small
+/// model over-calling a single-action tool, e.g. two identical `start_timer`
+/// calls producing duplicate timers) and nudge the model toward a prose
+/// confirmation instead of executing it again. A genuinely different call
+/// (different tool OR different args) always executes normally, and resets
+/// the nudge budget for its own potential future repeat.
+#[allow(clippy::too_many_arguments)]
+fn handle_valid<R: ToolRunner>(
+    runner: &mut R,
+    tool: ToolName,
+    args: Value,
+    typed: TypedArgs,
+    steps: &mut Vec<Step>,
+    ctx: &mut TurnContext,
+    hops: &mut usize,
+    config: &TurnConfig,
+    last_executed: &mut Option<(ToolName, Value)>,
+    duplicate_nudges: &mut usize,
+) -> Flow {
+    let is_duplicate = last_executed.as_ref() == Some(&(tool, args.clone()));
+    if is_duplicate {
+        if *duplicate_nudges >= MAX_DUPLICATE_NUDGES {
+            // Nudged once already and it repeated anyway: stop looping and
+            // give the user SOME closing confirmation rather than silence.
+            steps.push(Step::Prose(DUPLICATE_GIVEUP_PROSE.to_string()));
+            return Flow::Stop;
+        }
+        *duplicate_nudges += 1;
+        ctx.push_duplicate_notice(tool);
+        steps.push(Step::DuplicateCallSkipped { tool, args });
+        return Flow::Continue;
+    }
+    *last_executed = Some((tool, args.clone()));
+    *duplicate_nudges = 0;
+    execute_validated(runner, tool, args, typed, steps, ctx, hops, config)
 }
 
 /// Execute a validated call: enforce the hop cap, run it, and record + feed back
@@ -368,6 +436,18 @@ impl TurnContext {
     fn push_repair(&mut self, raw: &str) {
         self.feedback
             .push(format!("<repair>the previous tool call was invalid: {raw}</repair>"));
+    }
+
+    /// W02b — fed back when [`handle_valid`] deduped an identical-consecutive
+    /// call: tells the model the action already happened and steers it toward
+    /// a short prose confirmation instead of calling the tool again.
+    fn push_duplicate_notice(&mut self, tool: ToolName) {
+        self.feedback.push(format!(
+            "<duplicate_call tool=\"{}\">You already called this tool with the exact same \
+             arguments — it will not run again. Reply with ONE short plain-language sentence \
+             confirming it for the user instead of calling it again.</duplicate_call>",
+            tool.as_ref_str()
+        ));
     }
 }
 
@@ -492,15 +572,114 @@ mod tests {
         assert!(fb.clarifying_question.is_some(), "unknown tool -> ask a clarifying question");
     }
 
+    /// An [`Engine`] that emits a DIFFERENT `start_timer` call every
+    /// generation (varying `duration_sec`), so — unlike a repeating identical
+    /// call — none of them are ever deduped by [`handle_valid`]. Used to keep
+    /// `hop_cap_is_enforced` exercising the hop cap specifically, independent
+    /// of the W02b dedupe behaviour (see that test's comment).
+    struct VaryingCallEngine {
+        n: i64,
+    }
+    impl Engine for VaryingCallEngine {
+        fn generate(&mut self, _prompt: &str, _grammar: &str) -> GenOutput {
+            self.n += 1;
+            GenOutput::ToolCall(
+                "start_timer".to_string(),
+                json!({ "label": "Pasta", "duration_sec": 500 + self.n }),
+            )
+        }
+    }
+
     // (e) hop cap enforced
     #[test]
     fn hop_cap_is_enforced() {
-        let mut engine = ScriptEngine::repeating(valid_timer_call());
+        // W02b changed a REPEATING identical call's behaviour (it now dedupes
+        // instead of blindly re-executing), so this test uses distinct args
+        // per hop to keep testing the hop cap itself, not the dedupe path
+        // (which has its own tests below).
+        let mut engine = VaryingCallEngine { n: 0 };
         let mut runner = OkRunner;
         let cfg = TurnConfig { max_tool_hops: 4 };
         let t = run_turn(&mut engine, &mut runner, "loop", &cfg);
         assert_eq!(t.tool_calls(), 4, "exactly max_tool_hops executions");
         assert!(t.hit_hop_limit());
+        assert_eq!(t.duplicate_skips(), 0, "distinct args each hop -> never deduped");
+    }
+
+    // --- W02b: identical-consecutive tool call dedupe ------------------------
+
+    /// The live-repro bug: the model calls `start_timer` TWICE in a row with
+    /// IDENTICAL arguments (two duplicate "Carbonara for 4" timers). The
+    /// second, identical call must be deduped (skipped, not re-executed) and
+    /// the model nudged toward a prose confirmation rather than looping.
+    #[test]
+    fn duplicate_consecutive_tool_call_is_deduped_and_nudges_toward_prose() {
+        let mut engine = ScriptEngine::new(vec![
+            valid_timer_call(),
+            valid_timer_call(), // identical repeat
+            GenOutput::Prose("Your pasta timer is running.".to_string()),
+        ]);
+        let mut runner = OkRunner;
+        let t = run_turn(&mut engine, &mut runner, "start a pasta timer", &TurnConfig::default());
+        assert_eq!(t.tool_calls(), 1, "only the FIRST call executes — no duplicate timer");
+        assert_eq!(t.duplicate_skips(), 1);
+        assert!(t
+            .steps
+            .iter()
+            .any(|s| matches!(s, Step::DuplicateCallSkipped { tool: ToolName::StartTimer, .. })));
+        assert_eq!(t.final_prose(), Some("Your pasta timer is running."));
+    }
+
+    /// A DIFFERENT tool call immediately after a valid one (legitimate
+    /// multi-tool turn, e.g. `list_manage` then `start_timer`) must never be
+    /// deduped, even though it comes right after another executed call.
+    #[test]
+    fn different_consecutive_tool_calls_are_not_deduped() {
+        let list_manage_call = || {
+            GenOutput::ToolCall(
+                "list_manage".to_string(),
+                json!({ "op": "add", "item": { "name": "Eggs", "qty": 2.0 } }),
+            )
+        };
+        let mut engine = ScriptEngine::new(vec![
+            list_manage_call(),
+            valid_timer_call(),
+            GenOutput::Prose("List updated and your timer is running.".to_string()),
+        ]);
+        let mut runner = OkRunner;
+        let t = run_turn(&mut engine, &mut runner, "add eggs and start a timer", &TurnConfig::default());
+        assert_eq!(t.tool_calls(), 2, "two DIFFERENT tool calls both execute");
+        assert_eq!(t.duplicate_skips(), 0);
+    }
+
+    /// If the model repeats the SAME call again even after the one nudge, the
+    /// machine must not loop forever: it ends the turn itself with a generic
+    /// confirmation instead of re-executing a third time.
+    #[test]
+    fn duplicate_call_repeated_past_the_nudge_cap_ends_the_turn_gracefully() {
+        let mut engine = ScriptEngine::repeating(valid_timer_call());
+        let mut runner = OkRunner;
+        let t = run_turn(&mut engine, &mut runner, "start a pasta timer", &TurnConfig::default());
+        assert_eq!(t.tool_calls(), 1, "still only ONE real execution");
+        assert_eq!(t.duplicate_skips(), 1, "exactly one nudge attempt before giving up");
+        assert_eq!(t.final_prose(), Some(DUPLICATE_GIVEUP_PROSE));
+        assert!(!t.hit_hop_limit(), "ends via the dedupe give-up path, not the hop cap");
+    }
+
+    /// A tool-exec ERROR followed by an identical retry must ALSO be deduped
+    /// (an "executed" call includes an attempted-but-failed one) rather than
+    /// hammering a consistently failing tool.
+    #[test]
+    fn duplicate_call_after_a_tool_error_is_still_deduped() {
+        let mut engine = ScriptEngine::new(vec![
+            valid_timer_call(),
+            valid_timer_call(), // identical repeat, even after the error below
+            GenOutput::Prose("Sorry, I couldn't start that timer.".to_string()),
+        ]);
+        let mut runner = ErrRunner;
+        let t = run_turn(&mut engine, &mut runner, "start a pasta timer", &TurnConfig::default());
+        assert_eq!(t.tool_errors(), 1, "the first attempt still fails and is surfaced");
+        assert_eq!(t.duplicate_skips(), 1, "the identical retry is deduped, not re-attempted");
     }
 
     // SPEC §8.4 pt 4: a tool-exec error is surfaced and fed back, not swallowed.

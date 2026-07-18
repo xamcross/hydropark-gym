@@ -160,6 +160,30 @@ fn classify_tool_value(value: &Value, on_empty_name: &str) -> GenOutput {
     }
 }
 
+/// Recognizes a generation that is ENTIRELY (after trim, nothing before or
+/// after) a single balanced JSON object that does NOT have the `{name,
+/// arguments}` tool-call shape — e.g. the model echoing back a fed-back
+/// `<tool_result>` payload such as `{"timer_id":"...","label":"...",...}` as
+/// its own reply instead of a natural-language confirmation (W02a — the live
+/// "raw JSON result shown in chat" bug: `TurnContext::push_result`, run_turn.rs,
+/// hands a small model that exact JSON verbatim as feedback with no example
+/// of how to respond to it, and it sometimes just repeats it back). Anything
+/// with a `name`/`arguments` shape was already claimed by
+/// [`extract_bare_tool_call`] above, and anything with LEADING or TRAILING
+/// text around the object is left alone (genuine prose that merely contains a
+/// JSON-ish snippet, e.g. `leading_json_object_without_tool_call_shape_is_not_misdetected`).
+/// Deliberately scoped to OBJECTS ONLY (not bare scalars/strings/arrays) so a
+/// model's legitimate one-word/one-number prose reply (e.g. answering "what's
+/// 6 times 7?" with "42") is never misdetected as a leak.
+fn is_non_tool_call_json_leak(trimmed: &str) -> bool {
+    match balanced_json_object_end(trimmed) {
+        Some(end) if end == trimmed.len() => {
+            extract_bare_tool_call(trimmed).is_none() && serde_json::from_str::<Value>(trimmed).is_ok()
+        }
+        _ => false,
+    }
+}
+
 /// Classify one raw model generation into the [`GenOutput`] the turn machine
 /// consumes: a `<tool_call>` block that parses to `{name, arguments}` becomes a
 /// `ToolCall` (still unvalidated — the machine validates against the catalog);
@@ -167,8 +191,13 @@ fn classify_tool_value(value: &Value, on_empty_name: &str) -> GenOutput {
 /// `{name, arguments}` object at the start of the generation (no wrapper — see
 /// [`extract_bare_tool_call`]) is ALSO recognized as a `ToolCall`, so a 3B model
 /// that skips the `<tool_call>` wrapper still gets executed instead of leaking
-/// raw JSON into the chat transcript. Anything else is `Prose`. Shared by both
-/// engines so the mock feeds the machine exactly what a real model would.
+/// raw JSON into the chat transcript. A generation that is otherwise nothing
+/// but a bare JSON object with no tool-call shape (see
+/// [`is_non_tool_call_json_leak`]) is treated as `Malformed` rather than
+/// `Prose` — W02a — so it is routed through the existing repair/graceful-fallback
+/// path instead of ever being shown to the user as raw `{...}`. Anything else
+/// is genuine `Prose`. Shared by both engines so the mock feeds the machine
+/// exactly what a real model would.
 pub fn parse_generation(text: &str) -> GenOutput {
     const OPEN: &str = "<tool_call>";
     if text.contains(OPEN) {
@@ -180,6 +209,7 @@ pub fn parse_generation(text: &str) -> GenOutput {
         let trimmed = text.trim();
         match extract_bare_tool_call(trimmed) {
             Some(value) => classify_tool_value(&value, text),
+            None if is_non_tool_call_json_leak(trimmed) => GenOutput::Malformed(text.to_string()),
             None => GenOutput::Prose(trimmed.to_string()),
         }
     }
@@ -280,6 +310,52 @@ mod parse_generation_tests {
     fn wrapped_form_still_takes_priority_when_present() {
         let raw = r#"<tool_call>{"name": "start_timer", "arguments": {"label": "Pasta", "duration_sec": 60}}</tool_call>"#;
         assert!(matches!(parse_generation(raw), GenOutput::ToolCall(name, _) if name == "start_timer"));
+    }
+
+    // -- W02a: a generation that is nothing but a bare JSON object with no
+    //    `{name, arguments}` shape (e.g. the model echoing a fed-back
+    //    `<tool_result>` payload back as its own reply) must never be shown to
+    //    the user as raw `{...}` — it is reclassified `Malformed` so the turn
+    //    machine's existing repair/fallback path handles it instead of
+    //    `emit_steps` ever streaming it as chat prose. --
+
+    /// The live-repro shape: exactly a `start_timer` RESULT object (no
+    /// `name`/`arguments` keys — a tool RESULT, not a tool CALL) and nothing
+    /// else in the generation.
+    #[test]
+    fn bare_echoed_tool_result_json_is_not_shown_as_raw_prose() {
+        let raw = r#"{"timer_id": "tmr_1", "label": "carbonara for 4", "duration_sec": 1800, "started_at_ms": 123}"#;
+        match parse_generation(raw) {
+            GenOutput::Malformed(text) => assert_eq!(text, raw),
+            other => panic!("expected Malformed (never raw Prose), got {other:?}"),
+        }
+    }
+
+    /// A short JSON object unrelated to any tool shape at all is still caught
+    /// — the check is "is this whole generation just a bare JSON object",
+    /// not "does it look like a specific known result".
+    #[test]
+    fn bare_unrelated_json_object_is_not_shown_as_raw_prose() {
+        let raw = r#"{"foo": "bar", "n": 2}"#;
+        assert!(matches!(parse_generation(raw), GenOutput::Malformed(_)));
+    }
+
+    /// A leading JSON object followed by trailing prose is UNCHANGED by this
+    /// hardening — it's a different scenario (mixed content, not a bare leak)
+    /// already covered by `leading_json_object_without_tool_call_shape_is_not_misdetected`
+    /// above, which must keep passing.
+    #[test]
+    fn json_object_with_trailing_prose_is_still_plain_prose_not_malformed() {
+        let raw = r#"{"ingredient": "salt", "qty": 2} is roughly how I'd write that down."#;
+        assert!(matches!(parse_generation(raw), GenOutput::Prose(_)));
+    }
+
+    /// A bare NON-object JSON scalar (e.g. the model answering "what's 6
+    /// times 7?" with just "42") must stay genuine `Prose` — the leak guard is
+    /// deliberately scoped to JSON OBJECTS only, never bare numbers/strings.
+    #[test]
+    fn bare_json_number_reply_is_not_misdetected_as_a_leak() {
+        assert!(matches!(parse_generation("42"), GenOutput::Prose(text) if text == "42"));
     }
 }
 
@@ -470,6 +546,12 @@ fn emit_steps(app: &AppHandle, cancel: &CancelRegistry, session_id: &str, transc
                 }
             }
             Step::HopLimitReached { .. } => { /* the turn simply ends; `done` follows */ }
+            Step::DuplicateCallSkipped { .. } => {
+                // W02b: an identical-consecutive call was deduped — no re-execution
+                // happened (no second timer), so there is nothing new to show; the
+                // model's nudged-toward prose confirmation (or the machine's own
+                // generic give-up line) is what the user sees next, via `Step::Prose`.
+            }
         }
     }
     words
@@ -765,6 +847,36 @@ pub mod mock {
                 t.steps
             );
         }
+
+        /// W02a — the other live-repro half: AFTER a tool result is fed back
+        /// (`TurnContext::push_result`), a small model can echo that raw JSON
+        /// back verbatim instead of confirming in prose. Via `run_turn`, that
+        /// echo must be classified `Malformed` (triggering the existing
+        /// repair re-prompt) rather than ever reaching a `Step::Prose` — the
+        /// only step type `emit_steps` streams to the chat as `inference://token`.
+        #[test]
+        fn echoed_tool_result_json_is_never_shown_as_raw_prose_via_run_turn() {
+            let mut engine = MockEngine {
+                turns: vec![
+                    r#"<tool_call>{"name":"start_timer","arguments":{"label":"Pasta","duration_sec":540}}</tool_call>"#.to_string(),
+                    // the model echoes the fed-back <tool_result> payload instead of confirming
+                    r#"{"timer_id":"tmr_1","label":"Pasta","duration_sec":540,"started_at_ms":123}"#.to_string(),
+                    "Your pasta timer is running.".to_string(),
+                ],
+                idx: 0,
+            };
+            let mut runner = TestRunner;
+            let t = run_turn(&mut engine, &mut runner, "start a pasta timer", &TurnConfig::default());
+            assert_eq!(t.tool_calls(), 1);
+            assert_eq!(t.repairs(), 1, "the echoed JSON triggers ONE repair re-prompt, not a raw display");
+            assert!(t.fallback().is_none());
+            assert_eq!(t.final_prose(), Some("Your pasta timer is running."));
+            assert!(
+                !t.steps.iter().any(|s| matches!(s, Step::Prose(p) if p.contains("timer_id"))),
+                "the echoed tool_result JSON must never appear as a Prose step: {:?}",
+                t.steps
+            );
+        }
     }
 }
 
@@ -984,7 +1096,12 @@ pub mod real {
                 "- list_manage(op: \"add\"|\"remove\"|\"check\"|\"uncheck\"|\"set_all\", item?, items?) — edit the ingredient list.\n\n",
                 "When the user asks for something a tool can do, respond with ONLY that one <tool_call> ",
                 "block and nothing else — no words before or after it, and never write the JSON without ",
-                "the <tool_call> and </tool_call> tags around it. Otherwise, just chat normally with no tags."
+                "the <tool_call> and </tool_call> tags around it. Otherwise, just chat normally with no tags.\n\n",
+                "If you see a <tool_result> block, that tool ALREADY ran successfully — do not call the ",
+                "same tool again with the same arguments, and do not repeat, quote, or paraphrase the raw ",
+                "<tool_result> JSON itself. Instead reply with ONE short, plain-language sentence confirming ",
+                "what happened for the user, with no tags and no braces. Call each tool AT MOST once per ",
+                "request unless the user's request genuinely needs it again with DIFFERENT arguments."
             )
             .to_string()
         } else {
@@ -1268,6 +1385,38 @@ pub mod real {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        /// W02b — pure string-builder regression, no model/GGUF required: the
+        /// skill-enabled system prompt must tell the model what to do AFTER a
+        /// `<tool_result>` comes back (confirm briefly in prose; never repeat
+        /// the tool call or the raw result JSON) — the missing guidance that
+        /// let a small model over-call (duplicate timers) and/or echo the raw
+        /// fed-back JSON as if it were its own reply.
+        #[test]
+        fn skill_enabled_system_prompt_guides_post_tool_result_behaviour() {
+            let prompt = build_chatml_prompt("start a pasta timer", true);
+            assert!(
+                prompt.contains("do not call the same tool again"),
+                "prompt must tell the model not to re-call an already-executed tool: {prompt}"
+            );
+            assert!(
+                prompt.contains("do not repeat, quote, or paraphrase"),
+                "prompt must tell the model not to echo the raw tool_result JSON: {prompt}"
+            );
+            assert!(
+                prompt.contains("<tool_result>"),
+                "prompt must reference the <tool_result> feedback tag it's giving guidance about: {prompt}"
+            );
+        }
+
+        /// The skill-disabled persona has no tools at all, so it gets none of
+        /// the tool-result guidance (nothing to guide).
+        #[test]
+        fn skill_disabled_system_prompt_has_no_tool_call_guidance() {
+            let prompt = build_chatml_prompt("hello", false);
+            assert!(!prompt.contains("<tool_result>"));
+            assert!(!prompt.contains("<tool_call>"));
+        }
 
         fn run_prompt(
             engine: &Engine,
