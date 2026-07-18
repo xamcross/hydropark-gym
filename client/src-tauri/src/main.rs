@@ -43,7 +43,7 @@ use backend_client::BackendClient;
 use hpskill::SkillInstaller;
 use ipc::{
     AuthCredentialsArgs, CapabilityDiscloseArgs, CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult,
-    CmdError, DeviceEnsureResult, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
+    CmdError, ComposeAgentArgs, DeviceEnsureResult, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
     HardwareProfile, InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult,
     NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
     SkillDisableArgs, SkillDownloadInstallArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs,
@@ -270,11 +270,13 @@ fn log_hardware_profile() {
 /// structured composition error. Pure (no app state) — see `composition.rs`.
 #[tauri::command]
 fn compose_agent(
-    manifests: Vec<serde_json::Value>,
-    primary_hint: Option<String>,
-    n_ctx: Option<u32>,
+    args: ComposeAgentArgs,
 ) -> Result<composition::ComposedAgentView, composition::ComposeErrorView> {
-    composition::compose_agent_view(&manifests, primary_hint.as_deref(), n_ctx.unwrap_or(4096))
+    composition::compose_agent_view(
+        &args.manifests,
+        args.primary_hint.as_deref(),
+        args.n_ctx.unwrap_or(4096),
+    )
 }
 
 /// P1-11.2 app auto-update seam. Asks `tauri-plugin-updater` whether a newer *signed*

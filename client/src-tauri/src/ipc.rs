@@ -398,6 +398,21 @@ pub enum SkillId {
     CookingAssistant,
 }
 
+/// Args for the `compose_agent` command. A single struct (like every other
+/// command's `args`) so the webview's `invoke(cmd, { args })` wrapping maps
+/// cleanly - `compose_agent` was previously the lone command taking positional
+/// params, which broke that wrapping ("missing required key manifests").
+/// `camelCase` to match `ComposeAgentArgs` in contract.ts (`primaryHint`/`nCtx`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeAgentArgs {
+    pub manifests: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub primary_hint: Option<String>,
+    #[serde(default)]
+    pub n_ctx: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillEnableArgs {
     pub skill_id: SkillId,
