@@ -229,6 +229,15 @@ struct DeviceRegisterBody<'a> {
     fingerprint: &'a str,
 }
 
+/// `POST /v1/auth/register` body for the device-only path: a bare `{}` so
+/// `email`/`password` are OMITTED entirely, never sent as JSON `null` (the
+/// backend's own migration doc — `users.email`'s partial unique index — is
+/// explicit that service code "must OMIT the field entirely for email-less
+/// accounts, never set it to null"; omitting the request fields keeps that
+/// contract from the client's side too).
+#[derive(Debug, Serialize)]
+struct EmptyBody {}
+
 // ---------------------------------------------------------------------------
 // Backend wire shapes (private) — snake_case, mirror the Java DTOs
 // ---------------------------------------------------------------------------
@@ -719,6 +728,29 @@ impl BackendClient {
         decode_auth_response(&body)
     }
 
+    /// `POST /v1/auth/register` with NO credentials — the email-optional "device
+    /// identity" path (SPEC §12/§13). The backend's `RegisterRequest` binds an
+    /// absent `email`/`password` to `null` (both `@Email` and `@Size` treat `null`
+    /// as valid), and `AuthService.register` branches on `normalizedEmail == null`
+    /// into a device-only account (a recovery code instead of a password) that
+    /// still gets a normal access/refresh token pair back. This is what an
+    /// anonymous buy/download actually needs a bearer for — NOT
+    /// `/v1/devices/register` (below), which requires a bearer to already exist
+    /// (it registers an extra device *slot* under an account you can already
+    /// reach, not a first identity for a brand-new anonymous install).
+    pub async fn auth_register_device(&self) -> Result<AuthSession, BackendError> {
+        let url = auth_register_route(&self.base);
+        let resp = self
+            .http
+            .post(&url)
+            .json(&EmptyBody {})
+            .send()
+            .await
+            .map_err(BackendError::network)?;
+        let body = read_ok(resp).await?;
+        decode_auth_response(&body)
+    }
+
     pub async fn auth_login(
         &self,
         email: &str,
@@ -1177,6 +1209,16 @@ mod tests {
 
         let r = serde_json::to_value(RefreshTokenBody { refresh_token: "rt-1" }).unwrap();
         assert_eq!(r["refresh_token"], "rt-1");
+    }
+
+    /// The device-only register body must OMIT `email`/`password` entirely (not
+    /// send them as JSON `null`) — this is what lets the backend's
+    /// `RegisterRequest`/`AuthService.register` bind them to Java `null` and take
+    /// the device-only branch (see `EmptyBody`'s doc comment).
+    #[test]
+    fn empty_body_serializes_with_no_credential_fields() {
+        let v = serde_json::to_value(EmptyBody {}).unwrap();
+        assert_eq!(v, serde_json::json!({}));
     }
 
     #[test]

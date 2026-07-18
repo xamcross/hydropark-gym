@@ -692,25 +692,30 @@ pub struct AuthCredentialsArgs {
     pub password: String,
 }
 
-/// The account+device status the webview hydrates from (`auth_status`, and the
-/// return of register/login/logout). `email` is present only for an authenticated
-/// account that has one; `deviceId` is the stable install id.
+/// The account+device status the webview hydrates from (`auth_status`,
+/// `device_ensure`, and the return of register/login/logout). `email` is
+/// present only for an authenticated account that has one; `deviceId` is the
+/// stable install id.
+///
+/// `status` is the field the webview's `AuthState.status` (contract.ts) — and
+/// therefore `AuthService.hasIdentity()`/`isAuthenticated()` — actually reads.
+/// P0 fix: earlier this struct had no `status` field at all, so every one of
+/// these commands silently violated the `IpcCommandMap` contract (which
+/// declares `result: AuthState`); the webview's `_state().status` came back
+/// `undefined`, and `hasIdentity()`'s `status !== 'anonymous'` check happened
+/// to read `undefined` as "has an identity" regardless of whether a backend
+/// session actually existed — masking `device_ensure` never having minted one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatus {
+    /// `"anonymous"` (no session at all) | `"device"` (a session with no email —
+    /// the device-only account) | `"authenticated"` (a session with an email).
+    /// Mirrors the TS `AuthStatusKind` union exactly.
+    pub status: String,
     pub authenticated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     pub device_id: String,
-}
-
-/// `device_ensure` result — the stable install id + whether the backend registry
-/// has accepted this device (needs a session; false when signed out).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceEnsureResult {
-    pub device_id: String,
-    pub registered: bool,
 }
 
 /// `step_up_answer` args — the server-issued step-up challenge string to sign

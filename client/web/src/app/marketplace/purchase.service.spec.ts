@@ -82,6 +82,20 @@ async function waitUntil(cond: () => boolean, timeoutMs = 4000): Promise<void> {
   }
 }
 
+/**
+ * Establish a usable ('device') identity — mirrors what a REAL `device_ensure`
+ * now does server-side (P0 fix) — so `install()`'s identity gate short-circuits
+ * before it's even reached, and the tests that use this stay focused on the
+ * license/download/install command sequence rather than the gate itself. The
+ * anonymous-start gating behaviour has its own dedicated tests below.
+ */
+async function withDeviceIdentity(ipc: ScriptedIpc): Promise<AuthService> {
+  const auth = TestBed.inject(AuthService);
+  ipc.when('auth_status', () => ({ status: 'device' as const, deviceId: 'dev-1' }));
+  await auth.refreshStatus();
+  return auth;
+}
+
 const DOWNLOAD_URL = 'https://blob.example/skills/demo-skill/1.0.0.hpskill?sig=abc';
 const INSTALL_RESULT: SkillInstallResult = {
   skillId: 'demo-skill',
@@ -117,6 +131,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
       "skill_download_install (NEVER skill_enable — Task 14/F03), threading the download URL " +
       "through, routes enable() through EnabledSkillsService, and reaches 'active'",
     async () => {
+      await withDeviceIdentity(ipc);
       ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
       ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
       ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
@@ -146,6 +161,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
     'install(id, true) for a P0 skill (kitchen-timer) still calls skill_enable (unchanged ' +
       'behaviour) and does NOT add it to EnabledSkillsService (that store is for non-P0 ids only)',
     async () => {
+      await withDeviceIdentity(ipc);
       ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
       ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
       ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
@@ -165,6 +181,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
   );
 
   it('install(id) without thenEnable stops at "installed" and never calls skill_enable', async () => {
+    await withDeviceIdentity(ipc);
     ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
     ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
     ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
@@ -176,6 +193,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
   });
 
   it('a rejected skill_download_install reverts state to "not-owned", surfaces CmdError::Package via errorFor, and never calls skill_enable', async () => {
+    await withDeviceIdentity(ipc);
     ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
     ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
     ipc.when('skill_download_install', () =>
@@ -190,6 +208,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
   });
 
   it('a rejected download_url never reaches the install command and reverts state, not leaving it stuck at "installing"', async () => {
+    await withDeviceIdentity(ipc);
     ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
     ipc.when('download_url', () => Promise.reject(new Error('backend request failed: network error')));
 
@@ -201,6 +220,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
   });
 
   it('a rejected license_fetch never reaches download_url or install', async () => {
+    await withDeviceIdentity(ipc);
     ipc.when('license_fetch', () => Promise.reject(new Error('account store error: no session')));
 
     await purchase.install('demo-skill', true);
@@ -209,6 +229,60 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
     expect(purchase.stateFor('demo-skill')).toBe('not-owned');
     expect(purchase.errorFor('demo-skill')).toBe('account store error: no session');
   });
+
+  // --- P0 fix: install()'s identity gate (an anonymous "Get") ---------------
+
+  it(
+    'install() for a still-anonymous user silently mints a device identity first ' +
+      '(device_ensure, NOT the sign-in dialog) and then proceeds normally',
+    async () => {
+      ipc.when('device_ensure', () => ({ status: 'device' as const, deviceId: 'dev-1' }));
+      ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
+      ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+      ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+
+      const auth = TestBed.inject(AuthService);
+      expect(auth.promptOpen()).toBe(false);
+
+      await purchase.install('demo-skill');
+
+      expect(ipc.calls.map((c) => c.cmd)).toEqual([
+        'device_ensure',
+        'license_fetch',
+        'download_url',
+        'skill_download_install',
+      ]);
+      expect(auth.promptOpen()).toBe(false); // never raised the sign-in dialog
+      expect(purchase.stateFor('demo-skill')).toBe('installed');
+    }
+  );
+
+  it('install() never re-mints a device identity once one already exists', async () => {
+    await withDeviceIdentity(ipc);
+    ipc.when('device_ensure', () => ({ status: 'device' as const, deviceId: 'dev-1' }));
+    ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
+    ipc.when('download_url', () => ({ url: DOWNLOAD_URL, expiresAt: '2026-01-01T00:00:00Z', watermark: 'wm' }));
+    ipc.when('skill_download_install', () => ({ ...INSTALL_RESULT }));
+
+    await purchase.install('demo-skill');
+
+    expect(ipc.calls.map((c) => c.cmd)).toEqual(['license_fetch', 'download_url', 'skill_download_install']);
+  });
+
+  it(
+    'install() reverts to "not-owned" with a clear error and never calls license_fetch ' +
+      'when the anonymous device_ensure itself fails (e.g. backend unreachable)',
+    async () => {
+      ipc.when('device_ensure', () => Promise.reject(new Error('backend request failed: network error')));
+      ipc.when('license_fetch', () => ({ compactJws: 'lic.jws' }));
+
+      await purchase.install('demo-skill');
+
+      expect(ipc.calls.map((c) => c.cmd)).toEqual(['device_ensure']);
+      expect(purchase.stateFor('demo-skill')).toBe('not-owned');
+      expect(purchase.errorFor('demo-skill')).toBe('We couldn’t install this skill.');
+    }
+  );
 
   // --- the FULL pinned purchase sequence (B4 step 4, end to end) ------------
 

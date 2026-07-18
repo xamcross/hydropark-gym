@@ -116,6 +116,26 @@ impl SessionManager {
         Ok(())
     }
 
+    /// The email-optional "device identity" path (SPEC §12/§13, P0 fix): when
+    /// this install is still fully anonymous (`current()` is `None`), mint a
+    /// device-only backend account (`POST /v1/auth/register` with no
+    /// credentials) and persist its token pair as the session — exactly like
+    /// [`Self::register`]/[`Self::login`] do — so `bearer()` stops being `None`
+    /// and the authed commerce calls (`order_checkout`/`license_fetch`/
+    /// `download_url`) stop 401ing for a never-signed-in user.
+    ///
+    /// Idempotent: a session already exists (device-only OR a full account) →
+    /// no-op, so repeated calls (e.g. every `device_ensure` invocation) never
+    /// mint a second account for the same install.
+    pub async fn ensure_device_session(&self) -> Result<(), SessionError> {
+        if self.current().is_some() {
+            return Ok(());
+        }
+        let issued = self.client.auth_register_device().await?;
+        self.persist(&issued)?;
+        Ok(())
+    }
+
     /// Log out: best-effort revoke the refresh token server-side, then clear the
     /// local session unconditionally (a network hiccup must not strand the user
     /// signed-in locally).
@@ -271,5 +291,23 @@ mod tests {
         // Clearing removes it (the local half of logout).
         mgr.lock().clear_session().unwrap();
         assert!(mgr.current().is_none());
+    }
+
+    /// `ensure_device_session` must be a true no-op once ANY session already
+    /// exists — it must not re-dial the backend (the manager's client points at
+    /// an unreachable base; a network call here would fail the test) and must
+    /// not disturb the already-persisted tokens.
+    #[tokio::test]
+    async fn ensure_device_session_is_a_noop_once_a_session_exists() {
+        let mgr = manager();
+        let exp_secs = 2_000_000_000;
+        let access = jwt_with_exp(exp_secs);
+        mgr.save_tokens(&access, "refresh-xyz", Some("chef@example.com")).unwrap();
+
+        mgr.ensure_device_session().await.expect("no-op must not dial the (unreachable) backend");
+
+        let after = mgr.current().expect("existing session preserved");
+        assert_eq!(after.access_token, access, "no-op must not overwrite the existing session");
+        assert_eq!(after.refresh_token, "refresh-xyz");
     }
 }

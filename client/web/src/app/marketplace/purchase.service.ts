@@ -244,9 +244,25 @@ export class PurchaseService {
    * failure along the way (license, download-URL grant, or the install itself)
    * routes through {@link fail}, which reverts to `'not-owned'` and surfaces the
    * error via {@link errorFor} rather than leaving the button stuck mid-flow.
+   *
+   * A FREE skill needs no account (SPEC §12/§13 — the app is fully usable
+   * anonymously), but `license_fetch`/`download_url` are still authed
+   * server-side, so an identity is still required to attach a bearer. Unlike
+   * {@link buy}, this must never raise the sign-in dialog (that framing —
+   * "you need an account to buy skills" — is wrong for a free Get): it
+   * silently mints a device identity via {@link AuthService.ensureDevice} when
+   * none exists yet, the same no-email path the dialog's "Continue on this
+   * device" button drives.
    */
   async install(skillId: string, thenEnable = false): Promise<void> {
     this.clearError(skillId);
+    if (!this.auth.hasIdentity()) {
+      const ready = await this.auth.ensureDevice();
+      if (!ready) {
+        this.fail(skillId, undefined, 'We couldn’t install this skill.');
+        return;
+      }
+    }
     this.setState(skillId, 'installing');
     try {
       const bearer = this.auth.bearer();

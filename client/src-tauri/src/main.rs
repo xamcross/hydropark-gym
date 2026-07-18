@@ -43,7 +43,7 @@ use backend_client::BackendClient;
 use hpskill::SkillInstaller;
 use ipc::{
     AuthCredentialsArgs, CapabilityDiscloseArgs, CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult,
-    CmdError, ComposeAgentArgs, DeviceEnsureResult, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
+    CmdError, ComposeAgentArgs, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
     HardwareProfile, InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult,
     NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
     SkillDisableArgs, SkillDownloadInstallArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs,
@@ -437,9 +437,11 @@ fn capability_disclose(args: CapabilityDiscloseArgs) -> Result<String, CmdError>
 // Accounts / licensing (P1-09) + step-up (P1-09.8). The Rust core owns the
 // session: register/login/refresh/logout hit `/v1/auth` and persist the token
 // pair in the T2 SQLite store; `auth_status` reports it. `device_ensure` mints
-// the stable install id + keypair and registers with `/v1/devices`;
-// `entitlements_refresh` caches `/v1/entitlements` locally; `step_up_answer`
-// signs a server challenge with the persisted device key.
+// the stable install id + keypair AND (P0 fix) a real backend session for a
+// still-anonymous install via the email-optional `/v1/auth/register` path, so
+// there is a bearer before it also (best-effort) registers a device slot with
+// `/v1/devices`; `entitlements_refresh` caches `/v1/entitlements` locally;
+// `step_up_answer` signs a server challenge with the persisted device key.
 // ---------------------------------------------------------------------------
 
 /// Assemble the account+device status the webview hydrates from. Always resolves
@@ -448,9 +450,16 @@ fn capability_disclose(args: CapabilityDiscloseArgs) -> Result<String, CmdError>
 fn session_status(session: &SessionManager) -> Result<SessionStatus, CmdError> {
     let identity = device::ensure_identity(session.store())?;
     let current = session.current();
+    let email = current.as_ref().and_then(|s| s.email.clone());
+    let status = match (&current, &email) {
+        (None, _) => "anonymous",
+        (Some(_), Some(_)) => "authenticated",
+        (Some(_), None) => "device",
+    };
     Ok(SessionStatus {
+        status: status.to_string(),
         authenticated: current.is_some(),
-        email: current.and_then(|s| s.email),
+        email,
         device_id: identity.install_id,
     })
 }
@@ -490,35 +499,41 @@ fn auth_status(session: State<'_, SessionManager>) -> Result<SessionStatus, CmdE
 #[tauri::command]
 async fn device_ensure(
     session: State<'_, SessionManager>,
-) -> Result<DeviceEnsureResult, CmdError> {
+) -> Result<SessionStatus, CmdError> {
     let session = session.inner().clone();
     // Always ensure a local identity exists (install id + keypair + fingerprint).
     let identity = device::ensure_identity(session.store())?;
-    let mut registered = identity.registered;
 
-    // Register with the backend device registry when we have a session (it needs a
-    // bearer; the FIRST device is trusted-on-first-use, so no step-up token). A
-    // network failure is non-fatal — the local identity is what the app needs; the
-    // webview can retry.
-    if !registered {
+    // P0 fix (the load-bearing step): a brand-new anonymous install has no
+    // backend session at all, so `session.bearer()` is `None` and every authed
+    // commerce call (order_checkout/license_fetch/download_url) 401s no matter
+    // what this command used to do below. Mint the email-optional "device
+    // identity" session — `POST /v1/auth/register` with no credentials — so
+    // there is a real bearer to attach. Propagates on failure (an offline
+    // backend must surface as a real error, not a silent false "ready").
+    // No-op once ANY session (device-only or a full account) already exists.
+    session.ensure_device_session().await?;
+
+    // Best-effort: also register this device in the account's device-slot
+    // registry (`/v1/devices/register`, step-up gated, 5-slot cap) — a
+    // DIFFERENT concern (letting a signed-in-by-email user manage multiple
+    // devices), not what buy/download need, so a failure here must never fail
+    // the whole command (the webview can retry via another `device_ensure`).
+    if !identity.registered {
         if let Some(bearer) = session.bearer().await {
             let name = device::default_device_name();
             let fingerprint = device::fingerprint(&identity);
-            match session
+            if let Ok(dev) = session
                 .client()
                 .device_register(&name, &fingerprint, Some(&bearer), None)
                 .await
             {
-                Ok(dev) => {
-                    device::mark_registered(session.store(), &dev.device_id)?;
-                    registered = true;
-                }
-                Err(_) => { /* leave registered = false; caller may retry */ }
+                let _ = device::mark_registered(session.store(), &dev.device_id);
             }
         }
     }
 
-    Ok(DeviceEnsureResult { device_id: identity.install_id, registered })
+    session_status(&session)
 }
 
 #[tauri::command]
