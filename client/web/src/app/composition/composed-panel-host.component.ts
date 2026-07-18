@@ -1,54 +1,48 @@
 /* =============================================================================
-   HYDROPARK — COMPOSED PANEL HOST  (P1 live-flow wiring · SPEC §9.3/§9.5/§9.6)
+   HYDROPARK — COMPOSED PANEL HOST  (P1 live-flow wiring · SPEC §9.3/§9.6)
    -----------------------------------------------------------------------------
-   The live surface of a composed agent. It:
-     1. reads the enabled skills' panel declarations (via CompositionService) and
-        renders them through the LAYOUT-DOCK (place-by-region-then-priority,
-        dedupe, responsive fold — all owned by the dock/LayoutService);
-     2. mounts the matching widget component for each panel dynamically through
-        the WIDGET REGISTRY (NgComponentOutlet), which is how the previously
-        unmounted library widgets become usable;
-     3. registers the composed agent's shared-state SLOTS on a per-agent
+   The INSPECTOR surface of a composed agent — summary, capacity/context gate
+   outcome, assembled persona, and composed tool set. It:
+     1. registers the composed agent's shared-state SLOTS on a per-agent
         BusService and DRIVES tool→widget updates through that bus per the
         composed view's routing (a `writes_state` result patches slots; an
         `updates_widget` result lands in that widget's inbox; else it posts to
         chat);
-     4. animates the panel surface in/out with the reduce-motion-aware
+     2. animates the inspector body in/out with the reduce-motion-aware
         `appPanelTransition` directive (SPEC §9.6 / §8.6).
 
-   BusService is provided HERE (component scope) because SPEC §9.3 gives each
-   active agent exactly one bus — not a global singleton. OnPush + signals.
+   NOTE (W04 de-dup): this component used to ALSO mount the live interactive
+   panels (timers/ingredients/units) here via a nested `LayoutDockComponent` +
+   the widget registry (NgComponentOutlet), bound to this bus's slots, wrapped
+   in the reduce-motion-aware `appPanelTransition` directive. That was a
+   SECOND, independent rendering of the exact same widget types already
+   mounted — self-sourced, directly against `SessionService`/`ToolsService` —
+   in the main dock (`app.component.html`'s `app-panel-dock`, which owns ITS
+   OWN transform-animated mount/unmount and is untouched by this fix). The two
+   never stayed in sync: UI-first interactions (add an ingredient, start a
+   timer) go straight through `ToolsService` to `SessionService`, NOT through
+   this bus — the bus's slots only update via `routeToolResult` below, which
+   only fires on an `inference://tool_call_result` event. So the copy mounted
+   here rendered permanently empty ("ingredients 0 item(s)", a nested empty
+   "Ingredients" panel) next to the real, populated main dock. The main dock
+   is the single authoritative, interactive panel surface; this component
+   stays a compact inspector (gated only by `composed()`, same as before) and
+   never mounts those widgets. The bus/routing plumbing itself is untouched —
+   only the duplicate RENDERING was removed.
    ============================================================================= */
 
-import { NgComponentOutlet } from '@angular/common';
-import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  computed,
-  effect,
-  inject,
-  signal,
-  viewChild,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { IPC_PORT } from '../ipc/ipc.port';
 import { BUS_TRANSCRIPT_SINK, BusService, BusTranscriptSink, StatePatch, TranscriptLine } from '../shared/bus';
-import { ArrangedPanel } from '../shared/layout/layout.model';
-import { LayoutDockComponent, PanelBodyDirective } from '../shared/layout/layout-dock.component';
-import { LayoutSnapshotService } from '../shared/layout/layout-snapshot.service';
-import { PanelTransitionDirective } from '../shared/panel-transition/panel-transition.directive';
 import { SessionService } from '../state/session.service';
 import { SaveTemplateDialogComponent } from '../templates/save-template-dialog.component';
-import { BoundState } from '../widgets/widget-contract';
-import { boundStateEqual, boundStateFor } from './bound-state';
 import { CompositionService } from './composition.service';
-import { ResolvedWidget, acceptsBoundState, isPlaceholder, resolveWidget } from './widget-registry';
 
 @Component({
   selector: 'app-composed-panel-host',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgComponentOutlet, LayoutDockComponent, PanelBodyDirective, PanelTransitionDirective, SaveTemplateDialogComponent],
+  imports: [SaveTemplateDialogComponent],
   templateUrl: './composed-panel-host.component.html',
   styleUrl: './composed-panel-host.component.css',
   providers: [
@@ -73,12 +67,6 @@ export class ComposedPanelHostComponent {
   readonly composition = inject(CompositionService);
   readonly bus = inject(BusService);
   private readonly ipc = inject(IPC_PORT);
-  private readonly layoutSnapshot = inject(LayoutSnapshotService);
-
-  /** The dock actually mounted in the template — only present while `hasAgent()` (the
-   * `*appPanelTransition` above unmounts it when idle). Public-only-to-this-file seam
-   * for the Task 11b layout-snapshot bridge below; see layout-snapshot.service.ts. */
-  private readonly dock = viewChild(LayoutDockComponent);
 
   /** "Save as template" dialog visibility (Task 11b). */
   readonly saveDialogOpen = signal(false);
@@ -88,8 +76,6 @@ export class ComposedPanelHostComponent {
   readonly error = this.composition.error;
   readonly composing = this.composition.composing;
   readonly hasAgent = this.composition.hasAgent;
-  readonly panels = this.composition.panels;
-  readonly slots = this.composition.slots;
 
   /** A short, safe preview of the composed persona (never the full paid prompt). */
   readonly personaPreview = computed<string>(() => {
@@ -97,125 +83,19 @@ export class ComposedPanelHostComponent {
     return p.length > 280 ? `${p.slice(0, 280)}…` : p;
   });
 
-  /** skillId → display name, for the bound-state "Managed by …" attribution (§5). */
-  private readonly skillNames = computed<Map<string, string>>(() => {
-    const map = new Map<string, string>();
-    for (const m of this.composition.enabledManifests()) map.set(m.id, m.name);
-    return map;
-  });
-
-  /**
-   * Reference-stable cache of the per-panel bound state, keyed by `panel.key`.
-   * NgComponentOutlet diffs inputs by value, and dev-mode CD checks the bound
-   * input twice per tick — returning a fresh object each pass would look like a
-   * change, so we hand back the SAME reference until the slot version / owner /
-   * writer actually changes (see {@link boundStateEqual}).
-   */
-  private readonly boundCache = new Map<string, BoundState>();
-
   constructor() {
-    // (3a) Keep the bus's slot table in step with the composed agent.
+    // Keep the bus's slot table in step with the composed agent (still feeds
+    // tool→state routing below, even though no widget here reads a slot).
     effect(() => this.bus.registerSlots(this.composition.slots()));
 
-    // (3b) Route already-executed tool results through the bus per the composed
+    // Route already-executed tool results through the bus per the composed
     // routing. In the P0 mock these arrive on `inference://tool_call_result`;
     // in the Tauri build the core emits the same event after it runs the tool.
     const off = this.ipc.on('inference://tool_call_result', (e) =>
       this.routeToolResult(e.tool, e.result)
     );
 
-    // (Task 11b) Bridge the child dock's per-instance LayoutService through the
-    // root-scoped LayoutSnapshotService — see that file's header for why this
-    // indirection exists (LayoutService is component-scoped, not root) and how
-    // it handles the dock not being mounted yet when a template load restores.
-    //
-    // `clear()` only fires on a genuine mount→unmount TRANSITION (tracked via
-    // `dockHasMounted`), never merely because `dock()` hasn't resolved yet on
-    // an early tick. This matters: a template load that DOES end up enabling a
-    // skill buffers its layout restore in `LayoutSnapshotService` BEFORE this
-    // component (and its dock) exist; if an early "not mounted yet" tick of
-    // this same effect called `clear()`, it would drop that still-relevant
-    // buffered restore before the dock ever gets a chance to consume it. See
-    // `LayoutSnapshotService`'s class doc for the complementary fix (a
-    // `restore()` token + `invalidate()`) that handles the OTHER stale-buffer
-    // case this review caught (a load whose combo never mounts a dock at all).
-    let dockHasMounted = false;
-    effect(() => {
-      const d = this.dock();
-      if (d) {
-        dockHasMounted = true;
-        this.layoutSnapshot.register({
-          capture: () => d.layout.serializeOverrides(),
-          restore: (overrides) => d.layout.applyOverrides(overrides),
-        });
-      } else if (dockHasMounted) {
-        // The dock WAS live and just went away (the agent went idle) — a
-        // stale bridge, and any restore still buffered for THIS component
-        // instance, must not linger for some future, unrelated dock to pick up.
-        dockHasMounted = false;
-        this.layoutSnapshot.clear();
-      }
-    });
-
-    inject(DestroyRef).onDestroy(() => {
-      off();
-      this.layoutSnapshot.clear();
-    });
-  }
-
-  // --- dynamic mount (widget registry) -------------------------------------
-
-  /**
-   * Resolve a panel to the component + inputs the outlet mounts. Unknown or
-   * too-new widget types resolve to a graceful PLACEHOLDER (never `null`), so a
-   * single unrenderable panel can't blank the composed agent (SPEC §9.8).
-   *
-   * For a BOUND panel whose widget is bound-state-aware (P1-06.1), this also
-   * threads the live read-only bound state in as the `bound` input — reading the
-   * slot signal HERE is what keeps a non-writer widget rendering live (direction
-   * #2) with edit affordances disabled + the writer named (contract §5).
-   */
-  resolve(panel: ArrangedPanel): ResolvedWidget {
-    const base = resolveWidget(panel);
-    const binding = panel.descriptor.binding;
-    if (!binding || isPlaceholder(base) || !acceptsBoundState(panel.descriptor.widgetType)) {
-      return base;
-    }
-    // Live slot read → this OnPush view re-renders (and re-resolves) on every
-    // mutation of the bound slot; the memo keeps the input reference stable.
-    const slot = this.bus.slot(binding)();
-    const fresh = boundStateFor(panel, slot, (id) => this.displayName(id));
-    const bound = this.stableBound(panel.key, fresh);
-    return { component: base.component, inputs: { ...base.inputs, bound } };
-  }
-
-  /** The display name of a skill for the "Managed by …" attribution; falls back to the id. */
-  private displayName(skillId: string): string {
-    return this.skillNames().get(skillId) ?? skillId;
-  }
-
-  /** Return the cached bound state for `key` when equivalent, else adopt the fresh one. */
-  private stableBound(key: string, fresh: BoundState): BoundState {
-    const prev = this.boundCache.get(key) ?? null;
-    if (boundStateEqual(prev, fresh)) return prev as BoundState;
-    this.boundCache.set(key, fresh);
-    return fresh;
-  }
-
-  // --- bus read side (proves tool→state routing is live) -------------------
-
-  /** The current version of a slot (from the per-agent bus store). */
-  slotVersion(name: string): number {
-    return this.bus.slot(name)().version;
-  }
-
-  /** A terse, render-safe summary of a slot's live value. */
-  slotSummary(name: string): string {
-    const v = this.bus.slot(name)().value;
-    if (v == null) return '—';
-    if (Array.isArray(v)) return `${v.length} item(s)`;
-    if (typeof v === 'object') return `${Object.keys(v as object).length} field(s)`;
-    return String(v);
+    inject(DestroyRef).onDestroy(off);
   }
 
   // --- save-as-template dialog (Task 11b) -----------------------------------

@@ -3,9 +3,15 @@ import { PanelOverride } from './layout.model';
 
 /**
  * The capture/restore pair a live layout owner exposes to
- * {@link LayoutSnapshotService}. Today the only owner is
- * `ComposedPanelHostComponent`, reaching into its child `LayoutDockComponent`'s
- * public `layout: LayoutService`.
+ * {@link LayoutSnapshotService}. Historically `ComposedPanelHostComponent`
+ * registered a bridge here, reaching into its child `LayoutDockComponent`'s
+ * public `layout: LayoutService`; the W04 de-dup fix removed that nested dock
+ * (it duplicated the main, self-sourced panel dock — see
+ * `composed-panel-host.component.ts`'s class doc), so no bridge is currently
+ * registered anywhere. `snapshot()`/`restore()` degrade to their documented
+ * "no live dock" behavior (`[]` / buffer-until-register) rather than throwing,
+ * so `TemplatesService` keeps working — saved templates simply carry no panel
+ * layout overrides until a future live layout owner registers here again.
  */
 export interface LayoutSnapshotBridge {
   capture(): PanelOverride[];

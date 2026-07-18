@@ -6,6 +6,8 @@ import { IPC_PORT, IpcPort, Unlisten } from '../ipc/ipc.port';
 import { ComposeError, ComposedAgentView, IpcCommand, IpcCommandMap, IpcEvent } from '../ipc/contract';
 import { SessionService } from '../state/session.service';
 import { InferenceService } from '../inference/inference.service';
+import { SlotDescriptor } from '../shared/bus';
+import { PanelDescriptor } from '../shared/layout/layout.model';
 
 /** No-op `IpcPort`: resolves every command with `undefined` and never pushes events. */
 class NoopIpc extends IpcPort {
@@ -169,5 +171,81 @@ describe('ComposedPanelHostComponent — capacity meter conveys state by TEXT, n
     expect(el!.textContent).toContain('4096');
     expect(el!.textContent).toContain('3296 free');
     expect(el!.textContent).not.toContain('overflow');
+  });
+});
+
+/**
+ * W04 — the composed-agent column used to ALSO mount its own copy of the live
+ * interactive panels (a nested `app-layout-dock` resolving `timer_stack` /
+ * `editable_list` / `segmented_toggle` through the widget registry, bound to
+ * this component's OWN per-agent bus). That copy never stayed in sync with the
+ * main, self-sourced panel dock (`app.component.html`'s `app-panel-dock`) —
+ * UI-first edits land on `SessionService` directly, never on this bus — so the
+ * copy rendered permanently empty next to the real, populated data. This locks
+ * in the fix: `ComposedPanelHostComponent` is a compact INSPECTOR only — it
+ * never mounts those widgets, however many panels the composed agent declares
+ * — while still surfacing persona / tools / the capacity(context) meter.
+ *
+ * Uses the same fake-`CompositionService` technique as the X-A11Y.4 block
+ * above (full real IPC round-trip is exercised at the app-level dedup test in
+ * `app.component.spec.ts` instead — see that file for why).
+ */
+describe('ComposedPanelHostComponent — no duplicate interactive panels (W04)', () => {
+  function mount(hasAgent: boolean) {
+    const fakeComposition: Partial<CompositionService> = {
+      composed: signal<ComposedAgentView | null>({
+        order: ['kitchen-timer'],
+        primary: 'kitchen-timer',
+        persona: 'You are the Hydropark Kitchen Timer & Units helper.',
+        tools: [{ call_name: 'start_timer', tool_ref: 'start_timer', namespaced: false, contributors: ['kitchen-timer'] }],
+        routing: [],
+        capacity: { ctx_window: 4096, reserve_tokens: 0, skill_tokens: 200, used_tokens: 200, remaining: 3896, blocked: false, overflow: 0 },
+      }),
+      error: signal<ComposeError | null>(null),
+      composing: signal(false),
+      hasAgent: signal(hasAgent),
+      panels: signal<PanelDescriptor[]>([
+        { widgetType: 'timer_stack', id: 'timers', region: 'side', priority: 100, title: 'Timers' },
+        { widgetType: 'editable_list', id: 'ingredients', region: 'side', priority: 90, title: 'Ingredients', binding: 'ingredients' },
+        { widgetType: 'segmented_toggle', id: 'units', region: 'side', priority: 80, title: 'Units' },
+      ]),
+      slots: signal<SlotDescriptor[]>([{ slot: 'ingredients', kind: 'list', access: 'read_write', writerOfRecord: 'kitchen-timer' }]),
+      enabledManifests: signal([]),
+    };
+    TestBed.configureTestingModule({
+      imports: [ComposedPanelHostComponent],
+      providers: [
+        { provide: IPC_PORT, useValue: new NoopIpc() },
+        { provide: CompositionService, useValue: fakeComposition },
+      ],
+    });
+    const fixture = TestBed.createComponent(ComposedPanelHostComponent);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('never mounts app-layout-dock or the timer/ingredient/unit widgets, even though panels are declared', () => {
+    const fixture = mount(true);
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(el.querySelector('app-layout-dock')).withContext('no nested panel dock').toBeNull();
+    expect(el.querySelector('app-timer-stack')).withContext('no duplicate timers widget').toBeNull();
+    expect(el.querySelector('app-editable-list')).withContext('no duplicate ingredients widget').toBeNull();
+    expect(el.querySelector('app-segmented-toggle')).withContext('no duplicate units widget').toBeNull();
+    // The stale, always-empty summary this bug produced must not appear either.
+    expect(el.textContent).not.toContain('0 item(s)');
+  });
+
+  it('still shows the inspector — header, lead skill, capacity/context meter, persona, and tool chips', () => {
+    const fixture = mount(true);
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(el.querySelector('.ch-title')?.textContent).toContain('Composed agent');
+    expect(el.querySelector('.ch-status')?.textContent).toContain('lead:');
+    expect(el.querySelector('.ch-status')?.textContent).toContain('kitchen-timer');
+    expect(el.querySelector('.ch-capacity')?.textContent).toContain('200');
+    expect(el.querySelector('.ch-persona')?.textContent).toContain('Assembled persona');
+    expect(el.querySelector('.ch-tool')?.textContent?.trim()).toBe('start_timer');
+    expect(el.querySelector('.ch-save-btn')).withContext('Save as template button preserved').toBeTruthy();
   });
 });
