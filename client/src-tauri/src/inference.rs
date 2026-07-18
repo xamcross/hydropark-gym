@@ -359,6 +359,278 @@ mod parse_generation_tests {
     }
 }
 
+// ---------------------------------------------------------------------------
+// B1 — emit-boundary prose sanitizer (defense-in-depth on top of
+// `parse_generation`'s classification above).
+// ---------------------------------------------------------------------------
+//
+// ROOT CAUSE: `TurnContext::push_result` (turn.rs) feeds a successful tool
+// result back to the model as `<tool_result tool="…">{…json…}</tool_result>`.
+// In its confirmation hop, the small (3B) model sometimes ECHOES that result
+// back as text instead of confirming in natural language — e.g.
+// `start_timer: {"duration_sec":2400,…,"timer_id":"…"}` — often with a
+// leading prose sentence before it. `is_non_tool_call_json_leak` above only
+// catches a generation that is ENTIRELY a bare JSON object (`balanced_json_
+// object_end` requires byte 0 to be `{`); the echo has a `start_timer: `
+// prefix and/or leading prose, so it fails that check, `parse_generation`
+// classifies it `Prose`, and `emit_steps` would stream the raw result JSON
+// straight into the chat transcript.
+//
+// `sanitize_prose` is an ADDITIONAL layer applied to `Step::Prose` text right
+// before it is tokenized/streamed (see `emit_steps` below) — it guarantees no
+// raw result JSON reaches chat regardless of what the unreliable 3B emits,
+// without touching `parse_generation`'s classification or its existing tests.
+
+/// Removes every span from a literal opening-tag prefix (e.g. `<tool_result`,
+/// which also matches an opening tag WITH attributes like
+/// `<tool_result tool="start_timer">`) through the given literal closing tag
+/// (e.g. `</tool_result>`), tag and content both. Used only defensively (the
+/// model is fed `<tool_result …>` as part of its OWN prompt, not asked to
+/// reproduce it, but a confirmation-hop echo sometimes parrots the tag
+/// verbatim along with the JSON it wraps). If either tag can't be found the
+/// remaining text is left untouched rather than eating text we can't be sure
+/// about.
+fn strip_spans(text: &str, open_prefix: &str, close_tag: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    loop {
+        let Some(open_start) = rest.find(open_prefix) else {
+            out.push_str(rest);
+            break;
+        };
+        let Some(tag_end_rel) = rest[open_start..].find('>') else {
+            out.push_str(rest); // unterminated opening tag: leave it all alone
+            break;
+        };
+        let tag_end = open_start + tag_end_rel + 1;
+        out.push_str(&rest[..open_start]);
+        let Some(close_rel) = rest[tag_end..].find(close_tag) else {
+            out.push_str(&rest[open_start..]); // no matching close: leave it alone
+            break;
+        };
+        rest = &rest[tag_end + close_rel + close_tag.len()..];
+    }
+    out
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Removes a standalone/trailing `NAME: {balanced JSON object}` fragment for
+/// each closed-catalog tool name (`ToolName::ALL` — `start_timer`,
+/// `convert_units`, `list_manage`, `calculate`, `date_math` — read from the
+/// catalog itself, never a hardcoded guess) — the shape of a tool-RESULT echo
+/// such as `start_timer: {"timer_id":…}` that a 3B model's confirmation hop
+/// sometimes emits verbatim. Tightly scoped:
+///   - NAME must be a whole word (not preceded by an identifier byte, so e.g.
+///     a hypothetical `restart_timer:` never matches mid-word);
+///   - only a colon and OPTIONAL whitespace may separate NAME from the `{`,
+///     and the object must parse as JSON ([`balanced_json_object_end`] — the
+///     same brace-balancing scan `is_non_tool_call_json_leak` uses);
+///   - nothing but whitespace may follow the matched JSON object up to the
+///     next newline (or end of text) — "standalone/trailing" only, so a
+///     sentence that merely *mentions* `start_timer: {...}` before continuing
+///     with more prose on the same line is left untouched.
+fn strip_tool_result_echo_fragments(text: &str) -> String {
+    let mut out = text.to_string();
+    loop {
+        let mut removed = false;
+        'search: for name in tool_catalog::ToolName::ALL {
+            let prefix = name.as_ref_str();
+            let mut search_from = 0usize;
+            while let Some(rel) = out[search_from..].find(prefix) {
+                let start = search_from + rel;
+                let bytes = out.as_bytes();
+                if start != 0 && is_ident_byte(bytes[start - 1]) {
+                    search_from = start + prefix.len();
+                    continue;
+                }
+                let after_name = start + prefix.len();
+                let Some(after_colon) = out[after_name..].strip_prefix(':').map(|_| after_name + 1)
+                else {
+                    search_from = start + prefix.len();
+                    continue;
+                };
+                let ws = out[after_colon..].len() - out[after_colon..].trim_start().len();
+                let json_start = after_colon + ws;
+                let Some(rel_end) = balanced_json_object_end(&out[json_start..]) else {
+                    search_from = start + prefix.len();
+                    continue;
+                };
+                let json_end = json_start + rel_end;
+                if serde_json::from_str::<Value>(&out[json_start..json_end]).is_err() {
+                    search_from = start + prefix.len();
+                    continue;
+                }
+                let after = &out[json_end..];
+                let line_rest = match after.find('\n') {
+                    Some(nl) => &after[..nl],
+                    None => after,
+                };
+                if !line_rest.trim().is_empty() {
+                    search_from = start + prefix.len();
+                    continue;
+                }
+                out.replace_range(start..json_end, "");
+                removed = true;
+                break 'search;
+            }
+        }
+        if !removed {
+            break;
+        }
+    }
+    out
+}
+
+/// Collapses runs of blank/whitespace-only lines down to a single blank line,
+/// trims trailing whitespace off every line, and trims the overall result —
+/// so removing a fragment above never leaves a stray blank line or
+/// leading/trailing whitespace behind.
+fn collapse_blank_lines(text: &str) -> String {
+    let mut out = String::new();
+    let mut prev_blank = false;
+    for line in text.lines() {
+        let blank = line.trim().is_empty();
+        if blank && prev_blank {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line.trim_end());
+        prev_blank = blank;
+    }
+    out.trim().to_string()
+}
+
+/// Strips tool-result-echo fragments from `Step::Prose` text BEFORE it is
+/// tokenized/streamed by `emit_steps` (B1 fix — see the module-level comment
+/// above for the root cause). Strips ONLY:
+///   (a) any `<tool_result …>…</tool_result>` or `<tool_call>…</tool_call>`
+///       span, tag and content ([`strip_spans`]);
+///   (b) a standalone/trailing `NAME: {balanced JSON object}` fragment where
+///       NAME is exactly a catalog tool name
+///       ([`strip_tool_result_echo_fragments`]);
+///   (c) a standalone line that, after trimming, is ENTIRELY a balanced JSON
+///       object which parses as JSON and does NOT have the `{name,
+///       arguments}` tool-call shape — reusing [`is_non_tool_call_json_leak`]
+///       per line, so a bare result echo embedded among otherwise-genuine
+///       prose lines is dropped without touching its neighbors.
+/// Leftover blank lines/whitespace are then collapsed. Genuine prose —
+/// including a bare one-word/one-number reply, or prose that merely
+/// *mentions* JSON mid-sentence — passes through completely unchanged,
+/// mirroring `parse_generation`'s own tight-scoping tests
+/// (`prose_mentioning_json_mid_sentence_is_not_misdetected`,
+/// `bare_json_number_reply_is_not_misdetected_as_a_leak`).
+pub fn sanitize_prose(text: &str) -> String {
+    let text = strip_spans(text, "<tool_result", "</tool_result>");
+    let text = strip_spans(&text, "<tool_call", "</tool_call>");
+    let text = strip_tool_result_echo_fragments(&text);
+    let mut out_lines: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && is_non_tool_call_json_leak(trimmed) {
+            continue; // rule (c): a standalone bare-result-echo line
+        }
+        out_lines.push(line);
+    }
+    collapse_blank_lines(&out_lines.join("\n"))
+}
+
+// -- tests: `sanitize_prose` — RED-then-GREEN coverage for B1 (raw tool-result
+//    JSON leaking into the chat transcript via a `Step::Prose` echo). Pure
+//    logic, no model, no Tauri app — compiled and run under either feature
+//    set, same as `parse_generation_tests` above. --
+#[cfg(test)]
+mod sanitize_prose_tests {
+    use super::*;
+
+    /// The live-repro shape from the screenshot: a clean confirmation
+    /// sentence, then on the next line the model echoes the fed-back
+    /// `start_timer` RESULT (note `timer_id`/`started_at_ms` — result fields,
+    /// not a tool CALL) verbatim with a `start_timer: ` prefix.
+    #[test]
+    fn leading_prose_plus_trailing_result_echo_line_is_stripped_to_just_the_prose() {
+        let raw = "I've started your timer.\n\
+                    start_timer: {\"duration_sec\":2400,\"label\":\"Carbonara for 4\",\"started_at_ms\":123,\"timer_id\":\"t1\"}";
+        assert_eq!(sanitize_prose(raw), "I've started your timer.");
+    }
+
+    /// A PURE echo with nothing else in the generation sanitizes to empty —
+    /// `emit_steps` must then emit nothing for that step (the
+    /// `tool_call_detected` tidy line already confirmed the action).
+    #[test]
+    fn pure_result_echo_sanitizes_to_empty() {
+        let raw = r#"start_timer: {"timer_id":"t1","label":"x","duration_sec":60}"#;
+        assert_eq!(sanitize_prose(raw), "");
+    }
+
+    /// The model parrots the literal `<tool_result>` wrapper tag it was fed,
+    /// attributes and all — also sanitizes to empty.
+    #[test]
+    fn verbatim_tagged_tool_result_echo_sanitizes_to_empty() {
+        let raw = r#"<tool_result tool="start_timer">{"timer_id":"t1","label":"x","duration_sec":60}</tool_result>"#;
+        assert_eq!(sanitize_prose(raw), "");
+    }
+
+    /// Defensive: a parroted `<tool_call>` wrapper (not just `<tool_result>`)
+    /// is stripped the same way.
+    #[test]
+    fn verbatim_tagged_tool_call_echo_sanitizes_to_empty() {
+        let raw = r#"<tool_call>{"name":"start_timer","arguments":{"label":"Pasta","duration_sec":60}}</tool_call>"#;
+        assert_eq!(sanitize_prose(raw), "");
+    }
+
+    /// Rule (c): a bare result-echo line with NO `NAME:` prefix at all,
+    /// sitting among otherwise-genuine prose lines, is dropped — its
+    /// neighboring lines are untouched (blank line left behind collapses).
+    #[test]
+    fn bare_untagged_result_echo_line_among_prose_is_dropped() {
+        let raw = "Here's your timer.\n\
+                    {\"timer_id\":\"t1\",\"label\":\"x\",\"duration_sec\":60,\"started_at_ms\":1}\n\
+                    Enjoy!";
+        assert_eq!(sanitize_prose(raw), "Here's your timer.\nEnjoy!");
+    }
+
+    /// Genuine prose that merely *mentions* the tool-call JSON shape
+    /// mid-sentence (mirrors `parse_generation_tests::
+    /// prose_mentioning_json_mid_sentence_is_not_misdetected`) must pass
+    /// through completely unchanged — not `NAME:`-prefixed, and not a
+    /// standalone line.
+    #[test]
+    fn prose_mentioning_json_mid_sentence_is_unchanged() {
+        let raw = "Sure — a tool call looks like {\"name\": \"start_timer\", \"arguments\": {}} in general.";
+        assert_eq!(sanitize_prose(raw), raw);
+    }
+
+    /// A bare one-word/one-number reply (mirrors `parse_generation_tests::
+    /// bare_json_number_reply_is_not_misdetected_as_a_leak`) is untouched.
+    #[test]
+    fn bare_number_reply_is_unchanged() {
+        assert_eq!(sanitize_prose("42"), "42");
+    }
+
+    /// An ordinary multi-sentence confirmation with no JSON anywhere in it is
+    /// untouched byte-for-byte.
+    #[test]
+    fn normal_multi_sentence_confirmation_is_unchanged() {
+        let raw = "Your pasta timer is running for nine minutes. I'll let you know when it's done, \
+                    and the ingredient list is already updated for four servings.";
+        assert_eq!(sanitize_prose(raw), raw);
+    }
+
+    /// A `NAME:` fragment that has MORE prose after it on the same line (not
+    /// trailing/standalone) must NOT be stripped — this is genuine prose
+    /// explaining the tool's wire format, not a result echo.
+    #[test]
+    fn name_prefixed_json_with_trailing_prose_on_the_same_line_is_unchanged() {
+        let raw = r#"The wire format looks like start_timer: {"ok": true} when it succeeds, roughly."#;
+        assert_eq!(sanitize_prose(raw), raw);
+    }
+}
+
 /// Map a canonical (5-tool) catalog tool onto the Phase-0 wire enum
 /// (`crate::ipc::ToolName`, 3 tools). `calculate`/`date_math` have no wire
 /// representation yet ⇒ `None` (the webview contract is still the 3 cooking
@@ -529,7 +801,15 @@ fn emit_steps(app: &AppHandle, cancel: &CancelRegistry, session_id: &str, transc
                 );
             }
             Step::Prose(text) => {
-                for word in split_tokens(text) {
+                // B1: strip any tool-result-echo fragment BEFORE tokenizing, so
+                // raw result JSON can never reach the chat transcript no matter
+                // what the (unreliable, small) model emitted as its
+                // confirmation prose. `sanitized` owns the string; `word`
+                // below borrows from it (only tokens actually emitted count
+                // toward `words`/`seq`, so an all-echo step that sanitizes to
+                // empty contributes nothing, by construction of the loop).
+                let sanitized = sanitize_prose(text);
+                for word in split_tokens(&sanitized) {
                     if cancel.is_cancelled(session_id) {
                         break;
                     }
@@ -1094,14 +1374,20 @@ pub mod real {
                 "- start_timer(label: string, duration_sec: integer) — start a kitchen countdown.\n",
                 "- convert_units(domain: \"mass\"|\"volume\"|\"temperature\", value: number, from_unit: string, to_unit: string) — convert a quantity.\n",
                 "- list_manage(op: \"add\"|\"remove\"|\"check\"|\"uncheck\"|\"set_all\", item?, items?) — edit the ingredient list.\n\n",
-                "When the user asks for something a tool can do, respond with ONLY that one <tool_call> ",
-                "block and nothing else — no words before or after it, and never write the JSON without ",
-                "the <tool_call> and </tool_call> tags around it. Otherwise, just chat normally with no tags.\n\n",
+                "Emit ONE <tool_call> block per reply, with no words before or after it, and never write the ",
+                "JSON without the <tool_call> and </tool_call> tags. When a request needs more than one tool, ",
+                "call them one at a time: emit the first tool, and after its <tool_result> comes back, emit the ",
+                "next. If no tool is needed, just chat normally with no tags.\n\n",
+                "For a recipe or meal request (e.g. \"help me make carbonara for 4\"): FIRST call list_manage ",
+                "with op \"set_all\" and an items array naming the ingredients (scaled to the servings), THEN ",
+                "call start_timer for the cooking time. Choose a realistic cooking time — pasta dishes like ",
+                "carbonara take about 15-20 minutes, not hours.\n\n",
                 "If you see a <tool_result> block, that tool ALREADY ran successfully — do not call the ",
                 "same tool again with the same arguments, and do not repeat, quote, or paraphrase the raw ",
-                "<tool_result> JSON itself. Instead reply with ONE short, plain-language sentence confirming ",
-                "what happened for the user, with no tags and no braces. Call each tool AT MOST once per ",
-                "request unless the user's request genuinely needs it again with DIFFERENT arguments."
+                "<tool_result> JSON itself. Once every tool the request needs has run, reply with ONE short, ",
+                "plain-language sentence confirming what happened (state the actual timer length in minutes if ",
+                "you set one), with no tags and no braces. Call each tool AT MOST once per request unless the ",
+                "user's request genuinely needs it again with DIFFERENT arguments."
             )
             .to_string()
         } else {
@@ -1406,6 +1692,10 @@ pub mod real {
             assert!(
                 prompt.contains("<tool_result>"),
                 "prompt must reference the <tool_result> feedback tag it's giving guidance about: {prompt}"
+            );
+            assert!(
+                prompt.contains("set_all") && prompt.contains("ingredients"),
+                "prompt must guide a recipe request to populate the ingredient list via list_manage set_all (D1): {prompt}"
             );
         }
 
