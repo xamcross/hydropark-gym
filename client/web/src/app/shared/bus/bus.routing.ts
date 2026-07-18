@@ -205,12 +205,34 @@ export function toolResultLine(e: ToolResultEvent): TranscriptLine {
   };
 }
 
+/**
+ * Render a chat-routed tool result as safe fallback text — NEVER raw JSON.
+ *
+ * ROOT CAUSE this guards (confirmed via harness trace, `30-chat-tool-render.ts`):
+ * a tool whose manifest declares neither `writes_state` nor `updates_widget`
+ * (e.g. `KITCHEN_TIMER_MANIFEST`'s `start_timer` — see `manifest-registry.ts`)
+ * resolves to `RouteTarget::Chat` by DESIGN (SPEC §9.3 routing precedence,
+ * `routeToolResult` above / `tool_routing::route_tools` in the Rust core —
+ * that fallback itself is intentional, e.g. for `calculate`/`date_math`
+ * results with no bound widget). But with no explicit `ToolResultEvent.line`,
+ * this function used to `JSON.stringify(result)` the result straight into the
+ * transcript — e.g. `start_timer: {"duration_sec":540,...,"timer_id":"…"}` —
+ * which is exactly the `NAME: {json}` tool-RESULT-echo shape the Rust core's
+ * `sanitize_prose` (`inference.rs`) exists to strip from model-generated
+ * prose. This bus-side chat fallback is a DIFFERENT code path that never goes
+ * through `sanitize_prose` (it's not model text, it's this service's own
+ * formatting of an already-executed tool result), so the same raw-JSON leak
+ * must be prevented here directly: a caller with a nicer description should
+ * set `ToolResultEvent.line` explicitly (mirrors `describeToolCall` in
+ * `inference.service.ts`); absent that, a primitive scalar result renders as
+ * itself, and anything else (object/array — no generic human-readable shape
+ * this tool-agnostic layer can assume, see `ingestToolResult`'s 'state' case
+ * doc above) renders as a terse completion notice, never its raw JSON.
+ */
 function formatResult(result: unknown): string {
   if (result == null) return 'done';
-  if (typeof result === 'string') return result;
-  try {
-    return JSON.stringify(result);
-  } catch {
+  if (typeof result === 'string' || typeof result === 'number' || typeof result === 'boolean') {
     return String(result);
   }
+  return 'done';
 }
