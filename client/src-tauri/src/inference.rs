@@ -29,7 +29,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::ipc::{
@@ -145,6 +145,164 @@ fn extract_bare_tool_call(trimmed: &str) -> Option<Value> {
     }
 }
 
+/// Scans `text` for the byte offset of the `)` that balances an
+/// ALREADY-CONSUMED opening `(` (depth starts at 1), honoring string
+/// quoting/escaping the same way [`balanced_json_object_end`] does, so a `(`
+/// or `)` inside a quoted argument value (e.g. a label like `"a (special)
+/// sauce"`) doesn't desync the depth count. Returns the offset of the
+/// matching `)` itself (so `&text[..offset]` is the inner content), or `None`
+/// if the parens never balance.
+fn balanced_paren_end(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth: i32 = 1;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Splits `text` on top-level occurrences of the ASCII byte `sep` — ones NOT
+/// inside a `"..."` quoted span (with `\`-escaping honored) — returning each
+/// segment (never the separator itself). Used to split a function-call
+/// argument list on top-level commas so a comma embedded in a quoted string
+/// value (e.g. a label like `"eggs, beaten"`) is never mistaken for an
+/// argument boundary.
+fn split_top_level(text: &str, sep: u8) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if b == b'"' {
+            in_string = true;
+        } else if b == sep {
+            parts.push(&text[start..i]);
+            start = i + 1;
+        }
+    }
+    parts.push(&text[start..]);
+    parts
+}
+
+/// Splits `text` on the FIRST top-level (unquoted) occurrence of `sep`,
+/// returning `(before, after)`. Used for `key: value` splitting — the value
+/// half is left otherwise unsplit even if it later contains its own
+/// (necessarily quoted, hence non-top-level) colon-like bytes.
+fn split_first_top_level(text: &str, sep: u8) -> Option<(&str, &str)> {
+    let parts = split_top_level(text, sep);
+    if parts.len() < 2 {
+        return None;
+    }
+    let first = parts[0];
+    // Re-derive the remainder as the original text's tail (not a re-join of
+    // `parts[1..]`, which would drop the separator bytes between them).
+    let after = &text[first.len() + 1..];
+    Some((first, after))
+}
+
+/// Parses a `key: value, key2: value2` argument-list body (the inside of a
+/// `NAME(...)` function-call-style tool invocation, WITHOUT its surrounding
+/// parens) into a JSON object. Splits on top-level commas, then each pair on
+/// its first top-level colon. Each trimmed value must parse as a JSON scalar
+/// via `serde_json::from_str` (a quoted string, a number, `true`/`false`, or
+/// `null`) — an unquoted bare word (anything else) fails to parse and rejects
+/// the WHOLE match, so this never silently invents a string around something
+/// that wasn't quoted. Each key must be a non-empty bare identifier (matching
+/// [`is_ident_byte`]) — a quoted or otherwise malformed key also rejects the
+/// whole match. An empty (whitespace-only) body parses to an empty object
+/// (a zero-arg call).
+fn parse_kwargs(inner: &str) -> Option<Value> {
+    let mut obj = Map::new();
+    for part in split_top_level(inner, b',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (key, value) = split_first_top_level(part, b':')?;
+        let key = key.trim();
+        if key.is_empty() || !key.bytes().all(is_ident_byte) {
+            return None;
+        }
+        let parsed: Value = serde_json::from_str(value.trim()).ok()?;
+        obj.insert(key.to_string(), parsed);
+    }
+    Some(Value::Object(obj))
+}
+
+/// Recognizes a `NAME(key: value, key2: value2, ...)` FUNCTION-CALL-style tool
+/// invocation — no `<tool_call>` wrapper, no JSON braces at all — that the
+/// Qwen2.5-7B model (swapped in from the 3B; see `client/docs/REAL-INFERENCE.md`)
+/// sometimes emits despite the grammar/system prompt only ever showing it the
+/// `<tool_call>{"name":…}</tool_call>` wire form. Root cause of the live
+/// "carbonara" regression: the two-branch GBNF's `prose` production only
+/// special-cases the literal `<t` prefix of `<tool_call>` (see
+/// `crate::grammar`'s `prose-char ::= [^<] | "<" [^t]`), so ordinary
+/// `word(word: "x")` text — which contains no `<` at all — sails through
+/// constrained decoding as valid prose, and (before this fix)
+/// `parse_generation` had no shape that recognized it either, so it rendered
+/// as raw chat text with the timer never executing.
+///
+/// Scoped deliberately tight, mirroring [`extract_bare_tool_call`]:
+///   - NAME must be EXACTLY a `tool_catalog::ToolName` ref string (closed
+///     catalog — never an arbitrary identifier) immediately followed by `(`,
+///     at byte 0 of the trimmed generation (ordinary prose essentially never
+///     opens with `catalogname(`, and a near-miss like `start_timers(` — an
+///     extra suffix before the `(` — is rejected since the byte right after
+///     the matched name isn't `(`);
+///   - the parenthesized argument list must balance ([`balanced_paren_end`],
+///     quote-aware);
+///   - every top-level `key: value` pair must parse via [`parse_kwargs`] — if
+///     ANY pair fails, the whole match is rejected (conservative: never guess
+///     a malformed argument into existence).
+/// Anything after the matched closing `)` (e.g. the model's trailing prose
+/// confirmation) is discarded, exactly like the bare-JSON and wrapped forms
+/// already do.
+fn extract_function_call_tool_call(trimmed: &str) -> Option<Value> {
+    let bytes = trimmed.as_bytes();
+    let name = tool_catalog::ToolName::ALL.into_iter().find(|t| {
+        let n = t.as_ref_str();
+        bytes.len() > n.len() && trimmed.as_bytes()[n.len()] == b'(' && trimmed.starts_with(n)
+    })?;
+    let inner_start = name.as_ref_str().len() + 1;
+    let close_rel = balanced_paren_end(&trimmed[inner_start..])?;
+    let inner = &trimmed[inner_start..inner_start + close_rel];
+    let args = parse_kwargs(inner)?;
+    Some(serde_json::json!({ "name": name.as_ref_str(), "arguments": args }))
+}
+
 /// Turn a parsed `{name, arguments}` JSON value into the [`GenOutput`] the
 /// turn machine consumes. `on_empty_name` is the raw text to carry into
 /// `Malformed` if `name` turns out to be missing/empty (kept as a parameter
@@ -191,13 +349,18 @@ fn is_non_tool_call_json_leak(trimmed: &str) -> bool {
 /// `{name, arguments}` object at the start of the generation (no wrapper — see
 /// [`extract_bare_tool_call`]) is ALSO recognized as a `ToolCall`, so a 3B model
 /// that skips the `<tool_call>` wrapper still gets executed instead of leaking
-/// raw JSON into the chat transcript. A generation that is otherwise nothing
-/// but a bare JSON object with no tool-call shape (see
-/// [`is_non_tool_call_json_leak`]) is treated as `Malformed` rather than
-/// `Prose` — W02a — so it is routed through the existing repair/graceful-fallback
-/// path instead of ever being shown to the user as raw `{...}`. Anything else
-/// is genuine `Prose`. Shared by both engines so the mock feeds the machine
-/// exactly what a real model would.
+/// raw JSON into the chat transcript. Failing THAT, a `NAME(key: value, ...)`
+/// FUNCTION-CALL-style invocation (no wrapper, no JSON braces at all — see
+/// [`extract_function_call_tool_call`]) is ALSO recognized as a `ToolCall`, so
+/// the Qwen2.5-7B model's `start_timer(label: "...", duration_sec: 1800)`
+/// shape gets executed too instead of leaking as raw chat text (the
+/// model-swap live-repro bug). A generation that is otherwise nothing but a
+/// bare JSON object with no tool-call shape (see [`is_non_tool_call_json_leak`])
+/// is treated as `Malformed` rather than `Prose` — W02a — so it is routed
+/// through the existing repair/graceful-fallback path instead of ever being
+/// shown to the user as raw `{...}`. Anything else is genuine `Prose`. Shared
+/// by both engines so the mock feeds the machine exactly what a real model
+/// would.
 pub fn parse_generation(text: &str) -> GenOutput {
     const OPEN: &str = "<tool_call>";
     if text.contains(OPEN) {
@@ -207,11 +370,16 @@ pub fn parse_generation(text: &str) -> GenOutput {
         }
     } else {
         let trimmed = text.trim();
-        match extract_bare_tool_call(trimmed) {
-            Some(value) => classify_tool_value(&value, text),
-            None if is_non_tool_call_json_leak(trimmed) => GenOutput::Malformed(text.to_string()),
-            None => GenOutput::Prose(trimmed.to_string()),
+        if let Some(value) = extract_bare_tool_call(trimmed) {
+            return classify_tool_value(&value, text);
         }
+        if let Some(value) = extract_function_call_tool_call(trimmed) {
+            return classify_tool_value(&value, text);
+        }
+        if is_non_tool_call_json_leak(trimmed) {
+            return GenOutput::Malformed(text.to_string());
+        }
+        GenOutput::Prose(trimmed.to_string())
     }
 }
 
@@ -310,6 +478,116 @@ mod parse_generation_tests {
     fn wrapped_form_still_takes_priority_when_present() {
         let raw = r#"<tool_call>{"name": "start_timer", "arguments": {"label": "Pasta", "duration_sec": 60}}</tool_call>"#;
         assert!(matches!(parse_generation(raw), GenOutput::ToolCall(name, _) if name == "start_timer"));
+    }
+
+    // -- Qwen2.5-7B model-swap live-repro: the model emits a FUNCTION-CALL-style
+    //    `name(key: value, ...)` string — neither the wrapped `<tool_call>{…}`
+    //    form nor the bare `{name, arguments}` JSON form above — captured live
+    //    via CDP against the real 7B build (see
+    //    `.superpowers/sdd/task-timerfix-report.md`): the exact generation for
+    //    "help me cook carbonara for 4" was
+    //    `start_timer(label: "Cooking Carbonara", duration_sec: 1800)` with
+    //    nothing else in the generation. Before this fix, the two-branch GBNF's
+    //    permissive `prose` production has no way to exclude this shape (it
+    //    only special-cases the literal `<t` prefix of `<tool_call>`), so it
+    //    decodes as ordinary prose under constrained decoding, and
+    //    `parse_generation` had no case that recognized it — it fell straight
+    //    through to `GenOutput::Prose`, leaking the raw `start_timer(...)` text
+    //    into the chat transcript with the timer never executing. --
+
+    /// The EXACT captured 7B shape, verbatim.
+    #[test]
+    fn function_call_style_tool_call_is_detected() {
+        let raw = r#"start_timer(label: "Cooking Carbonara", duration_sec: 1800)"#;
+        match parse_generation(raw) {
+            GenOutput::ToolCall(name, args) => {
+                assert_eq!(name, "start_timer");
+                assert_eq!(args["label"], "Cooking Carbonara");
+                assert_eq!(args["duration_sec"], 1800);
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    /// The same shape with a trailing prose confirmation in the same
+    /// generation (mirrors how the bare-JSON form already tolerates trailing
+    /// text) must still be detected, discarding the trailing text.
+    #[test]
+    fn function_call_style_tool_call_with_trailing_prose_is_detected() {
+        let raw = "start_timer(label: \"Pasta\", duration_sec: 540)\nWill start your pasta timer now.";
+        match parse_generation(raw) {
+            GenOutput::ToolCall(name, args) => {
+                assert_eq!(name, "start_timer");
+                assert_eq!(args["duration_sec"], 540);
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    /// The function-call form must work for any catalog tool, not just
+    /// `start_timer` — `convert_units` here, with a numeric (not string) first
+    /// argument value.
+    #[test]
+    fn function_call_style_tool_call_for_convert_units_is_detected() {
+        let raw = r#"convert_units(domain: "mass", value: 1, from_unit: "kg", to_unit: "g")"#;
+        match parse_generation(raw) {
+            GenOutput::ToolCall(name, args) => {
+                assert_eq!(name, "convert_units");
+                assert_eq!(args["domain"], "mass");
+                assert_eq!(args["value"], 1.0);
+                assert_eq!(args["from_unit"], "kg");
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    /// Negative: ordinary prose that merely *mentions* the function-call
+    /// syntax mid-sentence (not at byte 0 of the trimmed generation) must stay
+    /// `Prose` — mirrors `prose_mentioning_json_mid_sentence_is_not_misdetected`
+    /// above for the bare-JSON form.
+    #[test]
+    fn prose_mentioning_function_call_syntax_mid_sentence_is_not_misdetected() {
+        let raw = "You could write start_timer(label: \"Pasta\", duration_sec: 60) like that.";
+        match parse_generation(raw) {
+            GenOutput::Prose(text) => assert_eq!(text, raw),
+            other => panic!("expected Prose, got {other:?}"),
+        }
+    }
+
+    /// Negative: a name that merely SHARES A PREFIX with a catalog tool ref
+    /// (not immediately followed by `(`) must not be misdetected as that tool.
+    #[test]
+    fn near_miss_name_with_extra_suffix_is_not_misdetected() {
+        let raw = "start_timers(label: \"Pasta\") is not a real tool.";
+        match parse_generation(raw) {
+            GenOutput::Prose(text) => assert_eq!(text, raw),
+            other => panic!("expected Prose, got {other:?}"),
+        }
+    }
+
+    /// Negative: prose that happens to OPEN with unrelated parenthetical text
+    /// must not be misdetected — the catalog-name-then-`(` check naturally
+    /// excludes it (no catalog tool ref starts with `(`).
+    #[test]
+    fn parenthetical_prose_is_not_misdetected() {
+        let raw = "(Serves 4) Start the pasta timer whenever you're ready.";
+        match parse_generation(raw) {
+            GenOutput::Prose(text) => assert_eq!(text, raw),
+            other => panic!("expected Prose, got {other:?}"),
+        }
+    }
+
+    /// Negative: an unquoted, non-JSON-literal argument value rejects the
+    /// WHOLE match conservatively (never guess a bare word into a string),
+    /// falling back to `Prose` rather than fabricating or dropping an
+    /// argument.
+    #[test]
+    fn function_call_with_unparseable_argument_value_falls_back_to_prose() {
+        let raw = r#"start_timer(label: "Pasta", duration_sec: a_while)"#;
+        match parse_generation(raw) {
+            GenOutput::Prose(text) => assert_eq!(text, raw),
+            other => panic!("expected Prose (conservative reject), got {other:?}"),
+        }
     }
 
     // -- W02a: a generation that is nothing but a bare JSON object with no
@@ -1124,6 +1402,50 @@ pub mod mock {
             assert!(
                 !t.steps.iter().any(|s| matches!(s, Step::Prose(p) if p.contains("\"arguments\""))),
                 "raw tool_call JSON must never leak into a Prose step: {:?}",
+                t.steps
+            );
+        }
+
+        /// `run_turn`-level regression for the Qwen2.5-7B model-swap live-repro:
+        /// the EXACT text captured via CDP against the real 7B build for "help
+        /// me cook carbonara for 4" — a function-call-STYLE `start_timer(...)`
+        /// string, no `<tool_call>` wrapper and no JSON braces at all — must
+        /// still drive the machine to `Step::ToolCall` + `Step::ToolResult`
+        /// (the timer actually runs), never leak as raw `start_timer(...)`
+        /// text inside a `Step::Prose` (which is exactly what the live app did
+        /// before this fix — see `.superpowers/sdd/task-timerfix-report.md`).
+        #[test]
+        fn function_call_style_tool_call_executes_via_run_turn() {
+            let mut engine = MockEngine {
+                turns: vec![r#"start_timer(label: "Cooking Carbonara", duration_sec: 1800)"#.to_string()],
+                idx: 0,
+            };
+            let mut runner = TestRunner;
+            let t = run_turn(
+                &mut engine,
+                &mut runner,
+                "help me cook carbonara for 4",
+                &TurnConfig::default(),
+            );
+            assert_eq!(
+                t.tool_calls(),
+                1,
+                "the function-call-style start_timer(...) text must still be detected as a tool call"
+            );
+            assert_eq!(t.repairs(), 0);
+            assert!(t.fallback().is_none());
+            assert!(t
+                .steps
+                .iter()
+                .any(|s| matches!(s, Step::ToolCall { tool: ToolName::StartTimer, .. })));
+            assert!(t
+                .steps
+                .iter()
+                .any(|s| matches!(s, Step::ToolResult { tool: ToolName::StartTimer, .. })));
+            // No step may carry the raw, un-executed function-call text as prose.
+            assert!(
+                !t.steps.iter().any(|s| matches!(s, Step::Prose(p) if p.contains("start_timer("))),
+                "raw function-call text must never leak into a Prose step: {:?}",
                 t.steps
             );
         }
