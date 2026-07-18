@@ -1,7 +1,7 @@
 <section class="panel timer-stack" aria-label="Timers">
   <header>
     <h2>Timers</h2>
-    <button type="button" class="add-btn" (click)="quickAddTimer()">
+    <button type="button" class="add-btn" (click)="openAddForm()">
       + Timer
     </button>
   </header>
@@ -13,6 +13,7 @@
       <label class="sr-only" for="timer-minutes">Minutes</label>
       <input id="timer-minutes" type="number" min="1" step="1" [ngModel]="minutesDraft()" (ngModelChange)="minutesDraft.set($event)" name="minutes" />
       <span class="unit-label">min</span>
+      <button type="button" (click)="cancelAddForm()">Cancel</button>
       <button type="submit">Start</button>
     </form>
   }

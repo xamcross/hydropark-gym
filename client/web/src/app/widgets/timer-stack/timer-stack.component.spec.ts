@@ -121,24 +121,49 @@ describe('TimerStackComponent — timer_finished to_chat producer (Task 13)', ()
 });
 
 /**
- * W03 — "+ Timer" must always ADD a new named timer, never remove/replace an
- * existing one (SPEC §9.4 `timer_stack`: "one or many named countdown
- * timers"). Root cause of the reported bug: the button's `(click)` toggled
- * `showAddForm` (`showAddForm.set(!showAddForm())`) instead of always
- * driving toward a new timer — a second "+ Timer" tap (e.g. re-tapping to
- * start a second timer while the add-form from the first was still open)
- * CLOSED the form and committed nothing, so the widget never reliably grew
- * past one timer. Fixed by giving "+ Timer" its own handler
- * (`quickAddTimer()`) that unconditionally dispatches a brand-new
- * `start_timer` call — it never reads or clears `showAddForm`.
+ * W09 — "+ Timer" must OPEN the duration-entry form, not instantly create a
+ * fixed-duration timer (user report, verbatim: "additional timers are set to
+ * 5 minutes without any way to set the needed time period").
+ *
+ * This replaces the OLD→NEW contract from W03:
+ *   OLD (W03, now WRONG per the user's report): "+ Timer" was rebound to
+ *   `quickAddTimer()`, which unconditionally dispatched
+ *   `start_timer({ duration_sec: 300 })` the instant the button was clicked —
+ *   no form, no way to choose a duration. That fixed W03's original bug (a
+ *   toggling `(click)` that could close the form and discard an in-progress
+ *   add, so the widget never reliably grew past one timer) but over-corrected
+ *   by removing duration control entirely.
+ *   NEW (this suite): "+ Timer" idempotently OPENS the add-form
+ *   (`showAddForm.set(true)` — SET, never toggled), so the W03 anti-discard
+ *   guarantee still holds: repeated clicks keep the form open and never lose
+ *   an in-progress draft or touch existing timers. Only a FORM SUBMIT
+ *   (`addTimer()`) actually creates a timer, carrying whatever
+ *   label/duration the user entered — never a hardcoded value. Each submit
+ *   adds one new, distinct timer; existing timers are never removed or
+ *   replaced. "Cancel" closes the form and commits nothing.
  */
-describe('TimerStackComponent — "+ Timer" button always adds a new timer (W03)', () => {
+describe('TimerStackComponent — "+ Timer" opens the duration form (W09)', () => {
   let ipc: FakeIpc;
   let fixture: ComponentFixture<TimerStackComponent>;
   let session: SessionService;
 
   function clickAddButton(): void {
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button.add-btn');
+    btn.click();
+  }
+
+  function setDraft(label: string, minutes: number): void {
+    fixture.componentInstance.labelDraft.set(label);
+    fixture.componentInstance.minutesDraft.set(minutes);
+  }
+
+  function clickSubmit(): void {
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('form.add-form button[type="submit"]');
+    btn.click();
+  }
+
+  function clickCancel(): void {
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('form.add-form button[type="button"]');
     btn.click();
   }
 
@@ -152,61 +177,99 @@ describe('TimerStackComponent — "+ Timer" button always adds a new timer (W03)
     session = TestBed.inject(SessionService);
   });
 
-  it('clicking "+ Timer" when one timer already exists results in TWO timers — not zero, not one', async () => {
-    session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
+  it('clicking "+ Timer" opens the add-form and creates NO timer yet', () => {
     fixture.detectChanges();
-    expect(session.timerList().length).toBe(1);
+    expect(fixture.componentInstance.showAddForm()).toBe(false);
 
     clickAddButton();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.showAddForm()).toBe(true);
+    expect(session.timerList().length).toBe(0);
+  });
+
+  it('submitting the form with a chosen minutes value creates one timer carrying that exact duration_sec — not a hardcoded 300', async () => {
+    fixture.detectChanges();
+    clickAddButton();
+    fixture.detectChanges();
+    setDraft('Rice', 12);
+    fixture.detectChanges();
+
+    clickSubmit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const timers = session.timerList();
+    expect(timers.length).toBe(1);
+    expect(timers[0].label).toBe('Rice');
+    expect(timers[0].duration_sec).toBe(12 * 60);
+    expect(timers[0].duration_sec).not.toBe(300);
+  });
+
+  it('submitting again after a first add creates a SECOND distinct timer, preserving the first exactly (grows past one, never replaces)', async () => {
+    fixture.detectChanges();
+    clickAddButton();
+    fixture.detectChanges();
+    setDraft('Pasta', 9);
+    clickSubmit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const first = session.timerList()[0];
+
+    clickAddButton();
+    fixture.detectChanges();
+    setDraft('Eggs', 7);
+    clickSubmit();
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
 
     const timers = session.timerList();
     expect(timers.length).toBe(2);
+    expect(timers.find((t) => t.timer_id === first.timer_id)).toEqual(first);
+    const second = timers.find((t) => t.timer_id !== first.timer_id)!;
+    expect(second.label).toBe('Eggs');
+    expect(second.duration_sec).toBe(7 * 60);
   });
 
-  it('preserves the existing timer exactly (same id/label/duration) after "+ Timer" adds a second', async () => {
-    session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
+  it('clicking "+ Timer" repeatedly keeps the form open and does NOT discard the in-progress draft (W03 anti-toggle guarantee)', () => {
+    fixture.detectChanges();
+    clickAddButton();
+    fixture.detectChanges();
+    setDraft('Bread', 20);
     fixture.detectChanges();
 
     clickAddButton();
     fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    const existing = session.timerList().find((t) => t.timer_id === 'existing-1');
-    expect(existing).toEqual({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
-  });
-
-  it('the newly-added timer is distinct from the existing one (different id) and never removes it via the toggle path', async () => {
-    session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
-    fixture.detectChanges();
-
     clickAddButton();
     fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
 
-    const timers = session.timerList();
-    expect(timers.some((t) => t.timer_id === 'existing-1')).toBe(true);
-    expect(timers.some((t) => t.timer_id !== 'existing-1')).toBe(true);
-  });
-
-  it('clicking "+ Timer" repeatedly keeps adding — three clicks from empty yields three timers, none dropped', async () => {
+    expect(fixture.componentInstance.showAddForm()).toBe(true);
+    expect(fixture.componentInstance.labelDraft()).toBe('Bread');
+    expect(fixture.componentInstance.minutesDraft()).toBe(20);
     expect(session.timerList().length).toBe(0);
-
-    for (let i = 0; i < 3; i++) {
-      clickAddButton();
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-    }
-
-    expect(session.timerList().length).toBe(3);
   });
 
-  it('never removes an existing timer when the add-form happens to already be open (model prefill in flight)', async () => {
+  it('"Cancel" closes the form and creates no timer', async () => {
+    fixture.detectChanges();
+    clickAddButton();
+    fixture.detectChanges();
+    setDraft('Soup', 15);
+    fixture.detectChanges();
+
+    clickCancel();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.showAddForm()).toBe(false);
+    expect(session.timerList().length).toBe(0);
+  });
+
+  it('never removes an existing timer when "+ Timer" is clicked while the form is already open (model prefill in flight)', async () => {
     session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
     fixture.componentInstance.showAddForm.set(true);
     fixture.detectChanges();
@@ -216,8 +279,9 @@ describe('TimerStackComponent — "+ Timer" button always adds a new timer (W03)
     await fixture.whenStable();
     fixture.detectChanges();
 
+    expect(fixture.componentInstance.showAddForm()).toBe(true);
     const timers = session.timerList();
-    expect(timers.length).toBe(2);
-    expect(timers.some((t) => t.timer_id === 'existing-1')).toBe(true);
+    expect(timers.length).toBe(1);
+    expect(timers[0]).toEqual({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
   });
 });
