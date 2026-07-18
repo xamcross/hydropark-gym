@@ -12,6 +12,7 @@ import {
   EntitlementsGetResult,
   HardwareProfile,
   IngredientItem,
+  InstalledSkillView,
   IpcCommand,
   IpcCommandMap,
   IpcEvent,
@@ -38,6 +39,7 @@ import {
 import { IpcPort, Unlisten } from './ipc.port';
 import { convertUnitsExact, UnitConversionError } from '../tools/unit-math';
 import { validateToolCall } from '../tools/tool-validation';
+import { manifestFor } from '../composition/manifest-registry';
 
 interface MockTimer {
   timer_id: string;
@@ -98,6 +100,15 @@ export class MockIpcService extends IpcPort {
   // --- templates (Task 11a, SPEC §10) -------------------------------------
   /** In-memory "My Templates" gallery — save/list/load round-trip within a session. */
   private readonly templates = new Map<string, { view: TemplateView; uiOverrides: unknown; updatedAt: number }>();
+
+  // --- installed skills (W06 gap fix) --------------------------------------
+  /** In-memory stand-in for the on-device `installed_skills` registry (P1-03.2) —
+   * populated by `skillDownloadInstall` (the real install path a purchase drives),
+   * so the dashboard's dynamic skill list has something to read under `ng serve`.
+   * `enabled` mirrors the real Rust store: nothing ever flips it (the toggle's
+   * live state is `EnabledSkillsService`, not this registry — see
+   * `installed-skills.component.ts`), so it stays `false` post-install here too. */
+  private readonly installedSkillsRegistry = new Map<string, InstalledSkillView>();
 
   // --- panel/UI state (Task 12, SPEC §9) ----------------------------------
   /** In-memory stand-in for the on-device `panel_state` table (store.rs) —
@@ -216,6 +227,10 @@ export class MockIpcService extends IpcPort {
         return undefined as IpcCommandMap[K]['result'];
       case 'ui_state_load':
         return this.uiStateLoad(args as IpcCommandMap['ui_state_load']['args']) as IpcCommandMap[K]['result'];
+
+      // --- W06 gap fix: the dashboard's dynamic installed-skills list ---
+      case 'skills_list_installed':
+        return this.skillsListInstalled() as IpcCommandMap[K]['result'];
 
       default:
         throw new Error(`MockIpcService: unhandled command "${String(cmd)}"`);
@@ -691,7 +706,22 @@ export class MockIpcService extends IpcPort {
     const match = /\/skills\/([^/]+)\/([^/]+)\.hpskill(?:$|\?)/.exec(args.url);
     const skillId = match?.[1] ?? 'mock-skill';
     const version = match?.[2] ?? '1.0.0';
+    // W06 gap fix: register the install so `skills_list_installed` (the dashboard's
+    // dynamic skill list) has something to find, mirroring the real Rust
+    // `SkillInstaller::install_bytes` -> `store.save_installed_skill` write.
+    this.installedSkillsRegistry.set(skillId, {
+      skill_id: skillId,
+      name: manifestFor(skillId)?.name ?? skillId,
+      version,
+      enabled: false,
+    });
     return { skillId, version, dir: `mock://skills/${skillId}`, state: 'installed_disabled' };
+  }
+
+  // ---- installed skills (W06 gap fix) ------------------------------------
+
+  private skillsListInstalled(): InstalledSkillView[] {
+    return [...this.installedSkillsRegistry.values()].sort((a, b) => a.skill_id.localeCompare(b.skill_id));
   }
 
   // ---- agent composition (mirrors client/src-tauri/src/composition.rs) ----

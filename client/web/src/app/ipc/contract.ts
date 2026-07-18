@@ -1035,6 +1035,24 @@ export interface UiStateLoadArgs {
 }
 
 // ---------------------------------------------------------------------------
+// W06 gap fix — the dashboard's dynamic installed-skills list. Mirrors
+// `ipc.rs` `InstalledSkillView` field-for-field — snake_case wire names, same
+// on-device-store convention as the Templates / UI-state blocks above (a pure
+// on-device read, not a P1 network DTO). `skills_list_installed` surfaces
+// every `.hpskill` package the on-device `installed_skills` registry knows
+// about (kitchen-timer/cooking-assistant never appear here — see the Rust
+// doc comment) so a just-installed skill (e.g. Packing List) is no longer
+// invisible in the Assistant dashboard.
+// ---------------------------------------------------------------------------
+
+export interface InstalledSkillView {
+  skill_id: string;
+  name: string;
+  version: string;
+  enabled: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
 // ---------------------------------------------------------------------------
 
@@ -1102,6 +1120,9 @@ export interface IpcCommandMap {
   ui_state_save: { args: UiStateSaveArgs; result: void };
   /** `null` when nothing has been saved yet for this `agent_id`. */
   ui_state_load: { args: UiStateLoadArgs; result: unknown };
+
+  // --- W06 gap fix: the dashboard's dynamic installed-skills list ---
+  skills_list_installed: { args: void; result: InstalledSkillView[] };
 }
 
 export type IpcCommand = keyof IpcCommandMap;

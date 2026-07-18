@@ -795,6 +795,25 @@ pub struct SkillUninstallResult {
     pub state: String,
 }
 
+/// `skills_list_installed` result row (W06 gap fix): one entry of the on-device
+/// `installed_skills` registry (`store::list_installed_skills`), flattened for the
+/// dashboard's dynamic skill list — installed skills beyond the two hardcoded P0
+/// ones (kitchen-timer / cooking-assistant, which never pass through this
+/// `.hpskill` pipeline and so never appear here) were previously invisible in the
+/// UI even after a successful install. `name` is the verified manifest's declared
+/// display name (`manifest.name`), falling back to the raw `skill_id` for a
+/// manifest that unexpectedly lacks one; `enabled` mirrors the store's persisted
+/// flag. Plain snake_case wire (no `rename_all`) — like `TemplateView` above, this
+/// is a direct on-device store read, not a P1 network DTO, so it follows that
+/// family's convention rather than the camelCase `SkillInstallResult` family.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InstalledSkillView {
+    pub skill_id: String,
+    pub name: String,
+    pub version: String,
+    pub enabled: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Capability disclosure (Task 10, SPEC §8.5 / §11 — the B4 trust surface). Same
 // camelCase IPC family as the marketplace commands above. The webview calls this
@@ -1047,6 +1066,12 @@ pub enum CmdError {
     /// `panel_state` table (save/load). Carries the `store::StoreError` message.
     #[error("ui state store error: {0}")]
     UiState(String),
+    /// Reading the local installed-skill (P1-03.2) registry failed — the
+    /// on-device `installed_skills` table (`skills_list_installed`, W06 gap fix).
+    /// Carries the `store::StoreError` message. Install/uninstall themselves still
+    /// fail as `Package` (`hpskill::HpSkillError`) — this is only the list read.
+    #[error("installed-skills store error: {0}")]
+    InstalledSkills(String),
 }
 
 impl From<std::io::Error> for CmdError {

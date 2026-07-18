@@ -44,7 +44,7 @@ use hpskill::SkillInstaller;
 use ipc::{
     AuthCredentialsArgs, CapabilityDiscloseArgs, CatalogDetailArgs, CatalogListArgs, CatalogListResult, CheckoutResult,
     CmdError, ComposeAgentArgs, DownloadUrlArgs, DownloadUrlResult, EntitlementsResult,
-    HardwareProfile, InferenceCancelArgs, InferenceStartArgs, LicenseFetchArgs, LicenseResult,
+    HardwareProfile, InferenceCancelArgs, InferenceStartArgs, InstalledSkillView, LicenseFetchArgs, LicenseResult,
     NotifyArgs, OrderCheckoutArgs, OrderGetArgs, OrderStatusResult, SessionStatus, SkillDetail,
     SkillDisableArgs, SkillDownloadInstallArgs, SkillEnableArgs, SkillEnableResult, SkillInstallArgs,
     SkillInstallResult, SkillUninstallArgs, SkillUninstallResult, StepUpAnswerArgs, StepUpAnswerResult,
@@ -53,7 +53,7 @@ use ipc::{
     ToolCallResponse, ToolName, UiStateLoadArgs, UiStateSaveArgs, UpdateCheckResult,
 };
 use session::SessionManager;
-use store::Store;
+use store::{InstalledSkill, Store};
 
 // ---------------------------------------------------------------------------
 // Commands — one per entry in client/web/src/app/ipc/contract.ts's
@@ -163,6 +163,50 @@ fn skill_uninstall(
         .uninstall(&args.skill_id)
         .map_err(|e| CmdError::Package(e.to_string()))?;
     Ok(SkillUninstallResult { skill_id: args.skill_id, state: hpskill::state_label(state).to_string() })
+}
+
+/// Flatten one on-device `installed_skills` row into the dashboard's
+/// `InstalledSkillView` — deriving `name` from the verified manifest's declared
+/// display name, falling back to the raw id for a manifest that unexpectedly
+/// omits one (defensive; `manifest.rs` requires `name` on every install that
+/// reaches the store, so this fallback should never actually trigger).
+fn installed_skill_view(skill: &InstalledSkill) -> InstalledSkillView {
+    let name = skill
+        .manifest
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(skill.skill_id.as_str())
+        .to_string();
+    InstalledSkillView {
+        skill_id: skill.skill_id.clone(),
+        name,
+        version: skill.version.clone(),
+        enabled: skill.enabled,
+    }
+}
+
+/// **List installed skills** (W06 gap fix): every `.hpskill` package
+/// `SkillInstaller` has installed, flattened for the dashboard's dynamic skill
+/// list. Over a given store — pure/testable without a Tauri runtime, the same
+/// `*_with_store` split `template_list_with_store` uses. The two P0 skills
+/// (kitchen-timer / cooking-assistant) never appear here — they ship built into
+/// the app rather than through this install pipeline (`hpskill.rs` is the only
+/// caller of `store::save_installed_skill`), so the dashboard's existing
+/// hardcoded P0 toggles and this dynamic list never need de-duplicating against
+/// each other in practice; callers still SHOULD filter defensively.
+fn skills_list_installed_with_store(store: &Arc<Mutex<Store>>) -> Result<Vec<InstalledSkillView>, CmdError> {
+    let installed = store
+        .lock()
+        .expect("skills store mutex poisoned")
+        .list_installed_skills()
+        .map_err(|e| CmdError::InstalledSkills(e.to_string()))?;
+    Ok(installed.iter().map(installed_skill_view).collect())
+}
+
+#[tauri::command]
+fn skills_list_installed(session: State<'_, SessionManager>) -> Result<Vec<InstalledSkillView>, CmdError> {
+    skills_list_installed_with_store(session.inner().store())
 }
 
 /// Runs the deterministic, non-model allergen layer (P0-07.4) over ingredient
@@ -839,6 +883,7 @@ fn main() {
             skill_disable,
             skill_install,
             skill_uninstall,
+            skills_list_installed,
             allergen_scan,
             timer_pause,
             timer_resume,
@@ -1082,6 +1127,92 @@ mod template_tests {
     fn empty_list_before_any_save() {
         let store = store();
         assert!(template_list_with_store(&store).unwrap().is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — W06 gap fix (`skills_list_installed` over IPC): the dashboard's
+// dynamic skill list. Exercised directly against `skills_list_installed_with_store`
+// (no Tauri runtime needed — mirrors `template_tests` above).
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod skills_list_installed_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn store() -> Arc<Mutex<Store>> {
+        Arc::new(Mutex::new(Store::open_in_memory().expect("in-memory store opens + migrates")))
+    }
+
+    fn install(store: &Arc<Mutex<Store>>, skill_id: &str, name: &str, version: &str, enabled: bool) {
+        let manifest = json!({ "id": skill_id, "name": name, "version": version });
+        store
+            .lock()
+            .unwrap()
+            .save_installed_skill(skill_id, version, &manifest, &format!("/skills/{skill_id}"), enabled)
+            .unwrap();
+    }
+
+    #[test]
+    fn empty_before_any_install() {
+        let store = store();
+        assert!(skills_list_installed_with_store(&store).unwrap().is_empty());
+    }
+
+    #[test]
+    fn lists_an_installed_skill_with_its_manifest_display_name() {
+        let store = store();
+        install(&store, "packing-list", "Packing List", "1.0.0", false);
+
+        let listed = skills_list_installed_with_store(&store).expect("list succeeds");
+        assert_eq!(
+            listed,
+            vec![InstalledSkillView {
+                skill_id: "packing-list".to_string(),
+                name: "Packing List".to_string(),
+                version: "1.0.0".to_string(),
+                enabled: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn reflects_the_persisted_enabled_flag() {
+        let store = store();
+        install(&store, "packing-list", "Packing List", "1.0.0", false);
+        store.lock().unwrap().set_installed_skill_enabled("packing-list", true).unwrap();
+
+        let listed = skills_list_installed_with_store(&store).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].enabled, "the row must reflect the flipped enable flag");
+    }
+
+    #[test]
+    fn falls_back_to_the_raw_id_when_the_manifest_has_no_name() {
+        let store = store();
+        let manifest = json!({ "id": "mystery-skill", "version": "1.0.0" }); // no "name"
+        store
+            .lock()
+            .unwrap()
+            .save_installed_skill("mystery-skill", "1.0.0", &manifest, "/skills/mystery-skill", false)
+            .unwrap();
+
+        let listed = skills_list_installed_with_store(&store).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "mystery-skill", "falls back to the raw id");
+    }
+
+    #[test]
+    fn lists_multiple_installed_skills_ordered_by_id() {
+        let store = store();
+        install(&store, "travel-planner", "Travel Planner", "1.0.0", false);
+        install(&store, "packing-list", "Packing List", "1.0.0", true);
+
+        let listed = skills_list_installed_with_store(&store).unwrap();
+        let ids: Vec<&str> = listed.iter().map(|s| s.skill_id.as_str()).collect();
+        // Mirrors `Store::list_installed_skills`'s own deterministic id-ascending order.
+        assert_eq!(ids, vec!["packing-list", "travel-planner"]);
     }
 }
 

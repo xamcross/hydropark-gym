@@ -70,6 +70,9 @@
   <!-- ── ASSISTANT / COMPOSE ─────────────────────────────────────────────── -->
   @if (view() === 'assistant') {
     <app-skill-toggle></app-skill-toggle>
+    <!-- W06 gap fix: installed skills beyond the two hardcoded P0 ones (e.g. a
+         just-installed free "Packing List") — see installed-skills.component.ts. -->
+    <app-installed-skills></app-installed-skills>
     <app-unlock></app-unlock>
 
     <main class="layout">

@@ -4,6 +4,7 @@ import { TimerStackComponent } from './widgets/timer-stack/timer-stack.component
 import { EditableListComponent } from './widgets/editable-list/editable-list.component';
 import { SegmentedToggleComponent } from './widgets/segmented-toggle/segmented-toggle.component';
 import { SkillToggleComponent } from './skill-toggle/skill-toggle.component';
+import { InstalledSkillsComponent } from './installed-skills/installed-skills.component';
 import { UnlockComponent } from './unlock/unlock.component';
 import { PanelDockComponent } from './shared/panel-dock/panel-dock.component';
 import { ComposedPanelHostComponent } from './composition/composed-panel-host.component';
@@ -34,6 +35,7 @@ type ShellView = 'assistant' | 'marketplace' | 'templates';
     EditableListComponent,
     SegmentedToggleComponent,
     SkillToggleComponent,
+    InstalledSkillsComponent,
     UnlockComponent,
     PanelDockComponent,
     ComposedPanelHostComponent,
