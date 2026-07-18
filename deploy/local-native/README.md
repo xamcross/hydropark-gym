@@ -39,7 +39,7 @@ Each blocks in its terminal; Ctrl-C to stop.
 
 | Script | Does |
 |---|---|
-| `mongo.ps1` | Starts the **ZIP** `mongod --replSet rs0` against `<repo>/.mongo-rs0`, initiates rs0 on first run. The backend's multi-doc transactions **require** a replica set. |
+| `mongo.ps1` | Starts the **ZIP** `mongod --replSet rs0` on **port 27018** against `<repo>/.mongo-native`, initiates rs0 on first run. Runs on 27018 (not 27017) to dodge the MSI service; reuses an already-running rs0 instead of colliding. The backend's multi-doc transactions **require** a replica set. |
 | `backend.ps1` | Loads (or generates) `deploy/.env.generated` signing keys, sets `MONGODB_URI` + `HP_PACKAGE_SIGNING_ENABLED`, runs the **`local`** Spring profile with `--hydropark.seed.publish-packages=true` (seeds the catalog + publishes the 10 signed `.hpskill`). |
 | `client.ps1` | Ensures Angular is on `:4200`, sets `LIBCLANG_PATH`/CMake/(vcvars)/`HYDROPARK_PACKAGE_SIGNING_KEYS`/`HYDROPARK_MODEL_PATH`, runs `cargo run --bin hydropark` (real inference). |
 | `dev-up.ps1` | Orchestrates all three in gated order, each in its own window. |
@@ -50,11 +50,10 @@ Each blocks in its terminal; Ctrl-C to stop.
 Every machine-specific path is auto-detected but overridable via an env var
 before you run (see `_env.ps1`):
 
-- **MongoDB** — the **ZIP** distribution (not the MSI: its installer hangs on
-  Compass, and it registers an auto-start `MongoDB` service that grabs `:27017`
-  as a **non**-replica-set standalone). If you installed the MSI, disable that
-  service once, elevated: `Stop-Service MongoDB; Set-Service MongoDB -StartupType Manual`.
-  Override: `$env:HP_MONGOD_BIN`. `mongosh` must be on PATH.
+- **MongoDB** — the **ZIP** distribution (the MSI installer hangs on Compass).
+  These scripts run rs0 on **port 27018**, so an MSI-installed `MongoDB` service
+  squatting `:27017` as a standalone does **not** interfere — no elevation
+  needed. Override the binary: `$env:HP_MONGOD_BIN`. `mongosh` must be on PATH.
 - **JDK + Maven** on PATH (backend).
 - **Rust real-inference toolchain**: `LIBCLANG_PATH` (`$env:HP_LIBCLANG_PATH`),
   CMake (`$env:HP_CMAKE_BIN`), MSVC build tools (`$env:HP_VCVARS` — vcvars64.bat).

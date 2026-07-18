@@ -22,9 +22,13 @@ $Hp.RepoRoot       = Split-Path -Parent $Hp.DeployDir
 $Hp.BackendDir     = Join-Path $Hp.RepoRoot "backend"
 $Hp.WebDir         = Join-Path $Hp.RepoRoot "client\web"
 $Hp.TauriDir       = Join-Path $Hp.RepoRoot "client\src-tauri"
-$Hp.MongoDataDir   = Join-Path $Hp.RepoRoot ".mongo-rs0"
+# We run rs0 on 27018 (NOT the default 27017) on purpose: the MSI MongoDB
+# service, if installed, squats :27017 as a STANDALONE (not a replica set) and
+# can't be stopped without elevation. Using 27018 sidesteps it with zero admin.
+$Hp.MongoPort      = 27018
+$Hp.MongoDataDir   = Join-Path $Hp.RepoRoot ".mongo-native"
 $Hp.EnvGenerated   = Join-Path $Hp.DeployDir ".env.generated"
-$Hp.MongoUri       = "mongodb://localhost:27017/hydropark?replicaSet=rs0"
+$Hp.MongoUri       = "mongodb://localhost:27018/hydropark?replicaSet=rs0"
 
 # --- machine-specific tool paths (detected, overridable) -------------------
 function Resolve-First($candidates) {

@@ -39,9 +39,9 @@ function Wait-For($label, [scriptblock]$test, $timeoutSec) {
   return $false
 }
 
-# 1) Mongo (rs0)
+# 1) Mongo (rs0, on our dedicated port)
 Start-Component "hp-mongo" (Join-Path $PSScriptRoot "mongo.ps1") ""
-Wait-For "mongo rs0 primary" { (mongosh --quiet --eval "db.hello().isWritablePrimary" 2>$null) -eq "true" } 90 | Out-Null
+Wait-For "mongo rs0 on :$($Hp.MongoPort)" { (mongosh --quiet --port $Hp.MongoPort --eval "try { rs.status().set } catch (e) { '' }" 2>$null) -eq "rs0" } 90 | Out-Null
 
 # 2) Backend (local profile, publishes packages)
 Start-Component "hp-backend" (Join-Path $PSScriptRoot "backend.ps1") ""

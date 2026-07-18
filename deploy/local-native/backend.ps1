@@ -20,14 +20,15 @@ Import-HpEnv
 $env:MONGODB_URI = $Hp.MongoUri
 $env:HP_PACKAGE_SIGNING_ENABLED = "true"
 
-# Sanity: is mongo reachable as a writable primary?
+# Sanity: is our rs0 reachable on its port? (Standalones report isWritablePrimary
+# too, so check the replica-set name.)
 try {
-  $primary = mongosh --quiet --eval "db.hello().isWritablePrimary" 2>$null
-  if ($primary -ne "true") {
-    Write-Warning "Mongo rs0 is not a writable primary yet. Start mongo.ps1 first (or run dev-up.ps1)."
+  $set = mongosh --quiet --port $Hp.MongoPort --eval "try { rs.status().set } catch (e) { '' }" 2>$null
+  if ($set -ne "rs0") {
+    Write-Warning "rs0 not reachable on :$($Hp.MongoPort) yet. Start mongo.ps1 first (or run dev-up.ps1)."
   }
 } catch {
-  Write-Warning "Could not reach mongo via mongosh. Ensure mongo.ps1 is running."
+  Write-Warning "Could not reach mongo via mongosh on :$($Hp.MongoPort). Ensure mongo.ps1 is running."
 }
 
 Write-Host "==> mvn spring-boot:run (profile=local, publish-packages=true)" -ForegroundColor Cyan

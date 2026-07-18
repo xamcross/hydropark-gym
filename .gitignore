@@ -78,6 +78,7 @@ npm-debug.log*
 # (blobstore-dev unanchored: the backend resolves its default ./blobstore-dev against
 # its own working dir, so the root lands at backend/blobstore-dev in the dev loop)
 /.mongo-rs0/
+/.mongo-native/
 blobstore-dev/
 /research/
 /sprint/
