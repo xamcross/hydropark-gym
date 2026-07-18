@@ -78,29 +78,208 @@ pub fn extract_tool_call(text: &str) -> Option<Value> {
     serde_json::from_str(json_text).ok()
 }
 
+/// Scans `text` (which must start with `{`) for the byte offset just past the
+/// matching top-level closing `}`, honoring string quoting/escaping so a `{`
+/// or `}` inside a JSON string literal (e.g. an ingredient `label`) doesn't
+/// desync the brace count. Returns `None` if the braces never balance.
+fn balanced_json_object_end(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if bytes.first() != Some(&b'{') {
+        return None;
+    }
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Recognizes a BARE `{"name": …, "arguments": …}` tool call — no
+/// `<tool_call>` wrapper — that a real (esp. smaller) model can emit despite
+/// being instructed to wrap it, sometimes with a trailing prose line the model
+/// appended after the JSON (root cause of the "raw JSON leaks into chat, tool
+/// never runs" bug: the two-branch GBNF's `prose` production has no way to
+/// exclude bare `{…}` text, so this shape sails through constrained decoding
+/// as ordinary prose). Scoped deliberately tight to avoid misfiring on chat
+/// text that merely *mentions* JSON:
+///   - the object must start at byte 0 of the trimmed generation (ordinary
+///     prose essentially never opens with a raw `{`; any leading chat text
+///     before an embedded JSON snippet fails this immediately);
+///   - it must parse as a JSON object with a non-empty string `name` AND a
+///     present `arguments` key (both keys — not just one — line up with the
+///     tool_call shape and further shrink the false-positive surface).
+/// Anything after the matched closing `}` (e.g. the model's trailing prose
+/// confirmation) is discarded, mirroring how the wrapped form already
+/// discards everything outside its `<tool_call>…</tool_call>` tags.
+fn extract_bare_tool_call(trimmed: &str) -> Option<Value> {
+    let end = balanced_json_object_end(trimmed)?;
+    let value: Value = serde_json::from_str(&trimmed[..end]).ok()?;
+    let obj = value.as_object()?;
+    let has_name = obj.get("name").and_then(Value::as_str).is_some_and(|s| !s.is_empty());
+    if has_name && obj.contains_key("arguments") {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+/// Turn a parsed `{name, arguments}` JSON value into the [`GenOutput`] the
+/// turn machine consumes. `on_empty_name` is the raw text to carry into
+/// `Malformed` if `name` turns out to be missing/empty (kept as a parameter
+/// so callers can preserve the ORIGINAL untrimmed generation there, matching
+/// existing `Malformed` reporting).
+fn classify_tool_value(value: &Value, on_empty_name: &str) -> GenOutput {
+    let name = value.get("name").and_then(Value::as_str).unwrap_or_default();
+    let args = value.get("arguments").cloned().unwrap_or_else(|| serde_json::json!({}));
+    if name.is_empty() {
+        GenOutput::Malformed(on_empty_name.to_string())
+    } else {
+        GenOutput::ToolCall(name.to_string(), args)
+    }
+}
+
 /// Classify one raw model generation into the [`GenOutput`] the turn machine
 /// consumes: a `<tool_call>` block that parses to `{name, arguments}` becomes a
 /// `ToolCall` (still unvalidated — the machine validates against the catalog);
-/// a `<tool_call>` that doesn't parse becomes `Malformed`; anything else is
-/// `Prose`. Shared by both engines so the mock feeds the machine exactly what a
-/// real model would.
+/// a `<tool_call>` that doesn't parse becomes `Malformed`. Failing that, a BARE
+/// `{name, arguments}` object at the start of the generation (no wrapper — see
+/// [`extract_bare_tool_call`]) is ALSO recognized as a `ToolCall`, so a 3B model
+/// that skips the `<tool_call>` wrapper still gets executed instead of leaking
+/// raw JSON into the chat transcript. Anything else is `Prose`. Shared by both
+/// engines so the mock feeds the machine exactly what a real model would.
 pub fn parse_generation(text: &str) -> GenOutput {
     const OPEN: &str = "<tool_call>";
     if text.contains(OPEN) {
         match extract_tool_call(text) {
-            Some(value) => {
-                let name = value.get("name").and_then(Value::as_str).unwrap_or_default();
-                let args = value.get("arguments").cloned().unwrap_or_else(|| serde_json::json!({}));
-                if name.is_empty() {
-                    GenOutput::Malformed(text.to_string())
-                } else {
-                    GenOutput::ToolCall(name.to_string(), args)
-                }
-            }
+            Some(value) => classify_tool_value(&value, text),
             None => GenOutput::Malformed(text.to_string()),
         }
     } else {
-        GenOutput::Prose(text.trim().to_string())
+        let trimmed = text.trim();
+        match extract_bare_tool_call(trimmed) {
+            Some(value) => classify_tool_value(&value, text),
+            None => GenOutput::Prose(trimmed.to_string()),
+        }
+    }
+}
+
+// -- tests: `parse_generation` classification, incl. the bare-JSON tool_call
+//    hardening (the carbonara/start_timer live-repro bug). Pure logic, no
+//    model, no Tauri app — compiled and run under either feature set. --
+#[cfg(test)]
+mod parse_generation_tests {
+    use super::*;
+
+    #[test]
+    fn wrapped_tool_call_is_detected() {
+        let raw = r#"<tool_call>{"name": "start_timer", "arguments": {"label": "Pasta", "duration_sec": 540}}</tool_call>"#;
+        match parse_generation(raw) {
+            GenOutput::ToolCall(name, args) => {
+                assert_eq!(name, "start_timer");
+                assert_eq!(args["label"], "Pasta");
+                assert_eq!(args["duration_sec"], 540);
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    /// The live-repro bug: the model emits a BARE `{"name":…,"arguments":…}`
+    /// object with no `<tool_call>` wrapper, followed by a trailing prose
+    /// confirmation in the SAME generation. Before the fix this whole string
+    /// satisfied the grammar's permissive `prose` branch and was returned as
+    /// `GenOutput::Prose` verbatim — raw JSON shown in chat, tool never run.
+    #[test]
+    fn bare_tool_call_with_trailing_prose_is_detected_and_trailing_text_is_discarded() {
+        let raw = "{\"name\": \"start_timer\", \"arguments\": {\"label\": \"carbonara for 4\", \"duration_sec\": 1800}}\n\
+                    Will cook your carbonara for 4 people in 30 minutes.";
+        match parse_generation(raw) {
+            GenOutput::ToolCall(name, args) => {
+                assert_eq!(name, "start_timer");
+                assert_eq!(args["label"], "carbonara for 4");
+                assert_eq!(args["duration_sec"], 1800);
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bare_tool_call_with_no_trailing_text_is_detected() {
+        let raw = r#"{"name": "convert_units", "arguments": {"domain": "mass", "value": 1.0, "from_unit": "kg", "to_unit": "g"}}"#;
+        match parse_generation(raw) {
+            GenOutput::ToolCall(name, _args) => assert_eq!(name, "convert_units"),
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bare_tool_call_is_detected_after_leading_or_trailing_whitespace() {
+        let raw = "  \n{\"name\": \"start_timer\", \"arguments\": {\"label\": \"Pasta\", \"duration_sec\": 60}}  \n";
+        match parse_generation(raw) {
+            GenOutput::ToolCall(name, _) => assert_eq!(name, "start_timer"),
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    /// Genuine prose that merely *mentions* JSON — the object doesn't open at
+    /// byte 0 of the trimmed text — must NOT be misdetected as a tool call.
+    #[test]
+    fn prose_mentioning_json_mid_sentence_is_not_misdetected() {
+        let raw = "Sure — a tool call looks like {\"name\": \"start_timer\", \"arguments\": {}} in general.";
+        match parse_generation(raw) {
+            GenOutput::Prose(text) => assert_eq!(text, raw),
+            other => panic!("expected Prose, got {other:?}"),
+        }
+    }
+
+    /// A leading JSON object that lacks the tool_call shape (no `name`/`arguments`
+    /// pair) must NOT be misdetected as a tool call either.
+    #[test]
+    fn leading_json_object_without_tool_call_shape_is_not_misdetected() {
+        let raw = r#"{"ingredient": "salt", "qty": 2} is roughly how I'd write that down."#;
+        match parse_generation(raw) {
+            GenOutput::Prose(text) => assert_eq!(text, raw),
+            other => panic!("expected Prose, got {other:?}"),
+        }
+    }
+
+    /// `name` present but `arguments` absent: still not the tool_call shape,
+    /// so it stays Prose rather than being force-classified as a call (or a
+    /// spurious Malformed) from a coincidental JSON blob.
+    #[test]
+    fn leading_json_object_with_name_but_no_arguments_is_not_misdetected() {
+        let raw = r#"{"name": "Bob's Kitchen"} is the name of the restaurant."#;
+        assert!(matches!(parse_generation(raw), GenOutput::Prose(_)));
+    }
+
+    /// A wrapped call is still checked first: text containing BOTH a leading
+    /// bare-looking `{` and a `<tool_call>` wrapper elsewhere follows the
+    /// existing wrapped-form path, unaffected by the new bare-form fallback.
+    #[test]
+    fn wrapped_form_still_takes_priority_when_present() {
+        let raw = r#"<tool_call>{"name": "start_timer", "arguments": {"label": "Pasta", "duration_sec": 60}}</tool_call>"#;
+        assert!(matches!(parse_generation(raw), GenOutput::ToolCall(name, _) if name == "start_timer"));
     }
 }
 
@@ -544,6 +723,48 @@ pub mod mock {
             assert!(t.fallback().is_none());
             assert!(t.final_prose().unwrap().contains("base Hydropark agent"));
         }
+
+        /// `run_turn`-level regression for the live carbonara bug: a generation
+        /// that is a BARE `{"name":…,"arguments":…}` object (no `<tool_call>`
+        /// wrapper) plus a trailing prose line — exactly what the real model
+        /// emitted — must still drive the machine to `Step::ToolCall` +
+        /// `Step::ToolResult` (the timer actually runs), never leak as raw JSON
+        /// inside a `Step::Prose`.
+        #[test]
+        fn bare_json_tool_call_without_wrapper_executes_via_run_turn() {
+            let mut engine = MockEngine {
+                turns: vec![
+                    "{\"name\": \"start_timer\", \"arguments\": {\"label\": \"carbonara for 4\", \"duration_sec\": 1800}}\n\
+                     Will cook your carbonara for 4 people in 30 minutes."
+                        .to_string(),
+                ],
+                idx: 0,
+            };
+            let mut runner = TestRunner;
+            let t = run_turn(
+                &mut engine,
+                &mut runner,
+                "help me cook carbonara for 4",
+                &TurnConfig::default(),
+            );
+            assert_eq!(t.tool_calls(), 1, "the bare (unwrapped) JSON must still be detected as a tool call");
+            assert_eq!(t.repairs(), 0);
+            assert!(t.fallback().is_none());
+            assert!(t
+                .steps
+                .iter()
+                .any(|s| matches!(s, Step::ToolCall { tool: ToolName::StartTimer, .. })));
+            assert!(t
+                .steps
+                .iter()
+                .any(|s| matches!(s, Step::ToolResult { tool: ToolName::StartTimer, .. })));
+            // No step may carry the raw, un-executed tool_call JSON as prose.
+            assert!(
+                !t.steps.iter().any(|s| matches!(s, Step::Prose(p) if p.contains("\"arguments\""))),
+                "raw tool_call JSON must never leak into a Prose step: {:?}",
+                t.steps
+            );
+        }
     }
 }
 
@@ -761,7 +982,9 @@ pub mod real {
                 "- start_timer(label: string, duration_sec: integer) — start a kitchen countdown.\n",
                 "- convert_units(domain: \"mass\"|\"volume\"|\"temperature\", value: number, from_unit: string, to_unit: string) — convert a quantity.\n",
                 "- list_manage(op: \"add\"|\"remove\"|\"check\"|\"uncheck\"|\"set_all\", item?, items?) — edit the ingredient list.\n\n",
-                "When the user asks for something a tool can do, reply briefly and then emit one <tool_call> block. Otherwise, just chat."
+                "When the user asks for something a tool can do, respond with ONLY that one <tool_call> ",
+                "block and nothing else — no words before or after it, and never write the JSON without ",
+                "the <tool_call> and </tool_call> tags around it. Otherwise, just chat normally with no tags."
             )
             .to_string()
         } else {
