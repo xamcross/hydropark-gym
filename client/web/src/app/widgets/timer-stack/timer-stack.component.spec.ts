@@ -1,16 +1,36 @@
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TimerStackComponent } from './timer-stack.component';
 import { IPC_PORT, IpcPort, Unlisten } from '../../ipc/ipc.port';
-import { IpcCommand, IpcCommandMap, IpcEvent, IpcEventMap } from '../../ipc/contract';
+import { IpcCommand, IpcCommandMap, IpcEvent, IpcEventMap, StartTimerArgs, ToolCallRequest } from '../../ipc/contract';
 import { SessionService } from '../../state/session.service';
 import { InferenceService } from '../../inference/inference.service';
 import { BUS_TRANSCRIPT_SINK, BusService, BusTranscriptSink, TranscriptLine } from '../../shared/bus';
 
-/** `IpcPort` test double that records `on()` handlers so a test can fire them directly. */
+/**
+ * `IpcPort` test double that records `on()` handlers so a test can fire them
+ * directly, AND executes `tool_call` for `start_timer` for real (minted with
+ * a fresh, unique `timer_id` per call — same shape `MockIpcService.startTimer`
+ * returns) so `ToolsService.dispatch` really round-trips into
+ * `SessionService.upsertTimer`, exactly like the real add flow.
+ */
 class FakeIpc extends IpcPort {
   private readonly handlers = new Map<IpcEvent, Set<(payload: unknown) => void>>();
+  private seq = 0;
 
-  invoke<K extends IpcCommand>(_cmd: K, _args: IpcCommandMap[K]['args']): Promise<IpcCommandMap[K]['result']> {
+  invoke<K extends IpcCommand>(cmd: K, args: IpcCommandMap[K]['args']): Promise<IpcCommandMap[K]['result']> {
+    if (cmd === 'tool_call') {
+      const req = args as ToolCallRequest;
+      if (req.tool === 'start_timer') {
+        this.seq += 1;
+        const a = req.args as StartTimerArgs;
+        return Promise.resolve({
+          request_id: req.request_id,
+          ok: true,
+          tool: 'start_timer',
+          result: { timer_id: `t${this.seq}`, label: a.label, duration_sec: a.duration_sec, started_at_ms: Date.now() },
+        } as IpcCommandMap[K]['result']);
+      }
+    }
     return Promise.resolve(undefined as IpcCommandMap[K]['result']);
   }
 
@@ -97,5 +117,107 @@ describe('TimerStackComponent — timer_finished to_chat producer (Task 13)', ()
 
     expect(() => bareIpc.fire('timer://finished', { timer_id: 't3', label: 'Rice' })).not.toThrow();
     expect(session.messages().length).toBe(0);
+  });
+});
+
+/**
+ * W03 — "+ Timer" must always ADD a new named timer, never remove/replace an
+ * existing one (SPEC §9.4 `timer_stack`: "one or many named countdown
+ * timers"). Root cause of the reported bug: the button's `(click)` toggled
+ * `showAddForm` (`showAddForm.set(!showAddForm())`) instead of always
+ * driving toward a new timer — a second "+ Timer" tap (e.g. re-tapping to
+ * start a second timer while the add-form from the first was still open)
+ * CLOSED the form and committed nothing, so the widget never reliably grew
+ * past one timer. Fixed by giving "+ Timer" its own handler
+ * (`quickAddTimer()`) that unconditionally dispatches a brand-new
+ * `start_timer` call — it never reads or clears `showAddForm`.
+ */
+describe('TimerStackComponent — "+ Timer" button always adds a new timer (W03)', () => {
+  let ipc: FakeIpc;
+  let fixture: ComponentFixture<TimerStackComponent>;
+  let session: SessionService;
+
+  function clickAddButton(): void {
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button.add-btn');
+    btn.click();
+  }
+
+  beforeEach(() => {
+    ipc = new FakeIpc();
+    TestBed.configureTestingModule({
+      imports: [TimerStackComponent],
+      providers: [{ provide: IPC_PORT, useValue: ipc }],
+    });
+    fixture = TestBed.createComponent(TimerStackComponent);
+    session = TestBed.inject(SessionService);
+  });
+
+  it('clicking "+ Timer" when one timer already exists results in TWO timers — not zero, not one', async () => {
+    session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
+    fixture.detectChanges();
+    expect(session.timerList().length).toBe(1);
+
+    clickAddButton();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const timers = session.timerList();
+    expect(timers.length).toBe(2);
+  });
+
+  it('preserves the existing timer exactly (same id/label/duration) after "+ Timer" adds a second', async () => {
+    session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
+    fixture.detectChanges();
+
+    clickAddButton();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const existing = session.timerList().find((t) => t.timer_id === 'existing-1');
+    expect(existing).toEqual({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
+  });
+
+  it('the newly-added timer is distinct from the existing one (different id) and never removes it via the toggle path', async () => {
+    session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
+    fixture.detectChanges();
+
+    clickAddButton();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const timers = session.timerList();
+    expect(timers.some((t) => t.timer_id === 'existing-1')).toBe(true);
+    expect(timers.some((t) => t.timer_id !== 'existing-1')).toBe(true);
+  });
+
+  it('clicking "+ Timer" repeatedly keeps adding — three clicks from empty yields three timers, none dropped', async () => {
+    expect(session.timerList().length).toBe(0);
+
+    for (let i = 0; i < 3; i++) {
+      clickAddButton();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    expect(session.timerList().length).toBe(3);
+  });
+
+  it('never removes an existing timer when the add-form happens to already be open (model prefill in flight)', async () => {
+    session.upsertTimer({ timer_id: 'existing-1', label: 'Pasta', duration_sec: 540, remaining_sec: 300, running: true });
+    fixture.componentInstance.showAddForm.set(true);
+    fixture.detectChanges();
+
+    clickAddButton();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const timers = session.timerList();
+    expect(timers.length).toBe(2);
+    expect(timers.some((t) => t.timer_id === 'existing-1')).toBe(true);
   });
 });
