@@ -190,7 +190,7 @@ export class PurchaseService {
         this.telemetry.noteBackendCall();
         const res = await this.ipc.invoke('order_get', { orderId, bearer: this.auth.bearer() });
         if (isSettled(res.status)) {
-          this.onSettled(orderId, skillId);
+          void this.onSettled(orderId, skillId);
           return;
         }
         if (isTerminalFailure(res.status)) {
@@ -216,7 +216,7 @@ export class PurchaseService {
     if (!skillId) return;
 
     if (isSettled(e.status)) {
-      this.onSettled(orderId ?? `cb:${skillId}`, skillId);
+      void this.onSettled(orderId ?? `cb:${skillId}`, skillId);
     } else if (isTerminalFailure(e.status)) {
       if (orderId) this.pendingOrders.delete(orderId);
       this.setState(skillId, 'not-owned');
@@ -224,13 +224,45 @@ export class PurchaseService {
     }
   }
 
-  /** Runs exactly once per order: fetch license + download, then install + enable. */
-  private onSettled(orderId: string, skillId: string): void {
+  /**
+   * Runs exactly once per order: refresh entitlements, then fetch license +
+   * download, then install + enable.
+   *
+   * ── ROOT-CAUSE FIX — a freshly-settled purchase always installed NotOwned ──
+   * SPEC §13.7: "The app refreshes `/entitlements` on every successful online
+   * launch (and after any purchase)." The Rust installer's ownership gate
+   * (`SkillInstaller::install_bytes`, hpskill.rs step 3) checks the LOCAL
+   * `entitlements` cache via `is_entitled()` — but that cache is populated
+   * ONLY by `entitlements_refresh` (`session.refresh_entitlements()` →
+   * `store.cache_entitlements`), never by `license_fetch`, which just hands
+   * back the signed JWS and is otherwise unused by the caller. Every paid buy
+   * therefore called `install()` → `license_fetch` (succeeds) → `download_url`
+   * (succeeds) → `skill_download_install` → `install_bytes`'s ownership check
+   * with an EMPTY local entitlements cache → `Lifecycle(NotOwned)`, surfaced
+   * to the user as the generic "We couldn't install this skill." banner.
+   * `restore()` already does this same refresh; a device-only "continue on
+   * this device" purchase never authenticates (`status` stays `"device"`,
+   * not `"authenticated"`), so the constructor's auto-restore `effect()`
+   * never fires for it either — this is the only path that populates the
+   * cache before a fresh purchase's own install. Best-effort: a failed
+   * refresh here must not strand the purchase — `install()`'s own
+   * license_fetch/download_url still enforce ownership server-side, so a
+   * transient refresh failure just means the ownership gate below (correctly)
+   * rejects until the next successful refresh.
+   * ──────────────────────────────────────────────────────────────────────────
+   */
+  private async onSettled(orderId: string, skillId: string): Promise<void> {
     if (this.settledOrders.has(orderId)) return;
     this.settledOrders.add(orderId);
     this.pendingOrders.delete(orderId);
     this.clearError(skillId);
     this.setState(skillId, 'owned-not-installed');
+    try {
+      this.telemetry.noteBackendCall();
+      await this.ipc.invoke('entitlements_refresh', { bearer: this.auth.bearer() });
+    } catch {
+      // Best-effort — see the doc comment above.
+    }
     void this.install(skillId, /* thenEnable */ true);
   }
 

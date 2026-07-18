@@ -16,14 +16,33 @@ export async function paidBuy({ page, reporter }: { page: Page; reporter: Report
   reporter.step('"Before you install" consent dialog appeared', true);
   await installConfirmBtn.click();
   // Identity gate: choose the anonymous device-only path if the dialog appears.
+  // NOTE: `Locator.isVisible()` does NOT auto-wait — its `timeout` option is
+  // deprecated and ignored (checks the DOM once, immediately). Using it right
+  // after the "Install" click raced Angular's dialog render: the check ran
+  // before the dialog mounted, always saw "not visible", and skipped the
+  // click — stranding the auth dialog open and the buy() flow blocked
+  // forever on `ensureForPurchase()`, which the 45s race below then timed
+  // out on (no error banner, no owned CTA — this IS what "paid buy did not
+  // reach the owned/installed state" without an error banner looked like).
+  // `waitFor({ state: 'visible' })` actually polls up to the timeout.
   const continueDevice = page.getByRole('button', { name: /continue on this device/i });
-  if (await continueDevice.isVisible({ timeout: 10_000 }).catch(() => false)) {
+  const deviceDialogShown = await continueDevice
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (deviceDialogShown) {
     await continueDevice.click();
     reporter.step('chose "continue on this device"', true);
   }
   // Fake provider self-settles; license (server device id + recovery step-up) + install then run.
+  // A settled paid buy auto-enables (`onSettled` → `install(id, thenEnable=true)`),
+  // so the real terminal ownership-button label is "Active" (`primaryCta()` in
+  // catalog.model.ts) — "Installed"/"Open"/"Owned" are never actual button text
+  // anywhere in the ownership-button component; "Enable" only ever appears as a
+  // *disabled* secondary button during the brief owned/installing transition, so
+  // it's kept here only as a defensive fallback, not the expected match.
   const errorBanner = page.locator('p.own-error[role="alert"]');
-  const ownedCta = page.getByRole('button', { name: /Enable|Installed|Open|Owned/ });
+  const ownedCta = page.getByRole('button', { name: /Active|Enable/ });
   const outcome = await Promise.race([
     ownedCta.waitFor({ state: 'visible', timeout: 45_000 }).then(() => 'owned' as const),
     errorBanner.waitFor({ state: 'visible', timeout: 45_000 }).then(() => 'error' as const),

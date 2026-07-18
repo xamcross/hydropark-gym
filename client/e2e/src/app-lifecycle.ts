@@ -1,10 +1,12 @@
 import { spawn, execSync } from 'node:child_process';
-import { rmSync, readdirSync, existsSync } from 'node:fs';
+import { rmSync, readdirSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 
 const APP_DATA = join(process.env.APPDATA ?? '', 'app.hydropark.phase0');
 const TAURI_DIR = join(process.cwd(), '..', 'src-tauri');
 const APP_BIN = join(TAURI_DIR, 'target', 'debug', 'hydropark.exe');
+const ARTIFACTS_DIR = join(process.cwd(), 'artifacts');
+const APP_STDERR_LOG = join(ARTIFACTS_DIR, 'app-stderr.log');
 
 /**
  * Build the mock-inference binary ONCE (no llama/native toolchain needed).
@@ -64,7 +66,13 @@ export async function launchApp(): Promise<void> {
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222',
     HYDROPARK_APP_VERSION: '1.0.0',
   };
-  const child = spawn(APP_BIN, [], { cwd: TAURI_DIR, env, detached: true, stdio: 'ignore' });
+  mkdirSync(ARTIFACTS_DIR, { recursive: true });
+  // Capture the app's stderr (Rust `eprintln!`/panic output) into a single
+  // append-mode log shared across scenarios/relaunches, so a Rust-side error —
+  // e.g. a `[diag]` line or a panic — is readable after the fact instead of
+  // vanishing with `stdio: 'ignore'`.
+  const stderrFd = openSync(APP_STDERR_LOG, 'a');
+  const child = spawn(APP_BIN, [], { cwd: TAURI_DIR, env, detached: true, stdio: ['ignore', 'ignore', stderrFd] });
   child.unref();
 }
 
