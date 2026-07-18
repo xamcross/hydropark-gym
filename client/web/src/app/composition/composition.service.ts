@@ -36,8 +36,12 @@ import {
   slotsFromManifests,
 } from './skill-manifest';
 
-/** Default model context window used when the caller has not measured one. */
-const DEFAULT_N_CTX = 4096;
+/** Default model context window used when the caller has not measured one.
+ *  Matches `HYDROPARK_N_CTX`'s default in `inference.rs::real` (bumped
+ *  4096 -> 8192 with the 3B -> 7B swap, 2026-07-19). There's no live IPC
+ *  channel reporting the engine's actual n_ctx yet, so this is the best
+ *  available estimate — see the composed-agent capacity meter. */
+const DEFAULT_N_CTX = 8192;
 
 @Injectable({ providedIn: 'root' })
 export class CompositionService {

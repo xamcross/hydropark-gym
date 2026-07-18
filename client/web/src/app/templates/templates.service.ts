@@ -30,8 +30,9 @@ import { NotificationService } from '../shared/notify/notification.service';
 import { SessionService } from '../state/session.service';
 import { CookingAssistantService } from '../skills/cooking-assistant/cooking-assistant.service';
 
-/** The one bundled Phase-0 model — see SPEC §16.1; there is no model picker yet. */
-export const TEMPLATE_BASE_MODEL = 'qwen2.5-3b-instruct-q4_k_m';
+/** The one bundled Phase-0 model — see SPEC §16.1; there is no model picker yet.
+ *  Swapped 2026-07-19 (3B -> 7B, Q4_K_M) for tool-chaining/arg consistency. */
+export const TEMPLATE_BASE_MODEL = 'qwen2.5-7b-instruct-q4_k_m';
 
 /** The skill ids `applyCombo` actually knows how to flip on/off (see file header). */
 const AUTO_ENABLE_SKILLS = new Set<string>(['kitchen-timer', 'cooking-assistant']);

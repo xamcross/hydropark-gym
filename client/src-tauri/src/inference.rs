@@ -6,7 +6,7 @@
 //!    `cargo check`/`cargo build`/`cargo test` on this crate meaningful even
 //!    without a GGUF or a C/C++ toolchain (see client/README.md).
 //!  - `real` (feature `real-inference`) — embeds llama.cpp via the
-//!    `llama-cpp-2` binding and runs qwen2.5-3b-instruct-q4_k_m in-process on
+//!    `llama-cpp-2` binding and runs qwen2.5-7b-instruct-q4_k_m in-process on
 //!    a dedicated worker thread (see `mod real` below). CPU-only unless built
 //!    with the `cuda` feature.
 //!
@@ -1162,7 +1162,9 @@ pub mod mock {
 
 // ---------------------------------------------------------------------------
 // Real engine (P0-02.1/.2, P1-02.2/.3/.4) — embeds llama.cpp via `llama-cpp-2`
-// and runs qwen2.5-3b-instruct-q4_k_m in-process. It now implements the
+// and runs qwen2.5-7b-instruct-q4_k_m in-process (swapped from the 3B on
+// 2026-07-19 for better tool-chaining/arg consistency; see
+// client/docs/REAL-INFERENCE.md). It now implements the
 // [`crate::turn::Engine`] seam and is driven by the SAME `run_turn` state machine
 // as the mock, applying the GBNF grammar to the sampler for constrained decoding.
 //
@@ -1193,7 +1195,7 @@ pub mod real {
     use llama_cpp_2::model::{AddBos, LlamaModel};
     use llama_cpp_2::sampling::LlamaSampler;
 
-    const MODEL_FILE: &str = "qwen2.5-3b-instruct-q4_k_m.gguf";
+    const MODEL_FILE: &str = "qwen2.5-7b-instruct-q4_k_m.gguf";
 
     // ---- configuration (env-overridable) --------------------------------
 
@@ -1206,7 +1208,10 @@ pub mod real {
         env_u32("HYDROPARK_N_GPU_LAYERS", 20)
     }
     fn n_ctx() -> u32 {
-        env_u32("HYDROPARK_N_CTX", 4096)
+        // 2026-07-19: bumped 4096 -> 8192 with the 3B -> 7B swap (Qwen2.5-7B
+        // supports up to 32768; 8192 is a modest, RAM-cheap headroom bump
+        // verified to load on this machine — see client/docs/REAL-INFERENCE.md).
+        env_u32("HYDROPARK_N_CTX", 8192)
     }
     fn max_new_tokens() -> usize {
         env_u32("HYDROPARK_MAX_TOKENS", 512) as usize

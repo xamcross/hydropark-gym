@@ -5,7 +5,9 @@
 > "build it once, run it once, write the numbers down" procedure — not a supported install path.
 
 The `real-inference` engine lives in `src-tauri/src/inference.rs` (`mod real`). It embeds llama.cpp
-via `llama-cpp-2` 0.1.151, loads the bundled Qwen2.5-3B GGUF on a dedicated worker thread, and emits
+via `llama-cpp-2` 0.1.151, loads the bundled Qwen2.5-7B GGUF (swapped from 3B on 2026-07-19 for
+tool-chaining/arg consistency — see the bottom of this doc for the before/after) on a dedicated
+worker thread, and emits
 the **exact same** `inference://*` events as the default mock engine — so flipping the feature flag is
 the only change anywhere in the app.
 
@@ -46,7 +48,7 @@ If you installed LLVM elsewhere (e.g. via `winget install LLVM.LLVM` or a VS-bun
 The GGUF is already bundled — no download step:
 
 ```
-client/models/qwen2.5-3b-instruct-q4_k_m.gguf   (~2.1 GB, Q4_K_M)
+client/models/qwen2.5-7b-instruct-q4_k_m.gguf   (~4.7 GB, Q4_K_M)
 ```
 
 `resolve_model_path()` finds it automatically (it probes `models/` next to the exe, the crate-relative

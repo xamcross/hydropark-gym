@@ -166,16 +166,15 @@ export interface DownloadableModel {
   readonly blurb: string;
 }
 
-export const DOWNLOADABLE_MODELS: readonly DownloadableModel[] = [
-  {
-    id: 'qwen2.5-7b-instruct-q4km',
-    name: 'Qwen2.5-7B-Instruct',
-    quant: 'Q4_K_M',
-    sizeBytes: 4_680_000_000,
-    ctxTokens: 8192,
-    blurb: 'A larger model — noticeably stronger reasoning, at a slower per-token pace.',
-  },
-] as const;
+// 2026-07-19: this catalog's sole entry (Qwen2.5-7B-Instruct Q4_K_M) became the
+// BUNDLED default (see `OnboardingService.BUNDLED_MODEL` / `templates.service.ts`
+// `TEMPLATE_BASE_MODEL` / `inference.rs::real::MODEL_FILE`) — offering it here too
+// would be offering a download of the model the user already has. Left empty
+// until a genuinely larger on-device tier ships; `LARGER_MODEL` degrades to
+// `null` and the onboarding "optional upgrade" affordance hides itself rather
+// than lying about there being more headroom available.
+export const DOWNLOADABLE_MODELS: readonly DownloadableModel[] = [] as const;
 
-/** The single optional model surfaced in onboarding step 3 (the bundled one keeps working). */
-export const LARGER_MODEL: DownloadableModel = DOWNLOADABLE_MODELS[0];
+/** The single optional model surfaced in onboarding step 3, or `null` when the
+ *  bundled default is already the largest model we ship (see note above). */
+export const LARGER_MODEL: DownloadableModel | null = DOWNLOADABLE_MODELS[0] ?? null;

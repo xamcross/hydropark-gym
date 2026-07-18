@@ -58,8 +58,8 @@ before you run (see `_env.ps1`):
 - **Rust real-inference toolchain**: `LIBCLANG_PATH` (`$env:HP_LIBCLANG_PATH`),
   CMake (`$env:HP_CMAKE_BIN`), MSVC build tools (`$env:HP_VCVARS` — vcvars64.bat).
 - **Node** on PATH (Angular).
-- **Base model** GGUF at `client/models/qwen2.5-3b-instruct-q4_k_m.gguf` or
-  `$env:HYDROPARK_MODEL_PATH`.
+- **Base model** GGUF at `client/models/qwen2.5-7b-instruct-q4_k_m.gguf` (swapped from 3B
+  2026-07-19) or `$env:HYDROPARK_MODEL_PATH`.
 
 ## Notes
 

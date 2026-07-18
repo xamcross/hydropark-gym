@@ -127,7 +127,19 @@ impl std::fmt::Display for SemVer {
 ///
 /// Ordered `Small < Mid < Large` — the derived `Ord` follows declaration order,
 /// so a skill is compatible iff `skill.min_model_tier <= device_tier`. `Small`
-/// is the reference base model (Qwen2.5-3B, §8.5) and the [`Default`].
+/// is the [`Default`] (a skill declaring no requirement must still run on
+/// minimum hardware) and was the reference base model at original certification
+/// (Qwen2.5-3B, §8.5).
+///
+/// 2026-07-19: the bundled/default on-device model moved to Qwen2.5-7B-Instruct
+/// (`inference.rs::real::MODEL_FILE`). Per §8.6 ("re-certification on model
+/// change") this is formally a base-model change; existing skills stay
+/// certified against the unchanged 3B eval suite until it's re-run against 7B.
+/// This gate isn't wired to a live device probe yet (`HostEnv` is constructed
+/// by callers, e.g. in tests, with no `HYDROPARK_MODEL_TIER` env reader today);
+/// when it is, the 7B device should report `ModelTier::Mid`, not `Small` — and
+/// since `Mid > Small`, that's a strict superset for every skill still gated at
+/// `Small` (all current skills), so nothing that installs/enables today breaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Deserialize)]
 #[serde(try_from = "String")]
 pub enum ModelTier {

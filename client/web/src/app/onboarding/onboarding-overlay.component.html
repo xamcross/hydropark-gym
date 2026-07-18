@@ -72,7 +72,7 @@
               @if (svc.probeError()) {
                 <p class="ob-inline-note" role="status">{{ svc.probeError() }}</p>
               }
-              <p class="ob-fineprint">Estimated for the bundled 3B model. Your real speed is measured live as you chat.</p>
+              <p class="ob-fineprint">Estimated for the bundled model. Your real speed is measured live as you chat.</p>
             </section>
           }
 
@@ -100,17 +100,23 @@
 
               <!-- OPTIONAL larger model: a live, resumable download surface (P1-02.7).
                    Idle it's a "Download" affordance; once a download is in progress it
-                   shows REAL byte progress. The bundled model above keeps working meanwhile. -->
-              <p class="ob-model-optional-lead">Want more headroom? {{ largerModel.blurb }} It downloads in the background — optional, and the bundled model keeps working.</p>
-              <app-model-download
-                [modelId]="largerModel.id"
-                [modelName]="largerModel.name"
-                [sizeBytes]="largerModel.sizeBytes"
-              ></app-model-download>
+                   shows REAL byte progress. The bundled model above keeps working meanwhile.
+                   Hides itself (no lying about headroom) when there's nothing bigger to
+                   offer beyond the bundled default — see model-download.service.ts. -->
+              @if (largerModel) {
+                <p class="ob-model-optional-lead">Want more headroom? {{ largerModel.blurb }} It downloads in the background — optional, and the bundled model keeps working.</p>
+                <app-model-download
+                  [modelId]="largerModel.id"
+                  [modelName]="largerModel.name"
+                  [sizeBytes]="largerModel.sizeBytes"
+                ></app-model-download>
 
-              <p class="ob-fineprint">
-                Only the bundled model is needed to get started. A larger model runs more slowly but reasons a little better.
-              </p>
+                <p class="ob-fineprint">
+                  Only the bundled model is needed to get started. A larger model runs more slowly but reasons a little better.
+                </p>
+              } @else {
+                <p class="ob-fineprint">This is the largest model we bundle today — no further on-device upgrade is offered yet.</p>
+              }
             </section>
           }
 

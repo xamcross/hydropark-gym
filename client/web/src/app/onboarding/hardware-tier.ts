@@ -3,14 +3,21 @@
    -----------------------------------------------------------------------------
    Turns the read-only {@link HardwareProfile} (P0-02.3) into an HONEST, human
    verdict for the onboarding "hardware check" step: a coarse tier, an ESTIMATED
-   tok/s range for the bundled 3B model, and a plain-language speed note.
+   tok/s range for the bundled model, and a plain-language speed note.
 
    Contract (matches the P0-02.3 promise): this is a covariate the UI *shows*,
    never a gate — no tier blocks a feature. The numbers are deliberately framed
    as estimates; the real rate is measured live as the user chats (the chat
-   footer's `tok/s`, fed by `inference://done`). The estimate anchors on the
-   measured baseline for the bundled build (Qwen2.5-3B Q4_K_M on CPU ≈ mid-teens
-   to low-20s tok/s on an 8-core desktop), so we neither over- nor under-promise.
+   footer's `tok/s`, fed by `inference://done`).
+
+   2026-07-19: rebased for the 3B -> 7B swap. This is an EXTRAPOLATED estimate
+   (roughly half the old 3B mid-teens-to-low-20s range), not a fresh measured
+   baseline like the original 3B numbers were: a same-machine RELEASE-build
+   measurement of the 7B wasn't completed (a debug `cargo run` build measured
+   only ~2 tok/s, which is not representative — REAL-INFERENCE.md notes debug
+   inference runs "many times slower" than release, which is what a packaged
+   app ships). Treat this range as a placeholder pending a real release-build
+   remeasurement; it is deliberately conservative in the meantime.
 
    No Angular import — deterministic + unit-testable in isolation. */
 
@@ -69,18 +76,18 @@ export function estimateHardware(profile: HardwareProfile | null | undefined): H
   }`;
 
   if (cores >= CORES_COMFORTABLE && ram_gb >= RAM_COMFORTABLE_GB) {
-    return verdict('comfortable', 'Comfortable', [15, 25], 'fine',
+    return verdict('comfortable', 'Comfortable', [7, 13], 'fine',
       'Your machine should run the on-device model at a comfortable, conversational pace.' + gpuNote,
       detail);
   }
 
   if (cores >= CORES_WORKABLE && ram_gb >= RAM_WORKABLE_GB) {
-    return verdict('workable', 'Workable', [8, 16], 'fine',
+    return verdict('workable', 'Workable', [4, 8], 'fine',
       'The on-device model will run at a usable pace — replies stream steadily rather than instantly.' + gpuNote,
       detail);
   }
 
-  return verdict('constrained', 'Constrained', [3, 8], 'careful',
+  return verdict('constrained', 'Constrained', [1, 4], 'careful',
     'The on-device model will run, but expect slower, more deliberate replies on this hardware.' + gpuNote,
     detail);
 }

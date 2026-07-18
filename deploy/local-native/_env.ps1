@@ -67,7 +67,7 @@ $Hp.Vcvars = if ($env:HP_VCVARS) { $env:HP_VCVARS } else {
 }
 
 $Hp.ModelPath = if ($env:HYDROPARK_MODEL_PATH) { $env:HYDROPARK_MODEL_PATH } else {
-  Resolve-First @((Join-Path $Hp.RepoRoot "client\models\qwen2.5-3b-instruct-q4_k_m.gguf"))
+  Resolve-First @((Join-Path $Hp.RepoRoot "client\models\qwen2.5-7b-instruct-q4_k_m.gguf"))
 }
 
 # --- helpers ---------------------------------------------------------------

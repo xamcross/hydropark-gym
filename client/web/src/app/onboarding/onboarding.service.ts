@@ -23,11 +23,17 @@ export interface BundledModelInfo {
   readonly approxSizeGb: number;
   readonly ctxTokens: number;
 }
+// 2026-07-19: swapped 3B -> 7B (same GGUF/quant family) for better tool-chaining
+// (ingredient-list population) and prose/arg consistency (duration sanity) — see
+// client/docs/REAL-INFERENCE.md. approxSizeGb is the verified on-disk size of the
+// downloaded GGUF (4,683,074,240 bytes); ctxTokens matches `HYDROPARK_N_CTX`'s new
+// default in inference.rs (8192, bumped from 4096 — verified to load on this
+// machine's RAM headroom).
 export const BUNDLED_MODEL: BundledModelInfo = {
-  name: 'Qwen2.5-3B-Instruct',
+  name: 'Qwen2.5-7B-Instruct',
   quant: 'Q4_K_M',
-  approxSizeGb: 1.9,
-  ctxTokens: 4096,
+  approxSizeGb: 4.68,
+  ctxTokens: 8192,
 };
 
 export type EmailStatus = 'idle' | 'saved' | 'invalid';

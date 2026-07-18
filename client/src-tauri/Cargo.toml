@@ -13,7 +13,8 @@ default-run = "hydropark"
 # NOTE TO BUILDERS: the default (`mock-inference`) crate builds, links, and
 # runs on Windows (see client/README.md). The `real-inference` feature has
 # now been BUILT AND RUN on this machine (MSVC + CMake + LLVM/libclang for
-# bindgen) — it loads the bundled Qwen2.5-3B GGUF and streams tokens; see
+# bindgen) — it loads the bundled Qwen2.5-7B GGUF (swapped from 3B 2026-07-19)
+# and streams tokens; see
 # client/docs/REAL-INFERENCE.md for the one-shot build + run + benchmark and
 # the measured throughput (P0-02.3). The `llama-cpp-2` 0.1.151 API calls in
 # `inference.rs::real` are compiler-checked as of that build.
@@ -125,7 +126,8 @@ default = ["real-inference"]
 #   dev        : cargo run                    (devUrl + `npm --prefix ../web run start`)
 custom-protocol = ["tauri/custom-protocol"]
 # The real engine (inference.rs `mod real`): embeds llama.cpp and loads the
-# Qwen2.5-3B GGUF in-process. **Default** — the engine the app ships and runs.
+# Qwen2.5-7B GGUF in-process (swapped from 3B 2026-07-19). **Default** — the
+# engine the app ships and runs.
 # CPU-only unless the `cuda` feature is added. A build needs the native
 # toolchain (MSVC + CMake + LLVM/libclang for bindgen); see
 # client/docs/REAL-INFERENCE.md.
