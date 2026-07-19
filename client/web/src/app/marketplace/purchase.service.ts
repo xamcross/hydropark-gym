@@ -355,13 +355,28 @@ export class PurchaseService {
       // it into `enabledManifests`, so the skill's panels/tools really compose.
       this.enabledSkills.enable(skillId);
     }
-    // Close the loop for the one in-app paid SKU: a settled purchase unlocks the
-    // Cooking Assistant so its Assistant-view toggle lights up. In a real Tauri
-    // build the Rust core's post-purchase entitlement is authoritative and
-    // UnlockService hydrates from it, so we only self-unlock in the web/mock demo.
-    if (skillId === 'cooking-assistant' && !isTauriRuntime()) {
+    // ── PAID-ENABLE/DASHBOARD-LOCK BUG FIX — the P1<->P0 reconciliation seam ──
+    // Close the loop for the one in-app paid SKU: a settled purchase must unlock
+    // the Cooking Assistant so its Assistant-dashboard toggle lights up and it
+    // can join the composed agent. This USED to be gated on `!isTauriRuntime()`
+    // on the (incorrect) assumption that a real Tauri build's Rust core already
+    // reconciled the two ownership models on its own — it never did, so a real
+    // purchase showed "owned" on the Marketplace but stayed "Locked" on the
+    // dashboard. `skill_download_install` (main.rs) now performs that
+    // reconciliation for real (see `unlock.rs`'s `mark_unlocked_via_purchase`,
+    // called earlier in this same settle sequence from `install()`); this just
+    // re-hydrates `UnlockService`'s reactive signal from it, exactly like boot
+    // hydration does for a returning buyer.
+    if (skillId === 'cooking-assistant') {
       try {
-        await this.unlock.devSimulateUnlock();
+        if (isTauriRuntime()) {
+          await this.unlock.hydrate();
+        } else {
+          // No Rust core in the web/mock demo (`ng serve`) — self-unlock
+          // through the same HMAC-verified code path devSimulateUnlock always
+          // used (unchanged behaviour for that build).
+          await this.unlock.devSimulateUnlock();
+        }
       } catch {
         // Non-fatal — the marketplace state still reaches `active`.
       }

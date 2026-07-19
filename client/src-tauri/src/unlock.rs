@@ -33,6 +33,26 @@
 //! `unlock::unlock_redeem, unlock::unlock_status` to the `generate_handler!`
 //! list. No `.manage()` state is needed — the commands resolve the app-data dir
 //! from the `AppHandle` themselves (same pattern as `notify`/telemetry).
+//!
+//! ── P1 purchase reconciliation seam (paid-enable dashboard bug) ────────────
+//! A Marketplace purchase of `cooking-assistant` goes through a COMPLETELY
+//! SEPARATE ownership model — checkout -> settle -> license ->
+//! `skill_download_install` (P1-08.x / hpskill.rs), which caches ownership in
+//! the on-device `Store`'s entitlements/installed_skills tables. It never used
+//! to touch THIS module's gate, so a purchased Cooking Assistant showed
+//! "owned" on the Marketplace detail (P1 model) but stayed "Locked" on the
+//! Assistant dashboard and never composed (P0 model, gated on
+//! `skills::cooking_assistant::gate()`, flipped only by `unlock_redeem` below).
+//! [`mark_unlocked_via_purchase`] is the ONE seam that reconciles them: called
+//! from `main.rs`'s `skill_download_install` the moment it successfully
+//! installs `cooking-assistant` (which only happens after the P1 pipeline's own
+//! `is_entitled` ownership check already passed — this is not a new trust
+//! decision, just propagating an existing one to the P0 gate). Angular's
+//! matching half lives in `PurchaseService.enable()`
+//! (`client/web/src/app/marketplace/purchase.service.ts`), which re-hydrates
+//! `UnlockService` from `unlock_status` right after, instead of the old
+//! `!isTauriRuntime()`-gated `devSimulateUnlock()` call that never actually
+//! reached a real Tauri build.
 
 use std::path::PathBuf;
 
@@ -141,20 +161,7 @@ pub fn unlock_redeem(args: UnlockRedeemArgs, app: AppHandle) -> RedeemResult {
             ..Default::default()
         },
         VerifyOutcome::Valid { nonce } => {
-            let mut state = read_state(&app);
-            let already = state.cooking_assistant.unlocked;
-            state.cooking_assistant = SkillUnlock {
-                unlocked: true,
-                nonce: Some(nonce),
-                redeemed_at_ms: Some(now_ms()),
-            };
-            // Best-effort persist (mirrors the webview's localStorage try/catch):
-            // a write hiccup must not fail an otherwise-valid unlock.
-            let _ = write_state(&app, &state);
-            // Refresh the session cache the synchronous skill_enable gate reads, so
-            // enabling the paid skill works this session without a restart. The
-            // persisted state above remains the source of truth (re-read at boot).
-            crate::skills::cooking_assistant::set_unlocked(true);
+            let already = mark_unlocked(&app, Some(nonce));
             RedeemResult {
                 ok: true,
                 status: Some(if already { "already_unlocked" } else { "unlocked" }.into()),
@@ -169,6 +176,44 @@ pub fn unlock_redeem(args: UnlockRedeemArgs, app: AppHandle) -> RedeemResult {
 #[tauri::command]
 pub fn unlock_status(app: AppHandle) -> UnlockStatus {
     UnlockStatus { cooking_assistant_unlocked: is_cooking_assistant_unlocked(&app) }
+}
+
+/// Reconcile a COMPLETED P1 marketplace purchase+install of `cooking-assistant`
+/// with this module's P0 unlock gate. See the module-level "P1 purchase
+/// reconciliation seam" doc above for why this exists; called exactly once,
+/// from `main.rs`'s `skill_download_install`, right after
+/// `SkillInstaller::install_bytes` succeeds for this skill id.
+///
+/// No nonce (there is no redeemed code) — `mark_unlocked` leaves any existing
+/// one alone, so this can never clobber a real code redemption's record.
+pub fn mark_unlocked_via_purchase(app: &AppHandle) {
+    mark_unlocked(app, None);
+}
+
+/// Shared state transition behind BOTH unlock paths (a redeemed code, or a
+/// completed purchase): persist `unlocked: true` to `unlock.json` (best-effort,
+/// mirrors the webview's localStorage try/catch — a write hiccup must not fail
+/// an otherwise-valid unlock) and refresh the in-session gate cache the
+/// synchronous `skill_enable` command reads, so the paid skill works THIS
+/// session without a restart. Returns whether it was already unlocked before
+/// this call (`already_unlocked` vs. `unlocked` in `RedeemResult`).
+fn mark_unlocked(app: &AppHandle, nonce: Option<String>) -> bool {
+    let state = read_state(app);
+    let (next, already) = apply_unlock(state, nonce);
+    let _ = write_state(app, &next);
+    crate::skills::cooking_assistant::set_unlocked(true);
+    already
+}
+
+/// Pure state transition — no I/O, so it's testable without a live `AppHandle`
+/// (unlike the rest of this module, which needs the app-data dir). A `None`
+/// nonce (the purchase-reconciliation path) preserves whatever nonce, if any,
+/// was already recorded rather than clobbering it.
+fn apply_unlock(mut state: UnlockState, nonce: Option<String>) -> (UnlockState, bool) {
+    let already = state.cooking_assistant.unlocked;
+    let nonce = nonce.or_else(|| state.cooking_assistant.nonce.take());
+    state.cooking_assistant = SkillUnlock { unlocked: true, nonce, redeemed_at_ms: Some(now_ms()) };
+    (state, already)
 }
 
 // ---------------------------------------------------------------------------
@@ -453,5 +498,49 @@ mod tests {
         assert!(matches!(verify("HP0-CA-000G40R4-P04F-AHYY-XGHJ-H11Z"), VerifyOutcome::BadSignature));
         assert!(matches!(verify("hunter2"), VerifyOutcome::Malformed));
         assert!(matches!(verify(""), VerifyOutcome::Malformed));
+    }
+
+    // ── apply_unlock — the pure state transition behind BOTH unlock paths ────
+    // (a redeemed code AND, since the paid-enable/dashboard-lock bug fix, a
+    // completed marketplace purchase). No AppHandle needed, unlike the rest of
+    // this module, so these run as plain `cargo test`.
+
+    #[test]
+    fn apply_unlock_marks_unlocked_and_reports_not_already() {
+        let (next, already) = apply_unlock(UnlockState::default(), Some("N0NCE001".into()));
+        assert!(!already);
+        assert!(next.cooking_assistant.unlocked);
+        assert_eq!(next.cooking_assistant.nonce.as_deref(), Some("N0NCE001"));
+        assert!(next.cooking_assistant.redeemed_at_ms.is_some());
+    }
+
+    #[test]
+    fn apply_unlock_on_an_already_unlocked_state_reports_already_true() {
+        let (first, _) = apply_unlock(UnlockState::default(), Some("N0NCE001".into()));
+        let (second, already) = apply_unlock(first, Some("N0NCE001".into()));
+        assert!(already);
+        assert!(second.cooking_assistant.unlocked);
+    }
+
+    /// The purchase-reconciliation path (`mark_unlocked_via_purchase`) calls
+    /// `apply_unlock` with `nonce: None` — it must never clobber a real
+    /// redeemed code's nonce that was already on record.
+    #[test]
+    fn apply_unlock_with_no_nonce_preserves_an_existing_one() {
+        let (redeemed, _) = apply_unlock(UnlockState::default(), Some("REAL-CODE".into()));
+        let (reconciled, already) = apply_unlock(redeemed, None);
+        assert!(already);
+        assert_eq!(reconciled.cooking_assistant.nonce.as_deref(), Some("REAL-CODE"));
+    }
+
+    /// The purchase-only path: no code was ever redeemed, so there is no nonce
+    /// to preserve — `unlocked` still flips true (this is the bug-fix case:
+    /// P1 marketplace ownership, not a code, is what's unlocking the gate).
+    #[test]
+    fn apply_unlock_with_no_nonce_on_a_fresh_state_still_unlocks() {
+        let (next, already) = apply_unlock(UnlockState::default(), None);
+        assert!(!already);
+        assert!(next.cooking_assistant.unlocked);
+        assert!(next.cooking_assistant.nonce.is_none());
     }
 }

@@ -462,17 +462,32 @@ async fn download_url(
 /// fetched bytes then go through the SAME fail-closed `SkillInstaller::install_bytes`
 /// verify -> re-validate -> compat-gate -> extract -> register -> persist pipeline
 /// that the path-based `skill_install` command uses.
+///
+/// ── PAID-ENABLE/DASHBOARD-LOCK BUG FIX — the P1 <-> P0 reconciliation seam ──
+/// A successful install here for `cooking-assistant` means `install_bytes`'s
+/// ownership gate (`is_entitled`, hpskill.rs) has ALREADY confirmed a real,
+/// paid P1 entitlement — this is not a new trust decision. But that P1
+/// ownership model is entirely separate from the P0 receipt-unlock gate
+/// (`unlock.rs` / `skills::cooking_assistant::gate()`) that the Assistant
+/// dashboard toggle and `skill_enable` actually check, so without this call a
+/// purchased Cooking Assistant showed "owned" on the Marketplace but stayed
+/// "Locked" on the dashboard and never composed. `unlock::mark_unlocked_via_purchase`
+/// is the ONE place this reconciliation happens — see its doc comment.
 #[tauri::command]
 async fn skill_download_install(
     args: SkillDownloadInstallArgs,
     client: State<'_, BackendClient>,
     installer: State<'_, SkillInstaller>,
+    app: AppHandle,
 ) -> Result<SkillInstallResult, CmdError> {
     let client = client.inner().clone();
     let bytes = client.fetch_bytes(&args.url).await?;
     let outcome = installer
         .install_bytes(&bytes)
         .map_err(|e| CmdError::Package(e.to_string()))?;
+    if outcome.id == unlock::COOKING_ASSISTANT_SKILL_ID {
+        unlock::mark_unlocked_via_purchase(&app);
+    }
     Ok(SkillInstallResult {
         skill_id: outcome.id,
         version: outcome.version,

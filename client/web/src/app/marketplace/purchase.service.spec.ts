@@ -5,6 +5,7 @@ import { EnabledSkillsService } from '../composition/enabled-skills.service';
 import { IPC_PORT, IpcPort, Unlisten } from '../ipc/ipc.port';
 import { IpcCommand, IpcCommandMap, IpcEvent, SkillEnableResult, SkillId, SkillInstallResult } from '../ipc/contract';
 import { SkillDetail } from './catalog.model';
+import { UnlockService, RedeemResult } from '../unlock/unlock.service';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyHandler = (args: any) => any;
@@ -354,14 +355,19 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
   // --- the FULL pinned purchase sequence (B4 step 4, end to end) ------------
 
   it(
-    'buy() drives the full pinned sequence order_checkout -> order_get -> license_fetch -> ' +
-      'download_url -> skill_download_install (NEVER skill_enable for a non-P0 id — Task 14/F03), ' +
+    'buy() drives the full pinned sequence order_checkout -> order_get -> entitlements_refresh -> ' +
+      'license_fetch -> download_url -> skill_download_install (NEVER skill_enable for a non-P0 id — Task 14/F03), ' +
       'reaches "active", and the skill ends up enabled via EnabledSkillsService',
     async () => {
       // A usable identity ('device', not 'authenticated') so ensureForPurchase()
       // resolves immediately without opening the auth prompt, and WITHOUT tripping
       // the constructor's isAuthenticated()-watching effect that self-triggers
       // restore()/entitlements_refresh (that effect only fires on 'authenticated').
+      // NOTE: onSettled() ALSO refreshes entitlements before install() (commit
+      // e6e6b97) — that call fires for EVERY settled buy, including this device
+      // path, so it appears in the sequence below at [2]. That is the fix for
+      // the device-only "continue on this device" install; it is distinct from
+      // the (here-suppressed) authenticated-only constructor effect.
       const auth = TestBed.inject(AuthService);
       ipc.when('auth_status', () => ({ status: 'device' as const, deviceId: 'dev-1' }));
       await auth.refreshStatus();
@@ -381,6 +387,7 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
       expect(ipc.calls.map((c) => c.cmd)).toEqual([
         'order_checkout',
         'order_get',
+        'entitlements_refresh',
         'license_fetch',
         'download_url',
         'skill_download_install',
@@ -408,5 +415,91 @@ describe('PurchaseService — real .hpskill install wiring (Task 9)', () => {
 
     expect(enabledSkills.has('nutrition-coach')).toBe(false);
     expect(purchase.stateFor('nutrition-coach')).toBe('installed');
+  });
+});
+
+/**
+ * Paid-enable / dashboard-lock bug fix (systematic-debugging task): a completed
+ * marketplace purchase of `cooking-assistant` used to leave the Assistant
+ * dashboard toggle "Locked" forever under a REAL Tauri build, because
+ * `enable()`'s reconciliation with `UnlockService` was gated on
+ * `!isTauriRuntime()` — it only ever ran in the web/mock demo. These tests pin
+ * `enable()`'s branching directly (a fake `UnlockService` so no real
+ * `@tauri-apps/api` bridge call is made) under both runtimes.
+ */
+describe('PurchaseService — cooking-assistant unlock reconciliation (paid-enable/dashboard-lock bug)', () => {
+  let ipc: ScriptedIpc;
+  let purchase: PurchaseService;
+  let unlock: jasmine.SpyObj<UnlockService>;
+
+  /** Toggle the exact global `isTauriRuntime()` (tauri-ipc.service.ts) checks. */
+  function setTauriRuntime(on: boolean): void {
+    const w = window as unknown as Record<string, unknown>;
+    if (on) w['__TAURI_INTERNALS__'] = {};
+    else delete w['__TAURI_INTERNALS__'];
+  }
+
+  beforeEach(() => {
+    ipc = new ScriptedIpc();
+    ipc.when('skill_enable', () => ({ ...ENABLE_RESULT, skill_id: 'cooking-assistant' as SkillId }));
+    unlock = jasmine.createSpyObj<UnlockService>('UnlockService', ['hydrate', 'devSimulateUnlock']);
+    unlock.hydrate.and.resolveTo(undefined);
+    unlock.devSimulateUnlock.and.resolveTo({
+      ok: true,
+      status: 'unlocked',
+      skill_id: 'cooking-assistant' as SkillId,
+    } satisfies RedeemResult);
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: IPC_PORT, useValue: ipc },
+        { provide: UnlockService, useValue: unlock },
+      ],
+    });
+    purchase = TestBed.inject(PurchaseService);
+  });
+
+  afterEach(() => setTauriRuntime(false));
+
+  it(
+    'enable("cooking-assistant") under a REAL Tauri runtime re-hydrates UnlockService from the ' +
+      'Rust core — the fix — instead of the dev-only devSimulateUnlock, which never reached a real build',
+    async () => {
+      setTauriRuntime(true);
+
+      await purchase.enable('cooking-assistant');
+
+      expect(unlock.hydrate).toHaveBeenCalledTimes(1);
+      expect(unlock.devSimulateUnlock).not.toHaveBeenCalled();
+      expect(purchase.stateFor('cooking-assistant')).toBe('active');
+    }
+  );
+
+  it('enable("cooking-assistant") outside Tauri (the web/mock demo) still self-unlocks via devSimulateUnlock (unchanged behaviour)', async () => {
+    setTauriRuntime(false);
+
+    await purchase.enable('cooking-assistant');
+
+    expect(unlock.devSimulateUnlock).toHaveBeenCalledTimes(1);
+    expect(unlock.hydrate).not.toHaveBeenCalled();
+    expect(purchase.stateFor('cooking-assistant')).toBe('active');
+  });
+
+  it('a failing hydrate() under Tauri is non-fatal — the purchase still reaches "active"', async () => {
+    setTauriRuntime(true);
+    unlock.hydrate.and.rejectWith(new Error('unlock_status bridge error'));
+
+    await purchase.enable('cooking-assistant');
+
+    expect(purchase.stateFor('cooking-assistant')).toBe('active');
+  });
+
+  it('enable() for a DIFFERENT P0 skill (kitchen-timer) never touches UnlockService at all', async () => {
+    setTauriRuntime(true);
+    ipc.when('skill_enable', () => ({ ...ENABLE_RESULT, skill_id: 'kitchen-timer' as SkillId }));
+
+    await purchase.enable('kitchen-timer');
+
+    expect(unlock.hydrate).not.toHaveBeenCalled();
+    expect(unlock.devSimulateUnlock).not.toHaveBeenCalled();
   });
 });
