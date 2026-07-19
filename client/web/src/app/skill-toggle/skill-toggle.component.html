@@ -48,9 +48,7 @@
   </div>
 </div>
 
-<!-- The paid skill's UI transform: same PanelDock enter/exit as the free skill. -->
-<app-panel-dock [open]="cookingEnabled()">
-  <div class="cooking-dock">
-    <app-cooking-assistant-panel></app-cooking-assistant-panel>
-  </div>
-</app-panel-dock>
+<!-- The Cooking Assistant recipe panel is mounted in app.component's layout
+     panel lane (the single authoritative panel surface), alongside the free
+     skill's panels — NOT here above the layout, where its tall recipe pushed
+     the rest of the assistant off-screen when both skills were enabled. -->

@@ -6,6 +6,7 @@ import { MockIpcService } from './ipc/mock-ipc.service';
 import { CompositionService } from './composition/composition.service';
 import { ComposeError, ComposedAgentView } from './ipc/contract';
 import { SessionService } from './state/session.service';
+import { CookingAssistantService } from './skills/cooking-assistant/cooking-assistant.service';
 
 describe('AppComponent', () => {
   beforeEach(async () => {
@@ -109,5 +110,59 @@ describe('AppComponent — no duplicate interactive skill panels (W04)', () => {
     // ...but no interactive widget lives inside the inspector column.
     expect(inspector!.querySelector('app-timer-stack')).toBeNull();
     expect(inspector!.querySelector('app-editable-list')).toBeNull();
+  });
+});
+
+/**
+ * Systematic-debugging fix: "when both Kitchen Timer & Units and Cooking
+ * Assistant are enabled, only the latter is seen."
+ *
+ * ROOT CAUSE: the Cooking Assistant recipe panel was mounted inside
+ * `app-skill-toggle`, which sits ABOVE the main flex `.layout` in the shell
+ * column. Being a ~1200px-tall block, it pushed the chat region AND the Kitchen
+ * Timer panels (which live INSIDE `.layout`) entirely below the viewport — so
+ * only the Cooking Assistant was visible. (Confirmed in a real browser: at a
+ * 900px viewport the layout was pushed to y≈1474.)
+ *
+ * FIX: mount the Cooking Assistant panel in the SAME layout side-region lane as
+ * the Kitchen Timer panels, self-gated, so neither pushes the other off-screen
+ * and the lane scrolls internally. A jsdom unit test can't measure layout, so
+ * this asserts the DOM-placement INVARIANT that produced the fix.
+ */
+describe('AppComponent — both skills share one layout panel lane (no off-screen push)', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppComponent],
+      providers: [{ provide: IPC_PORT, useClass: MockIpcService }],
+    }).compileComponents();
+  });
+
+  it('mounts the Cooking Assistant panel INSIDE the main layout side-region (not above it in app-skill-toggle), alongside the Kitchen Timer panels', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const session = TestBed.inject(SessionService);
+    const cooking = TestBed.inject(CookingAssistantService);
+    session.kitchenSkillEnabled.set(true);
+    cooking.enabled.set(true);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    const sideRegion = compiled.querySelector('main.layout .side-region');
+    expect(sideRegion).withContext('layout side-region should render when a skill is enabled').toBeTruthy();
+
+    // Both skills' panels live in the SAME shared lane.
+    expect(sideRegion!.querySelector('app-timer-stack')).withContext('kitchen panel in the shared lane').toBeTruthy();
+    expect(sideRegion!.querySelector('app-cooking-assistant-panel')).withContext('cooking panel in the shared lane').toBeTruthy();
+
+    // The cooking panel must NOT be mounted above the layout inside app-skill-toggle
+    // — that placement is exactly what pushed the kitchen panels + chat off-screen.
+    const skillToggle = compiled.querySelector('app-skill-toggle');
+    expect(skillToggle?.querySelector('app-cooking-assistant-panel'))
+      .withContext('cooking panel must not live inside app-skill-toggle')
+      .toBeFalsy();
+
+    // Still exactly one of each panel across the whole view (no duplicate mount).
+    expect(compiled.querySelectorAll('app-cooking-assistant-panel').length).toBe(1);
+    expect(compiled.querySelectorAll('app-timer-stack').length).toBe(1);
   });
 });

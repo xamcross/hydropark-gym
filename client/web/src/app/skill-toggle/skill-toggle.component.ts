@@ -3,9 +3,7 @@ import { IPC_PORT, IpcPort } from '../ipc/ipc.port';
 import { MockIpcService } from '../ipc/mock-ipc.service';
 import { SessionService } from '../state/session.service';
 import { TelemetryService } from '../state/telemetry.service';
-import { PanelDockComponent } from '../shared/panel-dock/panel-dock.component';
 import { CookingAssistantService } from '../skills/cooking-assistant/cooking-assistant.service';
-import { CookingAssistantPanelComponent } from '../skills/cooking-assistant/cooking-assistant-panel.component';
 
 const SKILL_ID = 'kitchen-timer' as const;
 
@@ -28,7 +26,7 @@ const SKILL_ID = 'kitchen-timer' as const;
 @Component({
   selector: 'app-skill-toggle',
   standalone: true,
-  imports: [PanelDockComponent, CookingAssistantPanelComponent],
+  imports: [],
   templateUrl: './skill-toggle.component.html',
   styleUrl: './skill-toggle.component.css',
 })

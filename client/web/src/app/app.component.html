@@ -80,12 +80,21 @@
         <app-chat></app-chat>
       </section>
 
-      <!-- P0 hardcoded skill panels (unchanged) -->
-      <app-panel-dock [open]="skillEnabled()">
+      <!-- P0 skill panels. Both skills' panels share ONE scrollable lane here,
+           each self-gated, so the tall Cooking Assistant recipe no longer
+           mounts ABOVE the layout (in app-skill-toggle) and pushes the Kitchen
+           Timer panels + chat off-screen when both skills are on. The dock's
+           enter/exit transform still plays whenever the lane goes empty↔non-empty. -->
+      <app-panel-dock [open]="skillEnabled() || cookingEnabled()">
         <aside class="side-region" aria-label="Skill panels">
-          <app-timer-stack></app-timer-stack>
-          <app-editable-list></app-editable-list>
-          <app-segmented-toggle></app-segmented-toggle>
+          @if (skillEnabled()) {
+            <app-timer-stack></app-timer-stack>
+            <app-editable-list></app-editable-list>
+            <app-segmented-toggle></app-segmented-toggle>
+          }
+          @if (cookingEnabled()) {
+            <app-cooking-assistant-panel></app-cooking-assistant-panel>
+          }
         </aside>
       </app-panel-dock>
 

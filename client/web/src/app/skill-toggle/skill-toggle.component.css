@@ -109,7 +109,3 @@
 .dev-unlock:hover {
   background: var(--color-surface-alt);
 }
-
-.cooking-dock {
-  padding: var(--space-4);
-}

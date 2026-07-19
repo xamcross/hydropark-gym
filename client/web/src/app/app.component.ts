@@ -7,6 +7,8 @@ import { SkillToggleComponent } from './skill-toggle/skill-toggle.component';
 import { InstalledSkillsComponent } from './installed-skills/installed-skills.component';
 import { UnlockComponent } from './unlock/unlock.component';
 import { PanelDockComponent } from './shared/panel-dock/panel-dock.component';
+import { CookingAssistantPanelComponent } from './skills/cooking-assistant/cooking-assistant-panel.component';
+import { CookingAssistantService } from './skills/cooking-assistant/cooking-assistant.service';
 import { ComposedPanelHostComponent } from './composition/composed-panel-host.component';
 import { MarketplaceViewComponent } from './marketplace/marketplace-view.component';
 import { AccountMenuComponent } from './account/account-menu.component';
@@ -38,6 +40,7 @@ type ShellView = 'assistant' | 'marketplace' | 'templates';
     InstalledSkillsComponent,
     UnlockComponent,
     PanelDockComponent,
+    CookingAssistantPanelComponent,
     ComposedPanelHostComponent,
     MarketplaceViewComponent,
     AccountMenuComponent,
@@ -53,6 +56,10 @@ type ShellView = 'assistant' | 'marketplace' | 'templates';
 export class AppComponent implements OnInit {
   readonly title = 'Hydropark — Phase 0 Prototype';
   readonly skillEnabled = computed(() => this.session.kitchenSkillEnabled());
+  /** Paid Cooking Assistant enablement — mirrors `SkillToggleComponent`'s own
+   *  `cookingEnabled`, so its recipe panel mounts in the SAME layout panel lane
+   *  as the free skill's panels (see app.component.html). */
+  readonly cookingEnabled = computed(() => this.cooking.enabled());
 
   /** Active top-level surface (Assistant/Compose vs Marketplace). Default: Assistant. */
   readonly view = signal<ShellView>('assistant');
@@ -64,6 +71,7 @@ export class AppComponent implements OnInit {
   constructor(
     @Inject(IPC_PORT) private readonly ipc: IpcPort,
     private readonly session: SessionService,
+    private readonly cooking: CookingAssistantService,
     private readonly telemetry: TelemetryService,
     private readonly themeSvc: ThemeService,
     // Injected solely to activate its constructor side effects (timer event
