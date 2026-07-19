@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  Generate a P-256 (ES256) keypair for the License Issuer and an RSA-2048
-  keypair for access-token signing, in the exact base64 form the backend expects.
+  Generate the backend's signing keys in the exact base64 form it expects: a
+  P-256 (ES256) keypair for the License Issuer, an RSA-2048 keypair for
+  access-token signing, and an Ed25519 keypair for skill PACKAGE signing.
 
 .DESCRIPTION
   The License Issuer signs with ES256 (ECDSA over NIST P-256 = secp256r1 =
@@ -13,6 +14,15 @@
   BACKEND-DESIGN §6.1 expect, with alg=ES256. RSA-2048 (PKCS#8 private, base64)
   is what io.hydropark.security.AccessTokenService expects for
   hydropark.auth.jwt-private-key (the public half is derived at boot).
+
+  Skill PACKAGE signing is a DISTINCT key class (SPEC 13.8/8.8, BACKEND-DESIGN
+  §6.2 B8): the license key must never sign a package and vice versa, so this
+  emits a separate Ed25519 keypair for hydropark.package-signing.keys - PKCS#8
+  private / X.509 SPKI public, base64 (the same containers io.hydropark.packaging
+  .PackageTrustedKeySet parses; the manifest's own ed25519:<base64> wire form is
+  the signature field, not these env vars). The private half belongs ONLY on the
+  registry/signing zone (HP_PACKAGE_SIGNING_ENABLED=true there); every other zone
+  ships just HP_PACKAGE_SIGNING_PUBLIC_KEY and verifies offline.
 
   Prefers `openssl` if it is on PATH. Falls back to a throwaway single-file
   Java program (Java 21+ has native EC support; `java --source 21` runs a .java
@@ -31,8 +41,10 @@
 
 .OUTPUTS
   Prints `HP_LICENSE_KID=...`, `HP_LICENSE_ALG=ES256`,
-  `HP_LICENSE_PRIVATE_KEY=...`, `HP_LICENSE_PUBLIC_KEY=...`, and
-  `HP_JWT_PRIVATE_KEY=...` lines to stdout
+  `HP_LICENSE_PRIVATE_KEY=...`, `HP_LICENSE_PUBLIC_KEY=...`,
+  `HP_JWT_PRIVATE_KEY=...`, `HP_PACKAGE_SIGNING_KID=...`,
+  `HP_PACKAGE_SIGNING_PRIVATE_KEY=...`, and `HP_PACKAGE_SIGNING_PUBLIC_KEY=...`
+  lines to stdout
   (via plain output, not Write-Host) - so the KEY=VALUE lines alone can be
   piped, e.g.:
     .\generate-keys.ps1 | Out-File ..\..\deploy\.env.generated -Encoding ascii
@@ -57,6 +69,7 @@ Write-Host ""
 
 $haveOpenssl = Test-CommandExists "openssl"
 $kid = "hp-lic-" + (Get-Date -Format "yyyy") + "a"
+$pkgKid = "hp-pkg-" + (Get-Date -Format "yyyy") + "a"
 
 if ($UseJava -or (-not $haveOpenssl)) {
   # ---------------------------------------------------------------------
@@ -95,10 +108,20 @@ public class GenerateHydroparkKeys {
     String rsaPriv = Base64.getEncoder().encodeToString(rsaKp.getPrivate().getEncoded());
     String rsaPub = Base64.getEncoder().encodeToString(rsaKp.getPublic().getEncoded());
 
+    // Ed25519 - skill PACKAGE-signing key (SPEC 13.8/8.8). A SEPARATE key class from the license
+    // key above; never reuse one for the other. PKCS#8 private / X.509 SPKI public, base64 - the
+    // exact containers hydropark.package-signing.keys binds. Java 21 has native Ed25519 (JEP 339).
+    KeyPairGenerator edGen = KeyPairGenerator.getInstance("Ed25519");
+    KeyPair pkgKp = edGen.generateKeyPair();
+    String pkgPriv = Base64.getEncoder().encodeToString(pkgKp.getPrivate().getEncoded());
+    String pkgPub = Base64.getEncoder().encodeToString(pkgKp.getPublic().getEncoded());
+
     System.out.println("LICENSE_PRIVATE=" + licPriv);
     System.out.println("LICENSE_PUBLIC=" + licPub);
     System.out.println("RSA_PRIVATE=" + rsaPriv);
     System.out.println("RSA_PUBLIC=" + rsaPub);
+    System.out.println("PACKAGE_PRIVATE=" + pkgPriv);
+    System.out.println("PACKAGE_PUBLIC=" + pkgPub);
   }
 }
 '@
@@ -122,6 +145,8 @@ public class GenerateHydroparkKeys {
     $licPrivB64 = $values["LICENSE_PRIVATE"]
     $licPubB64 = $values["LICENSE_PUBLIC"]
     $rsaPrivB64 = $values["RSA_PRIVATE"]
+    $pkgPrivB64 = $values["PACKAGE_PRIVATE"]
+    $pkgPubB64 = $values["PACKAGE_PUBLIC"]
   } finally {
     Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -143,6 +168,9 @@ public class GenerateHydroparkKeys {
     $licPubDer = Join-Path $tmpDir "lic_pub.der"
     $rsaPrivPem = Join-Path $tmpDir "rsa_priv.pem"
     $rsaPrivDer = Join-Path $tmpDir "rsa_priv.der"
+    $pkgPrivPem = Join-Path $tmpDir "pkg_priv.pem"
+    $pkgPrivDer = Join-Path $tmpDir "pkg_priv.der"
+    $pkgPubDer = Join-Path $tmpDir "pkg_pub.der"
 
     # ES256 = ECDSA over NIST P-256 (secp256r1 / prime256v1). `ecparam -genkey` emits a traditional
     # SEC1 "EC PRIVATE KEY"; Java reads PKCS#8, so convert with `pkcs8 -topk8 -nocrypt` below.
@@ -165,9 +193,24 @@ public class GenerateHydroparkKeys {
     & openssl pkcs8 -topk8 -nocrypt -in $rsaPrivPem -outform DER -out $rsaPrivDer 2>$null
     if ($LASTEXITCODE -ne 0) { throw "openssl: failed to PKCS#8-encode the RSA private key" }
 
+    # Ed25519 skill PACKAGE-signing key - a SEPARATE key class from the license key (SPEC 13.8/8.8).
+    # `genpkey -algorithm ED25519` already writes PKCS#8, but Ed25519 has NO traditional PKCS#1/SEC1
+    # form, so `pkcs8 -topk8 -nocrypt` is the correct (and here idempotent) way to produce the exact
+    # PKCS#8 DER PackageTrustedKeySet reads; `pkey -pubout` gives the X.509 SPKI public half.
+    & openssl genpkey -algorithm ED25519 -out $pkgPrivPem 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "openssl: failed to generate the Ed25519 package-signing key" }
+
+    & openssl pkcs8 -topk8 -nocrypt -in $pkgPrivPem -outform DER -out $pkgPrivDer 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "openssl: failed to PKCS#8-encode the Ed25519 private key" }
+
+    & openssl pkey -in $pkgPrivPem -pubout -outform DER -out $pkgPubDer 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "openssl: failed to derive the Ed25519 public key" }
+
     $licPrivB64 = ((& openssl base64 -A -in $licPrivDer) -join "").Trim()
     $licPubB64 = ((& openssl base64 -A -in $licPubDer) -join "").Trim()
     $rsaPrivB64 = ((& openssl base64 -A -in $rsaPrivDer) -join "").Trim()
+    $pkgPrivB64 = ((& openssl base64 -A -in $pkgPrivDer) -join "").Trim()
+    $pkgPubB64 = ((& openssl base64 -A -in $pkgPubDer) -join "").Trim()
   } finally {
     Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -188,3 +231,11 @@ Write-Host ""
 ""
 "# --- RSA-2048 access-token signing key - api service ---"
 "HP_JWT_PRIVATE_KEY=$rsaPrivB64"
+""
+"# --- Ed25519 skill PACKAGE-signing keypair - registry/signing zone ONLY holds the private half ---"
+"# Separate key class from the license key above (SPEC 13.8/8.8). Set HP_PACKAGE_SIGNING_ENABLED=true"
+"# only on the zone that actually signs packages; every other zone ships just the PUBLIC key and"
+"# verifies offline. Never commit the private key."
+"HP_PACKAGE_SIGNING_KID=$pkgKid"
+"HP_PACKAGE_SIGNING_PRIVATE_KEY=$pkgPrivB64"
+"HP_PACKAGE_SIGNING_PUBLIC_KEY=$pkgPubB64"

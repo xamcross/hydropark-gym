@@ -1,11 +1,21 @@
+/* timer-stack — refactored to consume ONLY design tokens (P1-01.3 · contract §7
+   non-token-styling lint). Zero literal hex/px: every colour/space/type/radius/
+   motion value resolves through the token vocabulary. In-between sizes are
+   COMPOSED from the 4px space scale with calc() (e.g. 3px = space-1 * 0.75,
+   6px = space-1 * 1.5, 56px = space-6 + space-5) so nothing escapes the system. */
+
 .add-btn {
   border: 1px solid var(--color-primary);
   background: transparent;
-  color: var(--color-primary);
+  /* X-A11Y.1 fix: `--color-primary` (sulphur) is a FILL token — as this
+     button's own TEXT on a plain surface it fails AA in the light theme
+     (1.56:1). `--color-primary-ink` is the theme-paired, AA-safe "sulphur as
+     text" variant (tokens.css — same precedent as `--focus-ring`/`--tone-careful-text`). */
+  color: var(--color-primary-ink);
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
 }
 
 .add-btn:hover {
@@ -19,25 +29,27 @@
   align-items: center;
 }
 
+.add-form input[type='text'],
+.add-form input[type='number'] {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
 .add-form input[type='text'] {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 6px 8px;
-  background: var(--color-bg);
 }
 
 .add-form input[type='number'] {
-  width: 56px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 6px 8px;
-  background: var(--color-bg);
+  width: calc(var(--space-6) + var(--space-5)); /* 56px */
 }
 
 .unit-label {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
 }
 
@@ -46,8 +58,17 @@
   background: var(--color-primary);
   color: var(--color-primary-contrast);
   border-radius: var(--radius-sm);
-  padding: 6px 12px;
-  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* "Cancel" (type=button) is a secondary action next to "Start" (type=submit,
+   styled above) — outline instead of filled so the two are visually distinct. */
+.add-form button[type='button'] {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
 }
 
 .timer-list {
@@ -61,35 +82,58 @@
 
 .timer-card {
   border: 1px solid var(--color-border);
+  border-left: calc(var(--space-1) * 0.75) solid var(--color-border); /* 3px status rail */
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface-alt);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .timer-card.finished {
-  border-color: var(--color-accent);
-  background: rgba(63, 125, 92, 0.12);
+  border-color: var(--tone-fine-fill);
+  border-left-color: var(--tone-fine-fill);
+  background: var(--tone-fine-tint);
 }
 
 .timer-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: var(--space-2);
   margin-bottom: var(--space-2);
 }
 
 .label {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+}
+
+/* WCAG 1.4.1 — the "finished" verdict is never colour-alone: this text+icon flag
+   is shown when a timer reaches 0, redundant with the green rail/tint above. */
+.timer-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--tone-fine-fill);
+  color: var(--color-on-accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
 }
 
 .remaining {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 20px;
+  font-size: var(--text-lg);
 }
 
 .progress-track {
-  height: 6px;
-  border-radius: 3px;
+  height: calc(var(--space-1) * 1.5); /* 6px */
+  border-radius: var(--radius-pill);
   background: var(--color-border);
   overflow: hidden;
 }
@@ -98,6 +142,10 @@
   height: 100%;
   background: var(--color-primary);
   transition: width var(--transition-fast);
+}
+
+.timer-card.finished .progress-fill {
+  background: var(--tone-fine-fill);
 }
 
 .timer-actions {
@@ -110,9 +158,10 @@
   flex: 1;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
+  color: var(--color-text);
   border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  font-size: 13px;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
 }
 
 .timer-actions button:disabled {

@@ -1,0 +1,80 @@
+<!-- P1 live-flow — the composed agent's INSPECTOR surface: summary, capacity
+     gate outcome, assembled persona, and composed tool set. This does NOT
+     mount the live interactive widgets (timers/ingredients/units) — those are
+     the single authoritative, self-sourced panel dock's job
+     (`app.component.html`'s `app-panel-dock`). Mounting a second, bus-bound
+     copy of the same widgets here (via the layout-dock + widget registry)
+     duplicated them and left the copy empty/unsynced (W04) since nothing in
+     the mock/demo flow writes into the bus from the dock's UI-first
+     interactions — see composed-panel-host.component.ts's class doc. -->
+<section class="composed-host" aria-label="Composed agent">
+  <header class="ch-head">
+    <h2 class="ch-title">Composed agent</h2>
+    @if (composing()) {
+      <span class="ch-status" role="status">Composing…</span>
+    }
+    @if (!composing() && composed(); as c) {
+      <span class="ch-status ch-ok">
+        {{ c.order.length }} skill{{ c.order.length === 1 ? '' : 's' }}
+        @if (c.primary) { · lead: <strong>{{ c.primary }}</strong> }
+      </span>
+    }
+    <!-- Task 11b: capture the CURRENT combo + layout as a reusable template. -->
+    <button type="button" class="ch-save-btn" [disabled]="!hasAgent()" (click)="openSaveDialog()">
+      Save as template
+    </button>
+  </header>
+
+  @if (saveDialogOpen()) {
+    <app-save-template-dialog
+      (saved)="closeSaveDialog()"
+      (cancel)="closeSaveDialog()"
+    ></app-save-template-dialog>
+  }
+
+  <!-- Structured composition failure (SPEC §8.3.5 block, conflicts, etc.) -->
+  @if (error(); as e) {
+    <div class="ch-error" role="alert">
+      <p class="ch-error-title">Couldn't compose the agent</p>
+      <p class="ch-error-msg"><span class="ch-error-kind">{{ e.kind }}</span> — {{ e.message }}</p>
+    </div>
+  }
+
+  @if (composed(); as c) {
+    <!-- Capacity gate outcome -->
+    @if (c.capacity.blocked) {
+      <p class="ch-capacity ch-capacity-blocked" role="alert">
+        Context overflow: {{ c.capacity.used_tokens }} / {{ c.capacity.ctx_window }} tokens
+        (over by {{ c.capacity.overflow }}). Disable a skill to fit.
+      </p>
+    } @else {
+      <p class="ch-capacity">
+        Context {{ c.capacity.used_tokens }} / {{ c.capacity.ctx_window }} tokens
+        · {{ c.capacity.remaining }} free
+      </p>
+    }
+
+    <!-- Composed persona preview (compressed/assembled — never the paid prompt) -->
+    @if (personaPreview()) {
+      <details class="ch-persona">
+        <summary>Assembled persona</summary>
+        <p class="ch-persona-text">{{ personaPreview() }}</p>
+      </details>
+    }
+
+    <!-- Composed tool set -->
+    @if (c.tools.length) {
+      <div class="ch-tools" aria-label="Composed tools">
+        @for (t of c.tools; track t.call_name) {
+          <span class="ch-tool" [class.ch-tool-ns]="t.namespaced" [title]="t.contributors.join(', ')">
+            {{ t.call_name }}
+          </span>
+        }
+      </div>
+    }
+  }
+
+  @if (!hasAgent()) {
+    <p class="ch-idle" role="status">No skills enabled — enable one to compose an agent.</p>
+  }
+</section>

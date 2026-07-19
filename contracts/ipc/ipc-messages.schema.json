@@ -1,0 +1,2270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/contracts/ipc/ipc-messages.schema.json",
+  "title": "Hydropark IPC message (Rust core ↔ Angular webview, protocol hydropark.ipc/1)",
+  "description": "Discriminated union (on `type`) of every message crossing the Tauri webview/core boundary in Phase 1. Prose contract: ipc-contract.md. Command requests and all events are enveloped, self-describing messages validated here; a void command result resolves `undefined` and is not an enveloped message. Per-skill payload shapes (tool `args`, slot `value`, widget `props`) are validated at runtime against JSON Schemas shipped inside each signed .hpskill — this schema types the transport, not those payloads.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/messages/ipc_ready"
+    },
+    {
+      "$ref": "#/$defs/messages/ipc_error"
+    },
+    {
+      "$ref": "#/$defs/messages/agent_compose"
+    },
+    {
+      "$ref": "#/$defs/messages/agent_composed"
+    },
+    {
+      "$ref": "#/$defs/messages/agent_compose_blocked"
+    },
+    {
+      "$ref": "#/$defs/messages/bus_capacity"
+    },
+    {
+      "$ref": "#/$defs/messages/agent_dispose"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_start"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_start_response"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_cancel"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_token"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_tool_call"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_tool_result"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_tool_fallback"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_done"
+    },
+    {
+      "$ref": "#/$defs/messages/inference_error"
+    },
+    {
+      "$ref": "#/$defs/messages/tool_call"
+    },
+    {
+      "$ref": "#/$defs/messages/tool_call_response"
+    },
+    {
+      "$ref": "#/$defs/messages/bus_state_snapshot"
+    },
+    {
+      "$ref": "#/$defs/messages/bus_state_patch"
+    },
+    {
+      "$ref": "#/$defs/messages/bus_state_write"
+    },
+    {
+      "$ref": "#/$defs/messages/bus_state_write_response"
+    },
+    {
+      "$ref": "#/$defs/messages/bus_event"
+    },
+    {
+      "$ref": "#/$defs/messages/bus_transcript_append"
+    },
+    {
+      "$ref": "#/$defs/messages/timer_control"
+    },
+    {
+      "$ref": "#/$defs/messages/timer_control_response"
+    },
+    {
+      "$ref": "#/$defs/messages/timer_tick"
+    },
+    {
+      "$ref": "#/$defs/messages/timer_updated"
+    },
+    {
+      "$ref": "#/$defs/messages/timer_finished"
+    },
+    {
+      "$ref": "#/$defs/messages/skill_install"
+    },
+    {
+      "$ref": "#/$defs/messages/skill_install_response"
+    },
+    {
+      "$ref": "#/$defs/messages/skill_enable"
+    },
+    {
+      "$ref": "#/$defs/messages/skill_enable_response"
+    },
+    {
+      "$ref": "#/$defs/messages/skill_disable"
+    },
+    {
+      "$ref": "#/$defs/messages/notify"
+    },
+    {
+      "$ref": "#/$defs/messages/telemetry_log"
+    },
+    {
+      "$ref": "#/$defs/messages/hardware_profile"
+    },
+    {
+      "$ref": "#/$defs/messages/hardware_profile_response"
+    }
+  ],
+  "$defs": {
+    "protocolVersion": {
+      "const": 1
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "skillId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Stable slug, e.g. 'cooking-assistant'."
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+].+)?$"
+    },
+    "slotName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Shared-state slot name; routing is keyed on this (SPEC §9.3)."
+    },
+    "toolName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+      "description": "Runtime tool name; optional `skill.` namespace prefix on config collisions (SPEC §8.3.3)."
+    },
+    "widgetType": {
+      "enum": [
+        "chat",
+        "timer_stack",
+        "editable_list",
+        "segmented_toggle",
+        "switch",
+        "key_value_panel",
+        "slider",
+        "stepper",
+        "table",
+        "quick_actions",
+        "media_note",
+        "tabs",
+        "progress",
+        "date_time_picker"
+      ],
+      "description": "The fixed first-party widget library v1 (SPEC §9.4). chart/sparkline/map are Phase 2."
+    },
+    "region": {
+      "enum": [
+        "side",
+        "bottom",
+        "inline"
+      ]
+    },
+    "slotKind": {
+      "enum": [
+        "scalar",
+        "list",
+        "record"
+      ]
+    },
+    "accessMode": {
+      "enum": [
+        "read",
+        "read_write"
+      ]
+    },
+    "capacityStatus": {
+      "enum": [
+        "ok",
+        "warn",
+        "blocked"
+      ]
+    },
+    "routeKind": {
+      "enum": [
+        "state",
+        "widget",
+        "chat"
+      ]
+    },
+    "toolCallSource": {
+      "enum": [
+        "ui",
+        "model"
+      ]
+    },
+    "fallbackReason": {
+      "enum": [
+        "malformed_json",
+        "unknown_tool",
+        "invalid_args",
+        "max_hops"
+      ]
+    },
+    "finishReason": {
+      "enum": [
+        "stop",
+        "cancelled",
+        "max_hops"
+      ]
+    },
+    "blockReason": {
+      "enum": [
+        "context_overflow",
+        "conflict",
+        "incompatible_slot_schema",
+        "model_tier"
+      ]
+    },
+    "statePatchOp": {
+      "enum": [
+        "append",
+        "patch",
+        "remove",
+        "set"
+      ]
+    },
+    "timerAction": {
+      "enum": [
+        "pause",
+        "resume",
+        "reset"
+      ]
+    },
+    "unitId": {
+      "enum": [
+        "g",
+        "kg",
+        "oz",
+        "lb",
+        "ml",
+        "l",
+        "tsp",
+        "tbsp",
+        "fl_oz",
+        "cup",
+        "c",
+        "f"
+      ]
+    },
+    "cmdErrorCode": {
+      "enum": [
+        "unknown_tool",
+        "invalid_args",
+        "execution_error",
+        "unknown_timer",
+        "turn_in_flight",
+        "stale_version",
+        "not_writer_of_record",
+        "skill_locked",
+        "signature_invalid",
+        "incompatible",
+        "io"
+      ]
+    },
+    "cmdError": {
+      "type": "object",
+      "description": "The reject value of a command promise.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/cmdErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "hardwareProfile": {
+      "type": "object",
+      "description": "Read-only; never gates a feature (SPEC §2 responsibility split).",
+      "properties": {
+        "ram_gb": {
+          "type": "number"
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gpu_present": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ram_gb",
+        "cores",
+        "gpu_present"
+      ],
+      "additionalProperties": false
+    },
+    "ingredientItem": {
+      "type": "object",
+      "description": "The app-defined `item` record (SPEC §8.3.4). `id` is app-assigned on insert and makes cross-skill append/patch commutative.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "qty": {
+          "type": "number"
+        },
+        "unit": {
+          "$ref": "#/$defs/unitId"
+        },
+        "checked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "routingDirective": {
+      "type": "object",
+      "description": "How a tool result reaches the UI (SPEC §9.3 last ¶). writes_state → state; else updates_widget → widget; else chat.",
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/routeKind"
+        },
+        "writes_state": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slotName"
+          }
+        },
+        "updates_widget": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "slot_version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "route"
+      ],
+      "additionalProperties": false
+    },
+    "toolContractEntry": {
+      "type": "object",
+      "description": "One entry of the merged tool contract (SPEC §8.3.3).",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/toolName"
+        },
+        "owner_skill_id": {
+          "$ref": "#/$defs/skillId"
+        },
+        "namespaced": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "alias_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "writes_state": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slotName"
+          }
+        },
+        "reads_state": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slotName"
+          }
+        },
+        "updates_widget": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "owner_skill_id"
+      ],
+      "additionalProperties": false
+    },
+    "slotDecl": {
+      "type": "object",
+      "description": "One shared-state slot in the merged store (SPEC §8.3.4). Exactly one writer_of_record.",
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/slotName"
+        },
+        "kind": {
+          "$ref": "#/$defs/slotKind"
+        },
+        "schema": {
+          "type": "string",
+          "description": "Closed-type-language string, e.g. 'list<item>', 'scalar<enum(US|Metric)>'."
+        },
+        "access": {
+          "$ref": "#/$defs/accessMode"
+        },
+        "writer_of_record": {
+          "$ref": "#/$defs/skillId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "slot",
+        "kind",
+        "schema",
+        "access",
+        "writer_of_record",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "panelContract": {
+      "type": "object",
+      "description": "A canonical (shorthand already normalized, SPEC §9.2) widget contract in the resolved dock.",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/widgetType"
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "region": {
+          "$ref": "#/$defs/region"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "props": {
+          "type": "object",
+          "description": "Type-specific props; validated against the widget-type schema at load."
+        },
+        "binds_state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "binds_tool": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "emits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "to_chat": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "to_chat"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "min_widget_version": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "boolean",
+          "description": "true → an unknown/too-new widget rendered as a graceful placeholder (SPEC §9.8)."
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "region",
+        "priority"
+      ],
+      "additionalProperties": false
+    },
+    "capacityProjectionBody": {
+      "type": "object",
+      "description": "Compute (memory + speed) projection, not money (SPEC §8.3.5).",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/capacityStatus"
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "window_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "safety_margin_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "working_reserve_tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Fixed reserve so live chat history always has room."
+            },
+            "used_tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Σ(primary full prompt, each secondary compressed prompt, tool schemas, few-shot)."
+            },
+            "breakdown": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "skill_id": {
+                    "$ref": "#/$defs/skillId"
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "source": {
+                    "enum": [
+                      "certified",
+                      "declared"
+                    ],
+                    "description": "'certified' = certification-measured cost_estimate (authoritative per SPEC §8.3.5)."
+                  }
+                },
+                "required": [
+                  "skill_id",
+                  "tokens"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "window_tokens",
+            "used_tokens"
+          ],
+          "additionalProperties": false
+        },
+        "speed": {
+          "type": "object",
+          "properties": {
+            "tier": {
+              "type": "string"
+            },
+            "est_tok_per_sec": {
+              "type": "number"
+            },
+            "est_first_token_ms": {
+              "type": "number"
+            },
+            "sluggish_threshold_tok_per_sec": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "est_tok_per_sec"
+          ],
+          "additionalProperties": false
+        },
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "condensed_history",
+            null
+          ],
+          "description": "Set when the core condensed old history rather than auto-disabling a skill (SPEC §8.3.5)."
+        }
+      },
+      "required": [
+        "status"
+      ]
+    },
+    "mergeResultBody": {
+      "type": "object",
+      "description": "Deterministic Orchestrator output: primary → combine_priority desc → id asc (SPEC §8.3.2).",
+      "properties": {
+        "primary": {
+          "description": "Lead voice. No prompt text (paid IP; never crosses IPC).",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "skill_id": {
+                  "$ref": "#/$defs/skillId"
+                }
+              },
+              "required": [
+                "skill_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "base_agent": {
+                  "const": true
+                }
+              },
+              "required": [
+                "base_agent"
+              ],
+              "additionalProperties": false,
+              "description": "No active skill is primary_eligible → base agent leads (SPEC §8.3.1)."
+            }
+          ]
+        },
+        "secondaries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/skillId"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolContractEntry"
+          }
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slotDecl"
+          }
+        },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/panelContract"
+          }
+        },
+        "capacity": {
+          "type": "object",
+          "allOf": [
+            {
+              "$ref": "#/$defs/capacityProjectionBody"
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        "composition_hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "primary",
+        "secondaries",
+        "tools",
+        "slots",
+        "panels",
+        "capacity",
+        "composition_hash"
+      ]
+    },
+    "stateCause": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "tool",
+            "model",
+            "ui"
+          ]
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/uuid"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "timerSnapshotBody": {
+      "type": "object",
+      "properties": {
+        "timer_id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "duration_sec": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining_sec": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "running": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "timer_id",
+        "label",
+        "duration_sec",
+        "remaining_sec",
+        "running"
+      ]
+    },
+    "envelope": {
+      "type": "object",
+      "description": "Common fields on every enveloped message. Individual messages pin `type`/`channel` to a const and add their own fields.",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/protocolVersion"
+        },
+        "type": {
+          "type": "string"
+        },
+        "channel": {
+          "enum": [
+            "command",
+            "response",
+            "event"
+          ]
+        },
+        "ts_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "agent_id": {
+          "$ref": "#/$defs/agentId"
+        },
+        "session_id": {
+          "$ref": "#/$defs/sessionId"
+        },
+        "request_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "v",
+        "type"
+      ]
+    },
+    "messages": {
+      "ipc_ready": {
+        "type": "object",
+        "description": "core→UI, exactly once at startup before any agent message.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "ipc/ready"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "protocol_v": {
+            "$ref": "#/$defs/protocolVersion"
+          },
+          "app_version": {
+            "$ref": "#/$defs/semver"
+          },
+          "widget_library_version": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "hardware": {
+            "$ref": "#/$defs/hardwareProfile"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "protocol_v",
+          "app_version",
+          "widget_library_version",
+          "model_id",
+          "hardware"
+        ],
+        "unevaluatedProperties": false
+      },
+      "ipc_error": {
+        "type": "object",
+        "description": "core→UI transport/protocol-level error (not tied to a request_id).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "ipc/error"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "fatal": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "code",
+          "message",
+          "fatal"
+        ],
+        "unevaluatedProperties": false
+      },
+      "agent_compose": {
+        "type": "object",
+        "description": "UI→core. Idempotent by composition_hash.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "agent/compose"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "base_model": {
+            "type": "string"
+          },
+          "skills": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill_id": {
+                  "$ref": "#/$defs/skillId"
+                },
+                "version": {
+                  "$ref": "#/$defs/semver"
+                },
+                "role_pref": {
+                  "enum": [
+                    "primary",
+                    "secondary"
+                  ]
+                }
+              },
+              "required": [
+                "skill_id",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "primary_skill_id": {
+            "$ref": "#/$defs/skillId"
+          },
+          "composition_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "base_model",
+          "skills",
+          "composition_hash"
+        ],
+        "unevaluatedProperties": false
+      },
+      "agent_composed": {
+        "type": "object",
+        "description": "core→UI event and the agent/compose command result (channel may be event or response). Authoritative MergeResult; supersedes any prior for this agent.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          },
+          {
+            "$ref": "#/$defs/mergeResultBody"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "agent/composed"
+          },
+          "channel": {
+            "enum": [
+              "event",
+              "response"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "primary",
+          "secondaries",
+          "tools",
+          "slots",
+          "panels",
+          "capacity",
+          "composition_hash"
+        ],
+        "unevaluatedProperties": false
+      },
+      "agent_compose_blocked": {
+        "type": "object",
+        "description": "core→UI (or command reject payload). Terminal for the compose attempt; carries a remedy.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "agent/compose_blocked"
+          },
+          "channel": {
+            "enum": [
+              "event",
+              "response"
+            ]
+          },
+          "reason": {
+            "$ref": "#/$defs/blockReason"
+          },
+          "message": {
+            "type": "string"
+          },
+          "suggest_drop_skill_id": {
+            "$ref": "#/$defs/skillId"
+          },
+          "conflict_skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/skillId"
+            }
+          },
+          "slot": {
+            "$ref": "#/$defs/slotName"
+          },
+          "differing_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "reason",
+          "message"
+        ],
+        "unevaluatedProperties": false
+      },
+      "bus_capacity": {
+        "type": "object",
+        "description": "core→UI. Re-emitted as the conversation grows; ordered by seq per agent; latest wins.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          },
+          {
+            "$ref": "#/$defs/capacityProjectionBody"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "bus/capacity"
+          },
+          "channel": {
+            "const": "event"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "seq",
+          "status"
+        ],
+        "unevaluatedProperties": false
+      },
+      "agent_dispose": {
+        "type": "object",
+        "description": "UI→core. Idempotent; disposing an unknown agent is a no-op success.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "agent/dispose"
+          },
+          "channel": {
+            "const": "command"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_start": {
+        "type": "object",
+        "description": "UI→core. One in-flight turn per session; else rejects turn_in_flight.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/start"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "user_message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "session_id",
+          "user_message"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_start_response": {
+        "type": "object",
+        "description": "core→UI result of inference/start: the turn_id correlating this turn's stream.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/start"
+          },
+          "channel": {
+            "const": "response"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "session_id",
+          "turn_id"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_cancel": {
+        "type": "object",
+        "description": "UI→core. Cooperative; idempotent (no-op on a finished/absent turn). Turn ends with done/finish_reason=cancelled.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/cancel"
+          },
+          "channel": {
+            "const": "command"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "session_id",
+          "turn_id"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_token": {
+        "type": "object",
+        "description": "core→UI. seq is 0-based, contiguous per (session_id,turn_id); dedupe by seq; a gap is unrecoverable.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/token"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "session_id",
+          "turn_id",
+          "seq",
+          "token"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_tool_call": {
+        "type": "object",
+        "description": "core→UI. Core already parsed + decided validity of a model <tool_call>; render-only. hop is 0-based within the turn.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/tool_call"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "hop": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "raw": {
+            "type": "string"
+          },
+          "tool": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/toolName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parsed_args": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "session_id",
+          "turn_id",
+          "hop",
+          "raw",
+          "valid"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_tool_result": {
+        "type": "object",
+        "description": "core→UI. Follows a valid inference/tool_call; core already executed it. Carries the same RoutingDirective as UI-path results.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/tool_result"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "tool": {
+            "$ref": "#/$defs/toolName"
+          },
+          "result": true,
+          "routing": {
+            "$ref": "#/$defs/routingDirective"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "session_id",
+          "turn_id",
+          "tool",
+          "result",
+          "routing"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_tool_fallback": {
+        "type": "object",
+        "description": "core→UI. Emitted only after validate→repair→fallback is exhausted (SPEC §8.4). Webview degrades to exactly one of: prefill updates_widget, or post clarifying_question. Never re-validates, never loops.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/tool_fallback"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "reason": {
+            "$ref": "#/$defs/fallbackReason"
+          },
+          "repair_attempted": {
+            "type": "boolean"
+          },
+          "tool": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/toolName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parsed_args": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "updates_widget": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clarifying_question": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "session_id",
+          "turn_id",
+          "reason",
+          "repair_attempted"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_done": {
+        "type": "object",
+        "description": "core→UI. Terminal for a turn; exactly one (mutually exclusive with inference/error).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/done"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "tokens_generated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "elapsed_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "tok_per_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "hops": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "finish_reason": {
+            "$ref": "#/$defs/finishReason"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "session_id",
+          "turn_id",
+          "tokens_generated",
+          "elapsed_ms",
+          "tok_per_sec",
+          "hops",
+          "finish_reason"
+        ],
+        "unevaluatedProperties": false
+      },
+      "inference_error": {
+        "type": "object",
+        "description": "core→UI. Terminal for a turn (mutually exclusive with inference/done).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "inference/error"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "session_id",
+          "message"
+        ],
+        "unevaluatedProperties": false
+      },
+      "tool_call": {
+        "type": "object",
+        "description": "UI→core. The UI-first path (source=ui): core executes directly, no model round-trip. Idempotent by request_id. args validated in-core vs the skill-shipped JSON Schema.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "tool/call"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "tool": {
+            "$ref": "#/$defs/toolName"
+          },
+          "args": {
+            "type": "object"
+          },
+          "source": {
+            "$ref": "#/$defs/toolCallSource"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "tool",
+          "args",
+          "source"
+        ],
+        "unevaluatedProperties": false
+      },
+      "tool_call_response": {
+        "type": "object",
+        "description": "core→UI result of tool/call. ok=true carries result (+ routing); ok=false carries a structured error the model must acknowledge.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "tool/call"
+          },
+          "channel": {
+            "const": "response"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "tool": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/toolName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": true,
+          "routing": {
+            "$ref": "#/$defs/routingDirective"
+          },
+          "error": {
+            "$ref": "#/$defs/cmdError"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "ok",
+          "tool"
+        ],
+        "oneOf": [
+          {
+            "properties": {
+              "ok": {
+                "const": true
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          {
+            "properties": {
+              "ok": {
+                "const": false
+              }
+            },
+            "required": [
+              "error"
+            ]
+          }
+        ],
+        "unevaluatedProperties": false
+      },
+      "bus_state_snapshot": {
+        "type": "object",
+        "description": "core→UI. Full slot value; sent on compose, on (re)subscribe, and to recover from stale_version. Idempotent (version-stamped).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "bus/state_snapshot"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "slot": {
+            "$ref": "#/$defs/slotName"
+          },
+          "kind": {
+            "$ref": "#/$defs/slotKind"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "value": true,
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "writer_of_record": {
+            "$ref": "#/$defs/skillId"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "slot",
+          "kind",
+          "value",
+          "version",
+          "writer_of_record"
+        ],
+        "unevaluatedProperties": false
+      },
+      "bus_state_patch": {
+        "type": "object",
+        "description": "core→UI. Delta on one slot. Apply iff base_version==local (else request a snapshot). version=base_version+1. Every widget with binds_state on this slot re-renders.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "bus/state_patch"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "slot": {
+            "$ref": "#/$defs/slotName"
+          },
+          "kind": {
+            "$ref": "#/$defs/slotKind"
+          },
+          "op": {
+            "$ref": "#/$defs/statePatchOp"
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "entries": {
+            "type": "array",
+            "description": "list/record ops, keyed by entry id (append/patch/remove).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "value": true,
+          "cause": {
+            "$ref": "#/$defs/stateCause"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "slot",
+          "kind",
+          "op",
+          "base_version",
+          "version",
+          "cause"
+        ],
+        "unevaluatedProperties": false
+      },
+      "bus_state_write": {
+        "type": "object",
+        "description": "UI→core. Two-way widget→slot write (SPEC §9.3 dir 1). Rejected not_writer_of_record unless the widget's skill owns the slot; stale_version on optimistic-concurrency miss. Idempotent by request_id.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "bus/state_write"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "slot": {
+            "$ref": "#/$defs/slotName"
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "op": {
+            "$ref": "#/$defs/statePatchOp"
+          },
+          "entry": {
+            "type": "object"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "value": true
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "slot",
+          "base_version",
+          "op"
+        ],
+        "unevaluatedProperties": false
+      },
+      "bus_state_write_response": {
+        "type": "object",
+        "description": "core→UI result of bus/state_write: the new slot version.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "bus/state_write"
+          },
+          "channel": {
+            "const": "response"
+          },
+          "slot": {
+            "$ref": "#/$defs/slotName"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "slot",
+          "version"
+        ],
+        "unevaluatedProperties": false
+      },
+      "bus_event": {
+        "type": "object",
+        "description": "UI→core. Direction 4 (SPEC §9.3 #4). NEVER triggers inference; appends a to_chat system line and (if time_critical) fires the OS notification. Idempotent by request_id.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "bus/event"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "widget_id": {
+            "type": "string"
+          },
+          "event_name": {
+            "type": "string"
+          },
+          "to_chat": {
+            "type": "boolean"
+          },
+          "time_critical": {
+            "type": "boolean"
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "widget_id",
+          "event_name",
+          "to_chat"
+        ],
+        "unevaluatedProperties": false
+      },
+      "bus_transcript_append": {
+        "type": "object",
+        "description": "core→UI. The core-appended to_chat system line to render (from a widget event or a core-side event like a finished timer). Ordered after its cause. Does NOT run inference.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "bus/transcript_append"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "line": {
+            "type": "string"
+          },
+          "kind": {
+            "const": "system"
+          },
+          "source_widget_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "session_id",
+          "line",
+          "kind"
+        ],
+        "unevaluatedProperties": false
+      },
+      "timer_control": {
+        "type": "object",
+        "description": "UI→core. UI-first only; never model-callable. Idempotent by request_id.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "timer/control"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "timer_id": {
+            "type": "string"
+          },
+          "action": {
+            "$ref": "#/$defs/timerAction"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "timer_id",
+          "action"
+        ],
+        "unevaluatedProperties": false
+      },
+      "timer_control_response": {
+        "type": "object",
+        "description": "core→UI result of timer/control: the full (idempotent) TimerSnapshot.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          },
+          {
+            "$ref": "#/$defs/timerSnapshotBody"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "timer/control"
+          },
+          "channel": {
+            "const": "response"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "timer_id",
+          "label",
+          "duration_sec",
+          "remaining_sec",
+          "running"
+        ],
+        "unevaluatedProperties": false
+      },
+      "timer_tick": {
+        "type": "object",
+        "description": "core→UI ~1Hz. Lossy-tolerant: carries absolute remaining_sec, so a dropped tick self-heals.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "timer/tick"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "timer_id": {
+            "type": "string"
+          },
+          "remaining_sec": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "timer_id",
+          "remaining_sec"
+        ],
+        "unevaluatedProperties": false
+      },
+      "timer_updated": {
+        "type": "object",
+        "description": "core→UI. Full state; idempotent; supersedes ticks; emitted on any control action.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          },
+          {
+            "$ref": "#/$defs/timerSnapshotBody"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "timer/updated"
+          },
+          "channel": {
+            "const": "event"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "timer_id",
+          "label",
+          "duration_sec",
+          "remaining_sec",
+          "running"
+        ],
+        "unevaluatedProperties": false
+      },
+      "timer_finished": {
+        "type": "object",
+        "description": "core→UI. Fires OS notification + sound even when backgrounded (SPEC §9.7). Exactly once per completion; also drives a bus/transcript_append.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "timer/finished"
+          },
+          "channel": {
+            "const": "event"
+          },
+          "timer_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "agent_id",
+          "timer_id",
+          "label"
+        ],
+        "unevaluatedProperties": false
+      },
+      "skill_install": {
+        "type": "object",
+        "description": "UI→core. Core verifies the Ed25519 signature OFFLINE before install; rejects signature_invalid. Idempotent (re-install of same sha256 is a no-op).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "skill/install"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "skill_id": {
+            "$ref": "#/$defs/skillId"
+          },
+          "version": {
+            "$ref": "#/$defs/semver"
+          },
+          "package_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "skill_id",
+          "version",
+          "package_path"
+        ],
+        "unevaluatedProperties": false
+      },
+      "skill_install_response": {
+        "type": "object",
+        "description": "core→UI. Public manifest projection only — NEVER the full system_prompt (paid IP; BACKEND-DESIGN §3.2/§4.2).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "skill/install"
+          },
+          "channel": {
+            "const": "response"
+          },
+          "skill_id": {
+            "$ref": "#/$defs/skillId"
+          },
+          "version": {
+            "$ref": "#/$defs/semver"
+          },
+          "category": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "compressed_prompt": {
+            "type": "string"
+          },
+          "min_app_version": {
+            "$ref": "#/$defs/semver"
+          },
+          "min_widget_version": {
+            "type": "string"
+          },
+          "tools_summary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/toolName"
+            }
+          },
+          "panels_summary": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/widgetType"
+            }
+          },
+          "signature_verified": {
+            "const": true
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "skill_id",
+          "version",
+          "signature_verified"
+        ],
+        "unevaluatedProperties": false
+      },
+      "skill_enable": {
+        "type": "object",
+        "description": "UI→core. Rejects skill_locked for an unentitled paid skill. Enable/disable re-run the Orchestrator (fresh agent/composed).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "skill/enable"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "skill_id": {
+            "$ref": "#/$defs/skillId"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "skill_id"
+        ],
+        "unevaluatedProperties": false
+      },
+      "skill_enable_response": {
+        "type": "object",
+        "description": "core→UI result of skill/enable.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "skill/enable"
+          },
+          "channel": {
+            "const": "response"
+          },
+          "skill_id": {
+            "$ref": "#/$defs/skillId"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "recomposed": {
+            "type": "boolean",
+            "description": "true → a fresh agent/composed follows."
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "skill_id",
+          "enabled"
+        ],
+        "unevaluatedProperties": false
+      },
+      "skill_disable": {
+        "type": "object",
+        "description": "UI→core. Idempotent. Triggers a recompose.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "skill/disable"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "skill_id": {
+            "$ref": "#/$defs/skillId"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "agent_id",
+          "skill_id"
+        ],
+        "unevaluatedProperties": false
+      },
+      "notify": {
+        "type": "object",
+        "description": "UI→core. Best-effort OS notification; degrades to in-app alert if permission denied (SPEC §9.7). Not idempotent.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "notify"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "sound": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "title",
+          "body",
+          "sound"
+        ],
+        "unevaluatedProperties": false
+      },
+      "telemetry_log": {
+        "type": "object",
+        "description": "UI→core append-only JSONL sink. Core validates schema_version and appends. Deliberately OPEN (unevaluatedProperties omitted) so new event fields need no lockstep release; keyed (session_id, ts_ms, event).",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "telemetry/log"
+          },
+          "channel": {
+            "const": "command"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "event": {
+            "type": "string"
+          },
+          "ts_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "schema_version",
+          "session_id",
+          "ts_ms",
+          "event"
+        ]
+      },
+      "hardware_profile": {
+        "type": "object",
+        "description": "UI→core, read-only. Never gates a feature (informs the capacity meter only). Idempotent.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "hardware/profile"
+          },
+          "channel": {
+            "const": "command"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id"
+        ],
+        "unevaluatedProperties": false
+      },
+      "hardware_profile_response": {
+        "type": "object",
+        "description": "core→UI result of hardware/profile. Fields inlined (not allOf hardwareProfile) because that def is closed with additionalProperties:false and would reject the envelope fields.",
+        "allOf": [
+          {
+            "$ref": "#/$defs/envelope"
+          }
+        ],
+        "properties": {
+          "type": {
+            "const": "hardware/profile"
+          },
+          "channel": {
+            "const": "response"
+          },
+          "ram_gb": {
+            "type": "number"
+          },
+          "cores": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "gpu_present": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "channel",
+          "request_id",
+          "ram_gb",
+          "cores",
+          "gpu_present"
+        ],
+        "unevaluatedProperties": false
+      }
+    }
+  }
+}

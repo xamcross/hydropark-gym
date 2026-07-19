@@ -1,0 +1,39 @@
+<button type="button" class="card" (click)="onActivate()">
+  <span class="card-head">
+    <span class="card-icon" aria-hidden="true">{{ item().icon ?? '🧩' }}</span>
+    <span
+      class="badge price"
+      [class.is-free]="item().is_free"
+      [attr.aria-label]="item().is_free ? 'Price: free' : 'Price: ' + priceLabel()"
+    >
+      {{ priceLabel() }}
+    </span>
+  </span>
+
+  <span class="card-name">{{ item().name }}</span>
+
+  @if (item().pitch) {
+    <span class="card-pitch">{{ item().pitch }}</span>
+  }
+
+  <span class="card-meta">
+    @if (item().category) {
+      <span class="badge category">{{ item().category }}</span>
+    }
+    <span class="badge size">{{ sizeLabel() }}</span>
+
+    <!-- Hardware badge: paired glyph + text, never colour-only (WCAG 1.4.1). -->
+    @if (canRun()) {
+      <span class="badge runs ok">
+        <span aria-hidden="true">✓</span> Runs on your PC
+      </span>
+    } @else {
+      <span
+        class="badge runs needs"
+        [attr.title]="'Needs a larger model tier: ' + (item().requirements?.min_model_tier ?? 'unknown')"
+      >
+        <span aria-hidden="true">▲</span> Needs a bigger model
+      </span>
+    }
+  </span>
+</button>

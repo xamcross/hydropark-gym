@@ -28,6 +28,19 @@
     },
     "withGlobalTauri": false
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["hydropark"]
+      }
+    },
+    "updater": {
+      "endpoints": [
+        "https://REPLACE-ME-BEFORE-RELEASE.updates.hydropark.invalid/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "pubkey": "PLACEHOLDER_MINISIGN_PUBKEY_REPLACE_BEFORE_RELEASE"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

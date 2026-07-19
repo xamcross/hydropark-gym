@@ -1,0 +1,51 @@
+<!-- Terminal placeholder (contract §6/§11): a calm, accessible card. role="note"
+     names the region; it is labelled by its headline and described by its detail,
+     so a screen reader announces the situation without re-reading. The icon is
+     decorative (aria-hidden) — meaning is carried by icon + text, not colour
+     (WCAG 1.4.1). No data, no edit affordances: this state is terminal. -->
+<section
+  class="widget-placeholder"
+  [attr.data-reason]="reason()"
+  role="note"
+  [attr.aria-labelledby]="uid + '-title'"
+  [attr.aria-describedby]="uid + '-detail'"
+>
+  <span class="wp-icon" aria-hidden="true">
+    @switch (reason()) {
+      <!-- too-new: an "upgrade" cue (arrow rising into a ring). -->
+      @case ('too_new') {
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 16V8" />
+          <path d="m8.5 11.5 3.5-3.5 3.5 3.5" />
+        </svg>
+      }
+      <!-- unknown: a "not recognised" cue (question mark in a ring). -->
+      @default {
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.6 9.4a2.4 2.4 0 1 1 3.5 2.2c-.8.4-1.3 1-1.3 1.9v.3" />
+          <path d="M12 17h.01" />
+        </svg>
+      }
+    }
+  </span>
+
+  <div class="wp-body">
+    <p class="wp-title" [id]="uid + '-title'">{{ headline() }}</p>
+    <p class="wp-detail" [id]="uid + '-detail'">{{ detail() }}</p>
+
+    @if (widgetType()) {
+      <p class="wp-meta">
+        <span class="wp-type">{{ widgetType() }}</span>
+        @if (reason() === 'too_new' && requiredVersion()) {
+          <span class="wp-ver">needs v{{ requiredVersion() }}</span>
+        }
+      </p>
+    }
+
+    @if (reason() === 'too_new') {
+      <p class="wp-hint">Update Hydropark to enable this panel.</p>
+    }
+  </div>
+</section>

@@ -1,0 +1,148 @@
+<!-- P1-06.5 · SPEC §9.5 — the panel dock. Region landmarks host the arranged
+     panels; each panel's chrome is drawn here, its body is projected via
+     [appPanelBody]. Loading / empty states per contract §6; a11y per §8. -->
+
+<!-- Reusable panel chrome (header + tools + projected body + resize handle). -->
+<ng-template #panelChrome let-panel>
+  <section
+    class="panel"
+    role="group"
+    [attr.aria-labelledby]="headingId(panel)"
+    [class.is-collapsed]="panel.ui.collapsed"
+    [class.is-pinned]="panel.ui.pinned"
+    [style.--panel-size]="panelSizeVar(panel)"
+  >
+    <header class="panel-header">
+      <button
+        type="button"
+        class="panel-disclosure"
+        [attr.aria-expanded]="!panel.ui.collapsed"
+        [attr.aria-controls]="bodyId(panel)"
+        [disabled]="!layout.canCollapse(panel.key)"
+        (click)="layout.toggleCollapse(panel.key)"
+      >
+        <span class="chevron" [class.is-open]="!panel.ui.collapsed" aria-hidden="true">▸</span>
+        <h3 class="panel-title" [id]="headingId(panel)">{{ panelName(panel) }}</h3>
+      </button>
+
+      <div class="panel-tools">
+        @if (panel.ui.pinned) {
+          <span class="pin-flag"><span aria-hidden="true">★</span> Pinned</span>
+        }
+        @if (layout.canPin(panel.key)) {
+          <button
+            type="button"
+            class="panel-tool"
+            [attr.aria-pressed]="panel.ui.pinned"
+            [attr.aria-label]="(panel.ui.pinned ? 'Unpin ' : 'Pin ') + panelName(panel)"
+            (click)="layout.togglePin(panel.key)"
+          >
+            <span aria-hidden="true">{{ panel.ui.pinned ? '★' : '☆' }}</span>
+          </button>
+        }
+        <button type="button" class="panel-tool" [attr.aria-label]="'Move ' + panelName(panel) + ' earlier'" (click)="layout.moveUp(panel.key)">
+          <span aria-hidden="true">↑</span>
+        </button>
+        <button type="button" class="panel-tool" [attr.aria-label]="'Move ' + panelName(panel) + ' later'" (click)="layout.moveDown(panel.key)">
+          <span aria-hidden="true">↓</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="panel-body" [id]="bodyId(panel)" [hidden]="panel.ui.collapsed">
+      @if (loading()) {
+        <div class="panel-loading" role="status" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>{{ loadingLabel() }}</span>
+        </div>
+      } @else {
+        @let tpl = bodyTemplate(panel);
+        @if (tpl) {
+          <ng-container [ngTemplateOutlet]="tpl" [ngTemplateOutletContext]="bodyContext(panel)"></ng-container>
+        } @else {
+          <p class="panel-fallback">{{ noRendererLabel() }}</p>
+        }
+      }
+    </div>
+
+    @if (layout.canResize(panel.key) && !panel.ui.collapsed) {
+      <div
+        class="panel-resize"
+        role="separator"
+        tabindex="0"
+        aria-orientation="horizontal"
+        [attr.aria-label]="'Resize ' + panelName(panel)"
+        [attr.aria-valuenow]="panel.ui.size ?? defaultSize"
+        [attr.aria-valuemin]="minSize"
+        [attr.aria-valuemax]="maxSize"
+        (keydown)="onResizeKey($event, panel)"
+      >
+        <span class="resize-grip" aria-hidden="true"></span>
+      </div>
+    }
+  </section>
+</ng-template>
+
+<div class="layout-dock" [class.is-narrow]="narrow()">
+  <!-- SIDE (complementary landmark; empty when folded into the drawer) -->
+  @if (arrangement().side.length) {
+    <aside class="region region-side" [attr.aria-label]="sideLabel()">
+      @for (panel of arrangement().side; track panel.key) {
+        <ng-container [ngTemplateOutlet]="panelChrome" [ngTemplateOutletContext]="{ $implicit: panel }"></ng-container>
+      }
+    </aside>
+  }
+
+  <!-- DRAWER (narrow-folded side panels; a keyboard-reachable disclosure) -->
+  @if (arrangement().drawer.length) {
+    <section class="region region-drawer" [attr.aria-label]="drawerLabel()">
+      <h2 class="drawer-heading">
+        <button
+          type="button"
+          class="drawer-toggle"
+          [attr.aria-expanded]="drawerOpen()"
+          [attr.aria-controls]="'ld-' + uid + '-drawer-body'"
+          (click)="drawerOpen.set(!drawerOpen())"
+        >
+          <span class="chevron" [class.is-open]="drawerOpen()" aria-hidden="true">▸</span>
+          <span>{{ drawerLabel() }}</span>
+          <span class="drawer-count" aria-hidden="true">{{ arrangement().drawer.length }}</span>
+          <span class="sr-only">, {{ arrangement().drawer.length }} panels</span>
+        </button>
+      </h2>
+      <div
+        class="drawer-body"
+        [id]="'ld-' + uid + '-drawer-body'"
+        [hidden]="!drawerOpen()"
+        (keydown.escape)="drawerOpen.set(false)"
+      >
+        @for (panel of arrangement().drawer; track panel.key) {
+          <ng-container [ngTemplateOutlet]="panelChrome" [ngTemplateOutletContext]="{ $implicit: panel }"></ng-container>
+        }
+      </div>
+    </section>
+  }
+
+  <!-- BOTTOM (region landmark) -->
+  @if (arrangement().bottom.length) {
+    <section class="region region-bottom" [attr.aria-label]="bottomLabel()">
+      @for (panel of arrangement().bottom; track panel.key) {
+        <ng-container [ngTemplateOutlet]="panelChrome" [ngTemplateOutletContext]="{ $implicit: panel }"></ng-container>
+      }
+    </section>
+  }
+
+  <!-- INLINE (cards within chat) -->
+  @if (arrangement().inline.length) {
+    <div class="region region-inline" role="region" [attr.aria-label]="inlineLabel()">
+      @for (panel of arrangement().inline; track panel.key) {
+        <ng-container [ngTemplateOutlet]="panelChrome" [ngTemplateOutletContext]="{ $implicit: panel }"></ng-container>
+      }
+    </div>
+  }
+
+  <!-- EMPTY (chat-only base agent; contract §6) -->
+  @if (isEmpty()) {
+    <p class="dock-empty" role="status">{{ emptyLabel() }}</p>
+  }
+</div>

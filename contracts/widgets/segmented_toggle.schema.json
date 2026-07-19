@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/segmented_toggle.schema.json",
+  "title": "Hydropark Widget — segmented_toggle / switch (P1-06.4)",
+  "description": "Per-widget contract for the `segmented_toggle` / `switch` pair (SPEC §9.4). A mutually-exclusive single-select control: `segmented_toggle` binds a `scalar<enum(...)>` slot and renders one segment per member; `switch` binds a `scalar<bool>` slot and renders a two-state on/off control. ONE schema serves both types because SPEC §9.4 lists them as a pair and the manifest schema groups them under one shorthand block — a `switch` is the degenerate two-member segmented control. This file `allOf`-extends `_widget-base.schema.json`: it pins `type` to the pair, closes `props` with additionalProperties:false, reuses the base $defs (localizableString, acceptsSlotKind), and documents this type's typed runtime state, default event set, slot bindings, mandatory lifecycle states, read-only-bound behavior, and the a11y contract. It validates the CANONICAL widget object (the manifest shorthand — inline `options`/`default`, omitted region/priority/emits/min_widget_version — is normalized to this form before validation, SPEC §9.2). The signature use-case is the US↔Metric unit toggle: when this widget binds the recognized unit-system slot, flipping it re-expresses every bound quantity in chat AND in panels/shared-state (SPEC §8.7); see $defs/unitSystemBehavior.",
+  "allOf": [
+    { "$ref": "_widget-base.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$comment": "Pinned to the sibling pair (base §12.1). The base's widgetTypeName stays open so unknown/too-new types placeholder; this schema is selected by the renderer/certification only AFTER `type` matches one of these two.",
+          "enum": ["segmented_toggle", "switch"]
+        },
+        "props": { "$ref": "#/$defs/props" },
+        "binds_state": {
+          "$comment": "Accepted slot KIND is `scalar` (base $defs/acceptsSlotKind): `segmented_toggle` → scalar<enum(...)> whose member set MUST equal the option value set; `switch` → scalar<bool> (option[0] ⇒ false/off, option[1] ⇒ true/on). Widget↔slot-kind fit is a cross-artifact certification check (P1-04.5), not an in-envelope constraint. See $defs/binding."
+        },
+        "a11y": {
+          "$comment": "This widget's default live-region politeness is `polite` so an out-of-band flip (a tool/model writing the bound slot — e.g. the model switching units) is announced without interrupting. See $defs/a11yContract.",
+          "properties": {
+            "live_region": { "default": "polite" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "segmented_toggle requires an explicit option set (≥2 members).",
+          "if": {
+            "properties": { "type": { "const": "segmented_toggle" } },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["props"],
+            "properties": {
+              "props": {
+                "required": ["options"],
+                "properties": {
+                  "options": { "minItems": 2 }
+                }
+              },
+              "emits": {
+                "default": [{ "name": "selection_changed", "to_chat": false }]
+              }
+            }
+          }
+        },
+        {
+          "$comment": "switch is boolean: options are OPTIONAL (default Off/On); if authored, EXACTLY two, ordered [off, on].",
+          "if": {
+            "properties": { "type": { "const": "switch" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "props": {
+                "properties": {
+                  "options": { "minItems": 2, "maxItems": 2 }
+                }
+              },
+              "emits": {
+                "default": [{ "name": "toggled", "to_chat": false }]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed, immutable-per-instance configuration for segmented_toggle/switch (base §2). Closed with additionalProperties:false so any stray key fails certification. Runtime VALUE (the current selection) is NOT here — it lives in the bound slot / runtime state ($defs/runtimeState).",
+      "properties": {
+        "options": {
+          "$ref": "#/$defs/optionList"
+        },
+        "default": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The initially-selected option's `value` (a machine value, not a label). Used ONLY when the widget is unbound, or as the seed when the bound slot has no value yet; when `binds_state` is present and the slot already holds a value, the SLOT value wins (SPEC §9.3 #1). MUST equal one of `options[].value` (and, for `switch`, is one of the two option values) — enforced as a certification cross-check since the option set is data, not schema."
+        },
+        "allow_deselect": {
+          "type": "boolean",
+          "default": false,
+          "description": "segmented_toggle only. When false (default) the control is a true single-select — exactly one segment is always active. When true, activating the already-selected segment clears the selection (writes the scalar slot to null / unset). Ignored for `switch`, which is inherently two-state."
+        }
+      }
+    },
+    "optionList": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "description": "The mutually-exclusive options, left→right. For `switch` this is ordered [off, on] and has exactly two entries. Duplicate `value`s are rejected by certification (uniqueItems catches only exact-shape duplicates).",
+      "items": { "$ref": "#/$defs/segmentOption" }
+    },
+    "segmentOption": {
+      "description": "One selectable option. Bare-string form (value == label) is what the manifest shorthand authors (`\"options\": [\"US\", \"Metric\"]`); the object form separates a STABLE machine `value` (which must equal the bound scalar<enum> member) from a localizable `label` and an optional icon so the selected state is never conveyed by hue alone (WCAG 1.4.1, base §8.2).",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Shorthand: this string is BOTH the machine value and the label."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40,
+              "description": "Stable machine value. For segmented_toggle it MUST be a member of the bound scalar<enum(...)> slot; for switch, option[0].value ⇒ false, option[1].value ⇒ true."
+            },
+            "label": {
+              "$ref": "_widget-base.schema.json#/$defs/localizableString",
+              "description": "Display text (defaults to `value`). Localizable (`@`-key) per SPEC §8.7 — this is how US↔Metric labels translate without changing the machine value."
+            },
+            "icon": {
+              "$ref": "#/$defs/assetRef",
+              "description": "Optional sanitized-SVG asset (SPEC §9.1) shown alongside the label — a secondary, non-color signal for the option."
+            },
+            "disabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Renders this option present-but-unselectable (aria-disabled, skipped in keyboard traversal)."
+            }
+          }
+        }
+      ]
+    },
+    "assetRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*\\.svg$",
+      "description": "Reference to a skill-declared, sanitized-SVG asset in `resources.assets` (SPEC §9.1 'the only skill-supplied visuals are vetted assets'). No raw markup, no remote URL. Existence in the package is a certification cross-check."
+    },
+    "acceptsSlotKind": {
+      "$comment": "Documentation node (base $defs/acceptsSlotKind). `binds_state` for this widget accepts slot KIND `scalar` only: enum-valued for segmented_toggle, bool for switch. record/list slots are rejected by the P1-04.5 fit check.",
+      "const": "scalar"
+    },
+    "binding": {
+      "type": "null",
+      "description": "NON-SCHEMA (documentation node) — the full binding story (base §3/§4/§5, SPEC §9.3). (1) `binds_state` is the PRIMARY, two-way slot this control renders and edits: scalar<enum(...)> (segmented) or scalar<bool> (switch). It is two-way ONLY if the owning skill is the slot's writer-of-record; otherwise it binds READ-ONLY (see $defs/readOnlyBehavior). For a scalar slot, ONLY the writer-of-record may SET the value (base §5) — a non-writer segmented_toggle cannot flip it. (2) The TOOL-side counterpart is authored on the tool ref, NOT here: the bound setter/side-effect tool (e.g. `convert_units`) declares `writes_state`/`reads_state` naming the slots it rewrites; when it writes, every widget with `binds_state`/`reads_state` on those slots re-renders (SPEC §9.3 #3). (3) `binds_tool` (optional) is the UI-first action a user flip invokes deterministically, no model round-trip (base §3 dir 2): on flip the widget shows `pending`, invokes `binds_tool` for side-effects, then commits the bound scalar slot LAST so downstream panels/chat re-express BEFORE the toggle visually settles (mirrors the Phase-0 US↔Metric sequence). A generic toggle with no side-effects may omit `binds_tool` and simply write its scalar slot. (4) `reads_state[]` (inherited, default none) lets the control observe extra slots read-only for display; not required for the unit case."
+    },
+    "defaultEventSet": {
+      "type": "null",
+      "description": "NON-SCHEMA (documentation node) — the event set normalization fills when `emits` is omitted (base §3, SPEC §9.2). segmented_toggle → `selection_changed`; switch → `toggled`. BOTH default `to_chat:false` — a routine unit/option flip should NOT clutter the transcript. Payloads (delivered on the bus, not into chat unless to_chat:true): `selection_changed` = { previous: string|null, current: string|null, source: \"user\"|\"tool\"|\"model\" }; `toggled` = { value: bool, source }. Skills MAY author domain-named events instead (the base eventDecl is an open name, not a closed enum) — e.g. the Cooking manifest emits `unit_system_changed` for its unit toggle; per base §3 duplicate event names within one widget are rejected by certification. Emitting an event NEVER auto-runs inference (SPEC §9.3 #4)."
+    },
+    "runtimeState": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "AUTHORITATIVE for the renderer/IPC, NON-NORMATIVE for this envelope (runtime state is produced by the slot/tools/user, never authored in the manifest — base §2). The core owns the value when it must survive the webview not looking; the webview renders this projection. Every instance passes through the lifecycle machine in $defs/stateDefaults.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["loading", "ready", "empty", "error", "readonly", "placeholder"],
+          "description": "Lifecycle phase (base §6). `ready` = a value is selected; `empty` = bound but no value and no default seed."
+        },
+        "value": {
+          "description": "Current selection: the selected option's `value` (segmented) or a boolean (switch); null when empty or deselected.",
+          "type": ["string", "boolean", "null"]
+        },
+        "options": {
+          "type": "array",
+          "description": "Resolved, localized options the webview renders (labels resolved, icons dereferenced, disabled flags applied).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "value": { "type": "string" },
+              "label": { "type": "string" },
+              "icon": { "type": ["string", "null"] },
+              "disabled": { "type": "boolean" },
+              "selected": { "type": "boolean" }
+            },
+            "required": ["value", "label", "selected"]
+          }
+        },
+        "pending": {
+          "type": "boolean",
+          "description": "A UI-first `binds_tool` invocation (e.g. convert_units re-expressing quantities) is in flight; the control shows a busy affordance and is non-interactive (aria-busy)."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "True when this skill is NOT the bound slot's writer-of-record (resolved at merge, base §5)."
+        },
+        "writer": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Present when `readonly` — names the owning skill for the 'Managed by …' tooltip/description.",
+          "properties": {
+            "skill_id": { "type": "string" },
+            "name": { "type": "string" }
+          }
+        },
+        "error": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Structured tool/execution failure, surfaced never swallowed (base §6, SPEC §8.4 #4).",
+          "properties": {
+            "message": { "type": "string" },
+            "recoverable": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["status"]
+    },
+    "stateDefaults": {
+      "type": "null",
+      "description": "NON-SCHEMA (documentation node) — mandatory visual states (base §6). The TYPE ships this copy; a skill overrides only the localizable STRINGS via the base `states` field and can never suppress a state. Defaults (default locale): loading → label 'Switching…' (unit case: 'Converting…'), a determinate-or-indeterminate busy affordance on the group, never a blank panel; empty → label 'No option selected.' (only reachable when the bound scalar slot has no value AND no `default` seed; a normal single-select always has a selection), plain and non-alarming, distinct from error; error → label \"Couldn't switch — check the value.\", human message + a retry/dismiss affordance that restores the last-good selection. read-only and placeholder: see $defs/readOnlyBehavior and base §11."
+    },
+    "readOnlyBehavior": {
+      "type": "null",
+      "description": "NON-SCHEMA (documentation node) — read-only-bound behavior (base §5, resolved at merge, delivered as runtimeState.readonly/writer). When the owning skill is NOT the bound scalar slot's writer-of-record the control MUST: (1) render LIVE — reflect every slot update in real time (a first-class view, not a stale copy), including flips made by the writer or the model; (2) DISABLE all edit affordances — segments/switch are non-interactive both visually and via `disabled`/`aria-disabled`, and no `binds_tool` fires from user input; (3) NAME the owner — expose an accessible description 'Managed by {writer name}' so the user knows where flips go. A read-only segmented_toggle cannot SET a scalar slot (scalars have no commutative append/patch path, base §5), so it is view-only until its skill becomes the writer-of-record."
+    },
+    "unitSystemBehavior": {
+      "type": "null",
+      "description": "NON-SCHEMA (documentation node) — the US↔Metric signature case (SPEC §8.7, product feature not afterthought). Measurement units are first-class: a skill declares `unit_system_default` (US|Metric|auto) and binds this widget to the recognized unit-system slot, a scalar<enum(US|Metric)> that is the single source of truth for the active system. Flipping the toggle: (a) invokes `binds_tool` = `convert_units` to RE-EXPRESS persisted quantities — one exact-arithmetic conversion per unit-bearing entry in the bound list/record slots, committed so those panels re-render in the new system; and (b) writes the unit-system scalar slot, which re-renders inline quantity tokens in the CHAT transcript against the same arithmetic — so chat AND panels flip together (SPEC §8.7 'in chat and in panels/shared-state'). Phase-1 promotes the unit system from Phase-0 session state to a shared-state scalar<enum> slot so it is writer-of-record-governed and shareable across combined skills. This behavior is not hardwired into the widget type — it is the canonical instance of a generic scalar<enum> toggle bound to a side-effecting tool."
+    },
+    "a11yContract": {
+      "type": "object",
+      "description": "NON-SCHEMA (documentation node) — the per-widget a11y bar the first-party implementation guarantees and the X-A11Y gate enforces in BOTH themes on EVERY state (base §8). The skill may override only accessible name/description (base `a11y`); roles, keyboard, focus order, live regions, and contrast are NOT skill-waivable.",
+      "properties": {
+        "roles": {
+          "type": "null",
+          "description": "segmented_toggle → a `radiogroup` (accessible name from `title`/a11y.label) containing one `radio` per option, each with `aria-checked` reflecting selection. switch → a single control with `role=\"switch\"` and `aria-checked` (on/off), OR, when it carries two visible labels, a 2-member `radiogroup` — either way exposing a boolean state to assistive tech. Disabled options carry `aria-disabled`; read-only/pending states set `aria-disabled`/`aria-busy` on the group."
+        },
+        "keyboard": {
+          "type": "null",
+          "description": "radiogroup follows the WAI-ARIA radio pattern: the group is a SINGLE tab stop (roving tabindex); Tab focuses the checked option, Shift+Tab leaves the group; ArrowRight/ArrowDown → next option, ArrowLeft/ArrowUp → previous, wrapping, with SELECTION following focus; Home/End jump to first/last; Space/Enter confirm (a no-op when selection already follows focus). Disabled options are skipped. role=switch: Tab focuses it, Space/Enter toggles. Every affordance is fully keyboard-operable."
+        },
+        "focus_order": {
+          "type": "null",
+          "description": "The control is one stop in the panel's DOM/reading order; within it a roving tabindex keeps exactly one option focusable. Focus is ALWAYS visible (a token-defined focus ring, not hue-only), and never trapped."
+        },
+        "contrast_per_theme": {
+          "type": "null",
+          "description": "All option text and the selected/track/thumb fills meet WCAG-AA in BOTH light and dark themes, verified PER theme (a token that passes on dark may fail on light — the --sulphur-ink precedent, P1-01.4). Both the selected and unselected segments, and the focus ring, clear AA against their own backgrounds."
+        },
+        "no_hue_only_meaning": {
+          "type": "null",
+          "description": "WCAG 1.4.1: the SELECTED state is never conveyed by color alone. The active segment/switch pairs its tone with a non-color signal — `aria-checked`, an inset/pressed treatment plus weight change, and (switch) a moved thumb / optional check glyph — so it is distinguishable in grayscale and to a screen reader. `style.tone` is likewise never the sole carrier of meaning (base §7/§8.2)."
+        },
+        "live_region": {
+          "type": "null",
+          "description": "Out-of-band changes (a tool/model writing the bound slot — e.g. the model switching units, or a finished conversion) announce via an `aria-live=\"polite\"` status ('Units: Metric'); default politeness is `polite` (overridable via base a11y.live_region). User-initiated flips need no extra announcement — the moved selection is already conveyed."
+        },
+        "scalable_and_reduced_motion": {
+          "type": "null",
+          "description": "Labels remain readable and the layout usable when text is zoomed (X-A11Y.3); the segment/thumb slide transition collapses under the OS reduce-motion setting (already wired via the motion tokens, base §8.6)."
+        }
+      }
+    },
+    "styleNotes": {
+      "type": "null",
+      "description": "NON-SCHEMA (documentation node) — the entire skill-facing styling surface is the base `style` variant set (tone/emphasis/density/align); skills ship NO CSS and NO raw tokens (base §7, SPEC §9.1/§9.10). For this widget: `tone` colors the SELECTED segment / switch accent and MUST stay AA and non-hue-only (paired with the selected affordances above); `density` sets segment padding (comfortable|compact); `align` positions the group within its panel; `emphasis` scales the selected-state prominence. The implementation draws only from the constrained token namespaces (base $defs/designTokenNamespace) — every color/space/radius/type/motion value is a `var(--token)`; literal hex/px/rem fails the non-token-styling lint (P1-20.1). Phase-0 used `--color-primary`/`--color-primary-contrast` for the active segment and `--color-border`/`--color-surface`/`--radius-md`/`--space-*`/`--transition-fast` for the frame — all within the vocabulary."
+    }
+  }
+}

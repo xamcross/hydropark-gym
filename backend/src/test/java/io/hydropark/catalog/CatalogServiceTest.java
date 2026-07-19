@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import io.hydropark.catalog.dto.BundleDetailDto;
 import io.hydropark.catalog.dto.PreviewDto;
+import io.hydropark.catalog.dto.SkillDetailDto;
 import io.hydropark.common.ApiException;
 import io.hydropark.common.Money;
 import io.hydropark.port.Ports;
@@ -125,6 +126,38 @@ class CatalogServiceTest {
     when(bundles.findById("ghost")).thenReturn(Optional.empty());
 
     assertThatThrownBy(() -> service.getBundleDetail("ghost", null)).isInstanceOf(ApiException.class);
+  }
+
+  @Test
+  void skillDetailExposesTheSkillDocumentsCapabilities() {
+    // F05: the install-time capability-disclosure dialog needs real capability tokens, not an
+    // empty list - this is the CatalogService half of that path (Skill.capabilities ->
+    // SkillDetailDto.capabilities), independent of the seeder.
+    Skill s = skill("cooking-assistant", "Cooking Assistant", "kitchen");
+    s.setCapabilities(List.of("timers", "unit_conversion", "list_management"));
+    when(skills.findById("cooking-assistant")).thenReturn(Optional.of(s));
+    when(skillVersions.findBySkillIdAndCurrentTrue("cooking-assistant")).thenReturn(Optional.empty());
+    when(pricing.quote(Ports.PurchaseKind.SKILL, "cooking-assistant", null)).thenReturn(new Money(500, "USD"));
+
+    SkillDetailDto detail = service.getSkillDetail("cooking-assistant", null);
+
+    assertThat(detail.capabilities()).containsExactly("timers", "unit_conversion", "list_management");
+  }
+
+  @Test
+  void skillDetailCapabilitiesIsNeverNullEvenWhenTheDocumentFieldIsMissing() {
+    // A skills doc seeded/migrated before F05 (or hand-edited) may have no capabilities field at
+    // all - the DTO must still hand the client an empty list, never a null the Angular adapter
+    // would have to null-check.
+    Skill s = skill("legacy-skill", "Legacy Skill", "home");
+    s.setCapabilities(null);
+    when(skills.findById("legacy-skill")).thenReturn(Optional.of(s));
+    when(skillVersions.findBySkillIdAndCurrentTrue("legacy-skill")).thenReturn(Optional.empty());
+    when(pricing.quote(Ports.PurchaseKind.SKILL, "legacy-skill", null)).thenReturn(new Money(500, "USD"));
+
+    SkillDetailDto detail = service.getSkillDetail("legacy-skill", null);
+
+    assertThat(detail.capabilities()).isNotNull().isEmpty();
   }
 
   @Test

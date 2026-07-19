@@ -7,6 +7,7 @@ import io.hydropark.config.AppProperties;
 import io.hydropark.port.Ports.PurchaseKind;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -20,13 +21,20 @@ import org.springframework.stereotype.Service;
  *       {@link SettlementLogService#isSettledOrder}, no further license issuance) are allowed.
  *   <li><b>Purchase-eligibility gate:</b> a repeated or high-value skill/bundle buy requires a
  *       verified email OR a settled prior payment.
- *   <li><b>Velocity limit:</b> per-user purchases/day
+ *   <li><b>Per-account velocity limit:</b> purchases/day per user
  *       ({@code hydropark.payments.max-purchases-per-user-per-day}).
+ *   <li><b>Per-instrument velocity limit:</b> distinct accounts/day a single card fingerprint may
+ *       settle across ({@code hydropark.payments.max-accounts-per-fingerprint-per-day}), so one
+ *       instrument cannot farm many accounts. Enforced at settlement, where the fingerprint arrives
+ *       (see {@link #isPaymentFingerprintOverVelocity}).
+ *   <li><b>Hold-grant-until-clear:</b> a risk-scored-high order settles as paid but its grant is
+ *       withheld until the provider clears the review (see {@link #isHighRisk} and
+ *       {@code SettlementService.settleSkillOrBundleOnHold}/{@code clearHeldOrder}).
  * </ul>
  *
- * <p><b>Report note:</b> two SF10 items are stubbed - the per-<em>payment-fingerprint</em> velocity
- * limit (the fake provider surfaces no card fingerprint; Stripe could) and hold-grant-until-clear for
- * risk-scored orders (we grant on settlement, which for the MoR path already means funds cleared).
+ * <p>The two settlement-time controls read only what the settlement worker already holds - the order
+ * plus the signature-verified {@link PaymentProvider.ProviderEvent} - and drive the existing
+ * settlement path; they add no new privileged write path.
  */
 @Service
 public class AntiFraudService {
@@ -90,6 +98,54 @@ public class AntiFraudService {
     if (ordersInLastDay(userId) >= limit) {
       throw new ApiException(ErrorCode.RATE_LIMITED, "daily purchase limit reached");
     }
+  }
+
+  /**
+   * SF10 per-instrument velocity: has this funding instrument already settled across the daily limit
+   * of <em>other</em> accounts? Called by the settlement worker on a {@code succeeded} skill/bundle
+   * event, where the card fingerprint first becomes known (a hosted checkout has no card at
+   * order-creation time). The current account is excluded - its own repeat use is bounded by the
+   * per-account velocity - so this measures fan-out of one card across farmed accounts.
+   *
+   * <p>Returns false when the provider surfaced no fingerprint (the fake dev reversal envelopes, or a
+   * Stripe charge whose details were not expanded): absence of a signal is never a trip.
+   */
+  public boolean isPaymentFingerprintOverVelocity(String userId, String paymentFingerprint) {
+    if (paymentFingerprint == null || paymentFingerprint.isBlank()) {
+      return false;
+    }
+    Instant cutoff = Instant.now().minus(1, ChronoUnit.DAYS);
+    Query q =
+        Query.query(
+            Criteria.where("paymentFingerprint")
+                .is(paymentFingerprint)
+                .and("createdAt")
+                .gte(cutoff)
+                .and("userId")
+                .ne(userId));
+    List<String> otherAccounts = mongo.findDistinct(q, "userId", Order.class, String.class);
+    return otherAccounts.size() >= props.getPayments().getMaxAccountsPerFingerprintPerDay();
+  }
+
+  /**
+   * SF10 hold-grant-until-clear: is this settlement risky enough to withhold the grant until the
+   * provider clears it? A provider {@code highest} risk level always holds; an {@code elevated} level
+   * holds only for an account with no clean settled payment history (an established buyer's one
+   * elevated charge is not held). No signal / a normal level never holds - so with the fake provider
+   * or a plain Stripe charge the grant is issued immediately, exactly as before.
+   */
+  public boolean isHighRisk(Order order, PaymentProvider.ProviderEvent event) {
+    String risk = event.riskLevel();
+    if (risk == null) {
+      return false;
+    }
+    if (risk.equalsIgnoreCase("highest")) {
+      return true;
+    }
+    if (risk.equalsIgnoreCase("elevated")) {
+      return !settlementLog.hasCleanSettledPayment(order.getUserId());
+    }
+    return false;
   }
 
   private long priorOrderCount(String userId) {

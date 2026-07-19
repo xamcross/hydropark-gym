@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms &amp; the offline-forever commitment — Hydropark</title>
+<meta name="description" content="Hydropark's Terms of Service: what you buy, that you own it and can use it offline forever, the business-continuity commitment if the company ever shuts down, refunds, and AI-advice disclaimers.">
+<meta name="theme-color" content="#15181A">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://hydropark.app/terms">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%2315181A'/%3E%3Cg fill='%23F0C21B'%3E%3Crect x='7' y='8' width='4' height='16' rx='1.2'/%3E%3Crect x='11' y='14.4' width='10' height='3.2'/%3E%3Crect x='21' y='8' width='4' height='16' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=Chivo:ital,wght@0,300..800;1,300..800&family=Martian+Mono:wght@300..700&display=swap" rel="stylesheet">
+
+<!-- Cookieless analytics stub (P1-24.2) — see index.html for the full note.
+     No PII, no conversation content; nothing transmitted until enabled at launch. -->
+<script>
+  window.dataLayer = window.dataLayer || [];
+  window.plausible = window.plausible || function () {
+    (window.plausible.q = window.plausible.q || []).push(arguments);
+  };
+</script>
+<!-- Enable at launch (P1-24.2): set the domain, then un-comment.
+<script defer data-domain="REPLACE_ME_DOMAIN" src="https://plausible.io/js/script.manual.js"></script>
+-->
+
+<link rel="stylesheet" href="styles.css">
+
+<style>
+  /* Long-form legal prose — scoped here so the shared design system stays lean. */
+  .legal{ max-width:74ch; margin:0 auto; padding:clamp(2rem,5vw,4.5rem) var(--gut) clamp(3rem,6vw,5rem) }
+  .legal__kicker{ font-family:var(--mono); font-size:.62rem; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--chalk-3); margin:0 0 .6rem }
+  .legal h1{ font-size:clamp(2.2rem,6vw,4rem); margin:0 0 .5rem }
+  .legal__meta{ font-family:var(--mono); font-size:.72rem; color:var(--chalk-3); margin:0 0 2rem }
+  .legal h2{ font-family:var(--display); font-variation-settings:"wdth" 100,"wght" 780;
+    text-transform:uppercase; letter-spacing:-.005em; font-size:clamp(1.15rem,2.4vw,1.55rem);
+    line-height:1.05; margin:2.6rem 0 .8rem; color:var(--chalk) }
+  .legal h2 .n{ color:var(--sulphur-dim); margin-right:.55em; font-variation-settings:"wght" 900 }
+  .legal h3{ font-family:var(--body); font-weight:700; font-size:1rem; margin:1.4rem 0 .3rem; color:var(--chalk) }
+  .legal p,.legal li{ color:var(--chalk-2); max-width:70ch }
+  .legal p{ margin:.7rem 0 }
+  .legal ul{ margin:.7rem 0; padding-left:1.1rem }
+  .legal li{ margin:.35rem 0 }
+  .legal strong{ color:var(--chalk); font-weight:600 }
+  .legal a{ color:var(--chalk); text-decoration:none; border-bottom:1px solid var(--steel-2) }
+  .legal a:hover{ color:var(--sulphur); border-color:var(--sulphur) }
+  .legal__note{ border:1px solid var(--sulphur-dim); border-left-width:4px; border-radius:3px;
+    background:rgba(240,194,27,.05); padding:1rem 1.15rem; margin:1.8rem 0; font-size:.9rem }
+  .legal__note b{ color:var(--sulphur) }
+  /* The continuity commitment is the headline — give it a steel plate of its own. */
+  .legal__commit{ border:1px solid var(--steel-2); border-radius:4px; background:var(--iron-2);
+    padding:clamp(1.2rem,3vw,2rem); margin:1.6rem 0 }
+  .legal__commit h3{ color:var(--sulphur); margin-top:1.3rem }
+  .legal__commit h3:first-of-type{ margin-top:0 }
+  .legal__toc{ font-family:var(--mono); font-size:.74rem; color:var(--chalk-3);
+    border-top:1px solid var(--iron-3); border-bottom:1px solid var(--iron-3);
+    padding:1rem 0; margin:1.6rem 0 2.4rem; display:flex; flex-wrap:wrap; gap:.4rem 1.1rem }
+  .legal__toc a{ color:var(--chalk-2); border:0 }
+  .legal__toc a:hover{ color:var(--sulphur) }
+  .legal__foot-nav{ margin-top:3rem; padding-top:1.4rem; border-top:1px solid var(--iron-3);
+    display:flex; gap:1.4rem; flex-wrap:wrap }
+</style>
+</head>
+<body>
+
+<div class="knurl" aria-hidden="true"></div>
+<a class="skip" href="#doc">Skip to the terms</a>
+
+<header class="bar-top">
+  <div class="bar-top__in">
+    <a class="mark" href="index.html">
+      <svg viewBox="0 0 32 32" aria-hidden="true" fill="currentColor">
+        <rect x="3" y="13" width="3" height="6" rx="1"/>
+        <rect x="7.5" y="8" width="4" height="16" rx="1.2"/>
+        <rect x="11.5" y="14.4" width="9" height="3.2"/>
+        <rect x="20.5" y="8" width="4" height="16" rx="1.2"/>
+        <rect x="26" y="13" width="3" height="6" rx="1"/>
+      </svg>
+      <span>Hydropark</span>
+    </a>
+    <p class="bar-top__tag">Terms of Service</p>
+    <div class="bar-top__cta">
+      <a class="lnk" href="privacy.html">Privacy</a>
+      <a class="lnk" href="index.html">← Back to the gym</a>
+    </div>
+  </div>
+</header>
+
+<main id="doc">
+<article class="legal">
+  <p class="legal__kicker">Hydropark</p>
+  <h1>Terms of Service</h1>
+  <p class="legal__meta">Last updated: PLACEHOLDER (set on publish) · Governs your use of the Hydropark app, skills, and this website.</p>
+
+  <div class="legal__note">
+    <b>Draft pending legal sign-off.</b> These Terms state Hydropark's intended,
+    product-enforced commitments. The seller-of-record model, liability limitation, and
+    warranty sections (marked PLACEHOLDER) are under jurisdiction-specific legal review
+    (X-LEGAL.3) and will be finalized before launch. The
+    <a href="#continuity">business-continuity commitment</a> below is a firm product
+    promise (SPEC §28.2), not a placeholder.
+  </div>
+
+  <nav class="legal__toc" aria-label="Sections">
+    <a href="#buy">1 What you buy</a>
+    <a href="#own">2 Own what you buy</a>
+    <a href="#continuity">3 Continuity</a>
+    <a href="#refunds">4 Refunds</a>
+    <a href="#revocation">5 Revocation</a>
+    <a href="#advice">6 AI advice</a>
+    <a href="#payments">7 Seller &amp; tax</a>
+    <a href="#use">8 Acceptable use</a>
+    <a href="#liability">9 Liability</a>
+    <a href="#changes">10 Changes</a>
+    <a href="#contact">11 Contact</a>
+  </nav>
+
+  <h2 id="buy"><span class="n">1</span>What you buy</h2>
+  <p>
+    The Hydropark app and its local model are <strong>free</strong>, and two skills are
+    free (Kitchen Timer &amp; Units, and Packing List). Each additional skill is a
+    <strong>one-time $5</strong> purchase. Themed bundles are offered — a three-pack at
+    about $12 and a starter five-pack at about $18. Prices are shown in US dollars; your
+    local price and any tax are shown at checkout. There is no subscription, no seats,
+    and no usage metering — the work runs on your processor.
+  </p>
+
+  <h2 id="own"><span class="n">2</span>Own what you buy</h2>
+  <p>
+    A purchased skill is a <strong>perpetual entitlement</strong>: yours to use offline,
+    forever, the way a book is yours. You may install a skill on up to
+    <strong>five</strong> of your own devices, and uninstall and reinstall it for free.
+    Licenses verify against a signature already on your device — there is
+    <strong>no expiry and no periodic phone-home</strong> that could switch a skill off.
+    Turn off the network and everything you own keeps working.
+  </p>
+
+  <h2 id="continuity"><span class="n">3</span>The offline-forever commitment (business continuity)</h2>
+  <p>
+    The promise that you own what you buy has to survive us. Today, re-download,
+    restore, and new-device activation depend on our servers — so we commit, in these
+    Terms, to what happens to everything you own <strong>if Hydropark ever shuts
+    down</strong> (SPEC §28.2):
+  </p>
+  <div class="legal__commit">
+    <h3>Installed skills always keep working</h3>
+    <p>
+      A skill you have installed verifies its license offline, using keys already on
+      your device. <strong>No server is ever needed to keep using what is installed</strong>,
+      during normal operation or after a wind-down.
+    </p>
+
+    <h3>A wind-down never ships a "keygen"</h3>
+    <p>
+      Our private signing key — the one that signs paid licenses every installed app
+      trusts — is <strong>never released and never embedded in any tool</strong>, because
+      releasing it would forge the entire catalog. Instead, <em>before</em> any shutdown,
+      while keys are still under control, we <strong>batch-mint perpetual per-device
+      licenses for every owner's every entitlement</strong> and ship them in a
+      downloadable <strong>final offline bundle</strong> — your owned skill packages plus
+      those pre-signed licenses. The bundled continuity tool <strong>verifies and
+      installs; it never signs</strong>. Only public verification keys are ever published.
+    </p>
+
+    <h3>If new-device activation is still needed afterwards</h3>
+    <p>
+      Only then, activation uses a <strong>dedicated single-purpose "sunset" key</strong>,
+      pushed into the trusted set by a final signed app update and released only as a
+      deliberate "the catalog is now free" act — <strong>never a key that ever signed a
+      paid license</strong>.
+    </p>
+  </div>
+  <p>
+    This is a <strong>trust feature, not a legal footnote</strong>: it is what makes
+    "own what you buy" true even in the worst case.
+  </p>
+
+  <h2 id="refunds"><span class="n">4</span>Refunds</h2>
+  <p>
+    Every skill carries a <strong>14-day, no-questions refund</strong>. Request it from
+    the account portal (PLACEHOLDER) or by emailing
+    <a href="mailto:hello@hydropark.app">hello@hydropark.app</a> within 14 days of
+    purchase.
+  </p>
+
+  <h2 id="revocation"><span class="n">5</span>Revocation and the offline promise</h2>
+  <p>
+    A refund, chargeback, or confirmed fraud ends the corresponding entitlement, but
+    that takes effect <strong>only on the next successful online contact</strong> — a
+    device that stays offline keeps the skill until then. The one exception that may
+    override the offline-forever guarantee is a <strong>safety hard-block</strong> on a
+    withdrawn skill (for example, a genuine safety issue); otherwise a withdrawn or
+    deprecated skill you already own keeps working.
+  </p>
+
+  <h2 id="advice"><span class="n">6</span>AI-generated advice and disclaimers</h2>
+  <p>
+    Skills run a small AI model that <strong>can be wrong</strong>. Content they
+    generate — recipes, nutrition figures, home-repair and maintenance guidance, and the
+    like — is <strong>informational only</strong> and is <strong>not medical, dietary,
+    food-safety, legal, or professional advice</strong>. Verify anything that matters.
+  </p>
+  <p>
+    In particular: the Cooking Assistant makes <strong>no authoritative allergen or
+    food-safety claims</strong>; allergen warnings are produced by a separate
+    deterministic rule-based layer, and you must verify allergens and quantities
+    yourself. Nutrition Coach is <strong>informational only</strong> and is not medical
+    guidance. Regulated-advice categories are scope-limited, and medical skills are
+    excluded from this version.
+  </p>
+
+  <h2 id="payments"><span class="n">7</span>Seller of record, payments, and tax</h2>
+  <div class="legal__note">
+    <b>PLACEHOLDER — pending legal finalization (X-LEGAL.3).</b> The exact
+    seller-of-record entity and the liability limitation that rests on it are being
+    finalized with jurisdiction-specific review. The paragraph below describes the
+    intended model, provider-neutrally.
+  </div>
+  <p>
+    Skills are sold through a payment provider acting as the merchant/seller of record,
+    which computes, collects, and remits applicable sales tax and VAT. Card data is
+    handled entirely by the provider and never touches Hydropark's servers. Your
+    purchase is also subject to that provider's terms at checkout.
+  </p>
+
+  <h2 id="use"><span class="n">8</span>Acceptable use</h2>
+  <p>
+    Skills are declarative packages that contain <strong>no executable code</strong> and
+    may only use the app's fixed, audited tools. Don't attempt to extract, redistribute,
+    or resell a paid skill's contents, circumvent license verification, or use the app to
+    break the law. The base agent and free skills are provided as-is for personal use.
+  </p>
+
+  <h2 id="liability"><span class="n">9</span>Warranties and limitation of liability</h2>
+  <div class="legal__note">
+    <b>PLACEHOLDER — pending legal finalization (X-LEGAL.3).</b> The app and skills are
+    provided "as is" to the maximum extent permitted by law, without warranties, and our
+    liability is limited to the amount you paid for the affected skill. The enforceable
+    final wording is under jurisdiction-specific legal review and will replace this
+    paragraph before launch. Nothing here limits rights that cannot be limited under the
+    consumer law that applies to you.
+  </div>
+
+  <h2 id="changes"><span class="n">10</span>Changes to these Terms</h2>
+  <p>
+    We may update these Terms; we will change the date above and, for material changes,
+    surface a notice. The ownership and continuity commitments in sections 2 and 3 are
+    core promises we do not intend to walk back.
+  </p>
+
+  <h2 id="contact"><span class="n">11</span>Contact</h2>
+  <p>
+    Questions about these Terms? Email
+    <a href="mailto:hello@hydropark.app">hello@hydropark.app</a> (support address —
+    PLACEHOLDER until the launch inbox is provisioned).
+  </p>
+
+  <nav class="legal__foot-nav" aria-label="More">
+    <a class="lnk" href="index.html">← Back to the gym</a>
+    <a class="lnk" href="privacy.html">Read the Privacy Policy →</a>
+  </nav>
+</article>
+</main>
+
+<footer class="foot">
+  <div class="foot__in">
+    <p class="foot__mark">Hydropark</p>
+    <p class="foot__fine">
+      An offline AI assistant for Windows and macOS. Skills are declarative packages and
+      contain no executable code. Recipes, nutrition figures, repair guidance and
+      maintenance intervals are informational only, are generated in part by an AI that
+      can be wrong, and are not medical, dietary, food-safety, legal or professional
+      advice — verify anything that matters.
+    </p>
+    <p class="foot__links">
+      <a href="mailto:hello@hydropark.app">hello@hydropark.app</a>
+      <span aria-hidden="true">/</span>
+      <a href="privacy.html">Privacy</a>
+      <span aria-hidden="true">/</span>
+      <a href="terms.html">Terms &amp; the offline-forever commitment</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

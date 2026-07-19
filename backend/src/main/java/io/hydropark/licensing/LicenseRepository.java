@@ -11,6 +11,13 @@ public interface LicenseRepository extends MongoRepository<License, String> {
   Optional<License> findByUserIdAndSkillIdAndDeviceIdAndStatus(
       String userId, String skillId, String deviceId, String status);
 
+  /**
+   * All licenses for a user in a given status - the P1-23.2 continuity packager collects a user's
+   * {@code active} pre-signed tokens to bundle. The stored {@code token} is the audit copy the
+   * bundle carries; it is re-verified against the trusted key set on the client, never re-signed.
+   */
+  List<License> findByUserIdAndStatus(String userId, String status);
+
   /** Stranding exposure for a key nearing roll-off (§6.3 coverage gate). */
   long countByStatusAndSigningKeyId(String status, String signingKeyId);
 

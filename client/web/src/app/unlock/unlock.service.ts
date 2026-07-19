@@ -60,7 +60,7 @@ export class UnlockService {
   readonly cookingAssistantUnlocked = computed(() => this._unlocked()[PAID_SKILL_ID as SkillId]);
 
   constructor() {
-    this.hydrate();
+    void this.hydrate();
   }
 
   /** Synchronous read used by skill toggles / `is_unlocked`. Free skills are always true. */
@@ -101,6 +101,31 @@ export class UnlockService {
     return this.redeemLocally(await generateUnlockCode());
   }
 
+  /**
+   * (Re)pull the persisted unlock state and apply it to the reactive signal.
+   * Runs once at boot (constructor) AND again after a marketplace purchase of
+   * `cooking-assistant` settles under a real Tauri build — see
+   * `PurchaseService.enable()`, the other half of the paid-enable/dashboard-lock
+   * bug fix: `skill_download_install` (main.rs) already persisted + flipped the
+   * P0 gate for that purchase via `unlock.rs`'s `mark_unlocked_via_purchase`;
+   * this just re-reads it into this signal, exactly like boot hydration does
+   * for a returning buyer. Public (was a private, fire-and-forget `hydrate()`)
+   * so callers can await it and react to a genuine failure.
+   */
+  async hydrate(): Promise<void> {
+    if (isTauriRuntime()) {
+      try {
+        const s = await invoke<RustStatus>('unlock_status');
+        if (s?.cooking_assistant_unlocked) this.setUnlocked(PAID_SKILL_ID as SkillId, true);
+        return;
+      } catch {
+        // Command not registered yet (lead hasn't wired main.rs) or a bridge
+        // error — fall through to the localStorage read so the flow still works.
+      }
+    }
+    this.hydrateFromStorage();
+  }
+
   // ── internals ────────────────────────────────────────────────────────────
 
   private async redeemLocally(code: string): Promise<RedeemResult> {
@@ -135,19 +160,6 @@ export class UnlockService {
 
   private setUnlocked(skillId: SkillId, value: boolean): void {
     this._unlocked.update((m) => ({ ...m, [skillId]: value }));
-  }
-
-  private hydrate(): void {
-    // Prefer the Rust-owned state when in the shell; fall back to localStorage.
-    if (isTauriRuntime()) {
-      invoke<RustStatus>('unlock_status')
-        .then((s) => {
-          if (s?.cooking_assistant_unlocked) this.setUnlocked(PAID_SKILL_ID as SkillId, true);
-        })
-        .catch(() => this.hydrateFromStorage());
-      return;
-    }
-    this.hydrateFromStorage();
   }
 
   private hydrateFromStorage(): void {

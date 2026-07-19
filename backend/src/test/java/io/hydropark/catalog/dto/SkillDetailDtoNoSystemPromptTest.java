@@ -55,7 +55,8 @@ class SkillDetailDtoNoSystemPromptTest {
             new RequirementsDto("small", "1.0.0"),
             new SkillVersionDto("1.2.0", "1.0.0", 1024L, "deadbeef", true, "notes", "published"),
             "notes",
-            Boolean.TRUE);
+            Boolean.TRUE,
+            List.of("timers", "unit_conversion", "list_management"));
 
     String json = new ObjectMapper().writeValueAsString(dto);
 

@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/progress.schema.json",
+  "title": "Hydropark Widget — progress (determinate / indeterminate)",
+  "description": "The `progress` widget (SPEC 9.4): a pure OUTPUT indicator for downloads and long tasks. It renders EITHER a determinate bar/ring driven by a bound `scalar<number>` interpreted as a fraction in [0,1], OR an indeterminate 'busy' animation driven by a bound `scalar<bool>` (true = busy, false = idle/done). It `allOf`-extends `_widget-base.schema.json`: it pins `type` to the const `progress`, closes `props` with additionalProperties:false, and tightens `emits` to this type's event set. Every other envelope field (`id`, `title`, `region`, `priority`, `binds_state`, `reads_state`, `binds_tool`, `states`, `a11y`, `style`, `min_widget_version`) keeps its base meaning. Validates the CANONICAL form; a manifest may author the shorthand projection (inline props, omitted region/priority/emits/min_widget_version), which the app normalizes before validating (SPEC 9.2).",
+  "$comment": "WIDGET-TYPE DEFAULTS (applied by shorthand→canonical normalization, SPEC 9.2): region = `inline` (a status card in the conversation flow, near the action that started the task; a skill may override to `side`/`bottom`); priority = 50 (base default); emits = [\"completed\"] with to_chat=false; min_widget_version = \"1.0\"; a11y.live_region = \"polite\". ACCEPTED SLOT KIND for `binds_state` (documented per SPEC 9.9; concrete kind lives in shared_state, so this is a cross-artifact certification check, P1-04.5, not an in-envelope constraint): `scalar` — specifically `scalar<number>` (→ determinate) or `scalar<bool>` (→ indeterminate). `props.mode:auto` derives the mode from that bound scalar type; an explicit `mode` must be consistent with the bound scalar (certification flags a mismatch, e.g. `mode:determinate` on a `scalar<bool>` slot). WRITER-OF-RECORD: progress NEVER writes its bound slot (it declares no writes_state — that concept is tool-side, P1-05.3); the producing skill's tool is the slot's writer-of-record and writes the fraction/busy flag (direction 3). `binds_state` is OPTIONAL: a tool with no writes_state may instead push updates straight to this widget id via `updates_widget` (SPEC 9.3).",
+  "type": "object",
+  "required": ["type"],
+  "allOf": [
+    { "$ref": "_widget-base.schema.json" },
+    {
+      "description": "Progress-specific tightening layered over the base envelope. Adds no NEW top-level fields (so the base's additionalProperties:false still holds); it only pins `type`, closes `props`, and narrows `emits`. This subschema deliberately omits additionalProperties so it does not reject the base envelope fields it doesn't mention.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "progress",
+          "description": "Pinned to the `progress` const from $defs/knownWidgetTypeV1 in the base. (Still a shape-checked string in the base, so an older app that lacks this type placeholders rather than failing validation — SPEC 9.8.)"
+        },
+        "props": {
+          "$ref": "#/$defs/progressProps"
+        },
+        "emits": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/progressEventDecl" },
+          "description": "Restricted to this widget-type's event vocabulary ($defs/progressEventName). A skill may only toggle `to_chat` (or suppress firing by authoring an empty array); it cannot invent new events. Omitted → the default event set [\"completed\"] (to_chat=false)."
+        }
+      }
+    },
+    {
+      "$comment": "Correctness link: a cancel affordance needs a tool to invoke (direction 2). If props.cancelable is true, binds_tool MUST be present.",
+      "if": {
+        "type": "object",
+        "required": ["props"],
+        "properties": {
+          "props": {
+            "type": "object",
+            "required": ["cancelable"],
+            "properties": { "cancelable": { "const": true } }
+          }
+        }
+      },
+      "then": {
+        "required": ["binds_tool"]
+      }
+    }
+  ],
+  "examples": [
+    {
+      "type": "progress",
+      "id": "model_download",
+      "title": "Downloading model",
+      "region": "inline",
+      "props": { "mode": "determinate", "shape": "bar", "value_display": "percent", "caption": "Base model (2.4 GB)" },
+      "binds_state": "download_progress",
+      "emits": [ { "name": "completed", "to_chat": true } ],
+      "style": { "tone": "accent" },
+      "min_widget_version": "1.0"
+    },
+    {
+      "type": "progress",
+      "id": "meal_plan_busy",
+      "title": "Building your meal plan",
+      "props": { "mode": "indeterminate", "caption": "Crunching recipes…", "cancelable": true },
+      "binds_state": "planning_busy",
+      "binds_tool": "cancel_planning",
+      "style": { "tone": "neutral", "density": "compact" }
+    }
+  ],
+  "$defs": {
+    "progressProps": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed, immutable-per-instance configuration for a progress panel. All fields optional (each carries a widget-type default); an omitted `props` renders a determinate/auto bar. The bound value is the only live data — props are never runtime state.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "determinate", "indeterminate"],
+          "default": "auto",
+          "description": "`auto` (default) infers the mode from the bound scalar type: `scalar<number>` → determinate, `scalar<bool>` → indeterminate. `determinate` forces a value-driven bar/ring (requires a numeric source); `indeterminate` forces a busy animation and ignores any numeric value. An explicit mode inconsistent with the bound scalar kind is a certification error (P1-04.5)."
+        },
+        "shape": {
+          "type": "string",
+          "enum": ["bar", "ring"],
+          "default": "bar",
+          "description": "Visual form of the indicator: a linear `bar` (default; good for `inline`/`bottom` status) or a radial `ring`. Both convey magnitude by FILL EXTENT, not by hue alone (WCAG 1.4.1). Sizing/spacing come from design tokens (via `style.density`), never from props."
+        },
+        "value_display": {
+          "type": "string",
+          "enum": ["percent", "none"],
+          "default": "percent",
+          "description": "The VISIBLE numeric label in determinate mode: `percent` renders a clamped percentage (e.g. '45%'); `none` hides the visible label for a bare bar. Independent of accessibility: the ARIA value (aria-valuenow / aria-valuetext) is ALWAYS exposed to assistive tech regardless of this setting. Ignored in indeterminate mode (there is no value)."
+        },
+        "caption": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Optional short, static descriptor shown with the indicator (e.g. 'Base model (2.4 GB)', 'Crunching recipes…'). Localizable. Distinct from `title` (the panel heading) and from the live value; part of the widget's accessible description."
+        },
+        "cancelable": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the panel shows a single keyboard-operable CANCEL control that deterministically invokes `binds_tool` (direction 2, UI-first — no model round-trip). Requires `binds_tool` (enforced by the top-level if/then). This is the widget's ONLY interactive affordance; when false the panel is a pure output (role=progressbar, not in the tab order). Under read-only binding (§5) the cancel control is disabled and names the slot's owner — see $defs/readOnlyBehavior."
+        }
+      }
+    },
+    "progressEventName": {
+      "type": "string",
+      "enum": ["completed"],
+      "description": "The closed event vocabulary of the progress widget. `completed` fires once when the determinate value reaches ≥ 1.0, or when the indeterminate busy flag transitions true → false. It is edge-triggered (fires on the transition, not on every re-render) and is NOT time-critical by default, so it does not raise an OS notification (SPEC 9.7) unless a skill marks it so elsewhere; posting it never auto-runs inference (SPEC 9.3 #4)."
+    },
+    "progressEventDecl": {
+      "description": "A `completed` event declaration in shorthand (bare name) or canonical (object) form, mirroring $defs/eventDecl in the base but locked to $defs/progressEventName. Shorthand uses the type default to_chat=false; the object form overrides it.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["completed"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "$ref": "#/$defs/progressEventName" },
+            "to_chat": {
+              "type": "boolean",
+              "description": "true posts a system line into the transcript when the task finishes ('✓ Download complete'). Default for progress is FALSE — a bar reaching 100% is usually self-evident and would spam chat during multi-step work; a skill running one long task (a model download) may set it true. Posting appends to the transcript only; it never wakes the model (SPEC 9.3 #4)."
+            }
+          }
+        }
+      ]
+    },
+    "acceptedSlotKind": {
+      "$comment": "Documentation-only. progress.binds_state accepts a `scalar` slot — either scalar<number> (determinate, read as a fraction clamped to [0,1]) or scalar<bool> (indeterminate busy flag). It maps to the base $defs/acceptsSlotKind value 'scalar'. Enforced as a cross-artifact certification check (P1-04.5), not by this envelope schema, because the concrete slot's kind lives in shared_state.",
+      "type": "null"
+    },
+    "runtimeBehavior": {
+      "$comment": "Documentation-only (not authored; produced by the core/renderer). DETERMINATE: the bound number is clamped to [0,1]; values <0 render as 0, >1 as 1 (and a >1 source is a producing-tool bug, surfaced only via the value, never a crash). The lifecycle (SPEC §9.2 / contract §6) is: mount → loading (no first value / tool in flight — an indeterminate shimmer, never a blank panel) → ready → { empty (slot present but null/undefined → 'Waiting to start.') | populated (0..1 fill, or busy animation) } → completed at 1.0/false. INDETERMINATE: busy=true animates; busy=false resolves to done. ERROR (producing tool failed) shows a human message + retry affordance (contract §6) and is never silently swallowed (SPEC 8.4). This node records the state machine; the strings are the widget-type defaults, overridable via the base `states` field (loading/empty/error copy only — a state can never be suppressed).",
+      "type": "null"
+    },
+    "readOnlyBehavior": {
+      "$comment": "Documentation-only (SPEC 8.3.4 / contract §5). Progress is inherently a read-only VIEW of its bound scalar — it has no value-editing affordance, so it always 'renders live' correctly whether or not its owning skill is the slot's writer-of-record. The one nuance is the optional CANCEL control (props.cancelable): cancelling would set the scalar (e.g. busy→false), which only the writer-of-record may do. So when the widget is NOT the writer-of-record, the resolved runtime state {readonly:true, writer} makes the cancel control non-interactive (aria-disabled) and exposes a 'Managed by {writer-of-record skill name}' description, per §5. The read-only decision is resolved at merge time and delivered as runtime state; it is never authored here.",
+      "type": "null"
+    },
+    "a11yContract": {
+      "$comment": "Documentation-only: the MECHANICAL a11y guaranteed by the first-party widget implementation and enforced by the X-A11Y gate in BOTH themes on EVERY lifecycle state (contract §8). A skill may override only the accessible name/description/live-region via the base `a11y` field; it cannot waive any of the below. ROLES: the indicator uses ARIA role=progressbar. Determinate: aria-valuemin=0, aria-valuemax=1, aria-valuenow=<clamped value>, aria-valuetext='<n>%' (or a localized caption when value_display='none'). Indeterminate: aria-valuenow omitted and aria-busy=true, with an accessible 'Working…'/caption name. LIVE REGIONS: value changes announce via aria-live='polite' (the type default; overridable to off/assertive via a11y.live_region) and are THROTTLED to meaningful milestones + completion, never announced every frame (no screen-reader spam); `completed` announces once. KEYBOARD & FOCUS: a non-cancelable panel is a pure output and takes no tab stop; when props.cancelable is true the cancel button is a single focus stop AFTER the title/caption, operable with Enter/Space, with a visible focus ring (focus token) and its own accessible name ('Cancel {title}'). NO HUE-ONLY MEANING (WCAG 1.4.1): progress is conveyed by fill extent + the percent/'Working…'/'Done' text; `style.tone` (e.g. accent while running, positive on complete, danger on error) is ALWAYS paired with that text/icon and is never the sole signal. CONTRAST: track-vs-fill and all text meet WCAG-AA per theme (verified independently for light and dark, cf. the --sulphur-ink precedent). REDUCE-MOTION: the indeterminate animation collapses to a static busy indicator under the OS reduce-motion setting (motion tokens, SPEC 9.6). SCALABLE TEXT: percent label and caption remain usable when text is zoomed (X-A11Y.3).",
+      "type": "null"
+    },
+    "stylingContract": {
+      "$comment": "Documentation-only (contract §7, SPEC 9.1/9.10): the widget ships NO CSS, NO raw tokens, NO inline styles. The only skill-facing styling surface is the base `style` variant set — for progress, `tone` (semantic color role of the fill/label: default·neutral·accent·positive·caution·danger, always paired with text/icon per WCAG 1.4.1), `emphasis`, `density` (comfortable·compact — this is the sizing lever; there is deliberately no size prop), and `align`. Beneath that variant API, every color/spacing/type/radius/motion value in the widget's implementation must be a var(--token) from $defs/designTokenNamespace (P1-03.8 / P1-20.1 non-token-styling lint); literal hex/px/rem fails certification."
+    }
+  }
+}

@@ -1,7 +1,11 @@
 import { Inject, Injectable } from '@angular/core';
 import {
+  CalculateArgs,
+  CalculateResult,
   ConvertUnitsArgs,
   ConvertUnitsResult,
+  DateMathArgs,
+  DateMathResult,
   ListManageArgs,
   ListManageResult,
   StartTimerArgs,
@@ -43,6 +47,16 @@ export class ToolsService {
 
   listManage(args: ListManageArgs): Promise<ListManageResult | null> {
     return this.dispatch('list_manage', args);
+  }
+
+  /** Deterministic arithmetic (P1-05.1). Stateless — result returns to the caller/bus. */
+  calculate(args: CalculateArgs): Promise<CalculateResult | null> {
+    return this.dispatch('calculate', args);
+  }
+
+  /** RFC 3339 date arithmetic (P1-05.1). Stateless — result returns to the caller/bus. */
+  dateMath(args: DateMathArgs): Promise<DateMathResult | null> {
+    return this.dispatch('date_math', args);
   }
 
   async pauseTimer(timer_id: string) {
@@ -105,8 +119,11 @@ export class ToolsService {
         break;
       }
       case 'convert_units':
-        // convert_units results are consumed directly by the caller (segmented_toggle,
-        // chat quantity re-render) — no shared session state to update here.
+      case 'calculate':
+      case 'date_math':
+        // Stateless first-party tools: their result is consumed directly by the
+        // caller (segmented_toggle / chat re-render) or routed to a widget/chat by
+        // the bus — there is no shared session state to update here.
         break;
     }
   }

@@ -17,14 +17,20 @@ use std::fmt;
 // Tool registry (P0-03.1)
 // ---------------------------------------------------------------------------
 
-/// The fixed, hardcoded Phase-0 tool catalog. No manifest, no discovery —
-/// mirrors `ToolName` in contract.ts exactly (3 variants, nothing else).
+/// The fixed, first-party tool catalog on the IPC wire — no manifest, no
+/// discovery. Mirrors `ToolName` in contract.ts exactly. The three P0 tools
+/// (`start_timer`, `convert_units`, `list_manage`) plus the two STATELESS
+/// Phase-1 tools (`calculate`, `date_math`, surfaced live in P1-05.1) so the
+/// webview can issue/display every tool in `tool_catalog`'s closed 5-tool set.
+/// Kept in lockstep with `crate::tool_catalog::ToolName` (same snake_case refs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolName {
     StartTimer,
     ConvertUnits,
     ListManage,
+    Calculate,
+    DateMath,
 }
 
 impl fmt::Display for ToolName {
@@ -33,6 +39,8 @@ impl fmt::Display for ToolName {
             ToolName::StartTimer => "start_timer",
             ToolName::ConvertUnits => "convert_units",
             ToolName::ListManage => "list_manage",
+            ToolName::Calculate => "calculate",
+            ToolName::DateMath => "date_math",
         };
         write!(f, "{s}")
     }
@@ -287,6 +295,96 @@ pub struct InferenceErrorEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Model download manager (P1-02.7) — the Rust core streams + SIGNATURE-VERIFIES
+// the GGUF before the inference engine may load it (see `downloader.rs`). Same
+// snake_case wire shape as the inference events above (this is the model side of
+// the inference domain, not the marketplace/commerce camelCase family). The
+// Angular mirror in contract.ts is a later tranche (the download UI + a live model
+// host are out of scope for this ticket — the verify/resume LOGIC is what ships here).
+// ---------------------------------------------------------------------------
+
+/// One part of a delta manifest: a byte range of the assembled file fetched from a
+/// (relative or absolute) `path`, with an optional per-part digest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDeltaPart {
+    pub path: String,
+    pub offset: u64,
+    pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+/// `model_download_start` args. `url` is the resolved GGUF blob URL, or the base the
+/// delta `parts` resolve against. `sha256`/`signature`/`signing_key_id` are the trust
+/// triple the finished file is checked against before it is accepted (mirrors the
+/// package-manifest trust model): the file's SHA-256 must equal `sha256`, and the
+/// detached `ed25519:<base64>` `signature` over that 32-byte digest must verify against
+/// the pinned key named by `signing_key_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDownloadStartArgs {
+    pub model_id: String,
+    pub version: String,
+    pub url: String,
+    pub sha256: String,
+    pub signature: String,
+    pub signing_key_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<ModelDeltaPart>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_bytes: Option<u64>,
+}
+
+/// The lifecycle phase of the (single, at-a-time) model download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelDownloadPhase {
+    Idle,
+    Downloading,
+    Verifying,
+    Complete,
+    Failed,
+    Cancelled,
+}
+
+/// Streamed to `model_download://progress` as bytes arrive and on each phase change.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDownloadProgressEvent {
+    pub model_id: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub phase: ModelDownloadPhase,
+}
+
+/// The snapshot returned by `model_download_start` / `_status` / `_cancel`. `model_path`
+/// is set only once the file is downloaded AND verified (the promotion point).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDownloadStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    pub phase: ModelDownloadPhase,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl ModelDownloadStatus {
+    /// The at-rest status before any download has been requested.
+    pub fn idle() -> Self {
+        Self {
+            model_id: None,
+            phase: ModelDownloadPhase::Idle,
+            downloaded_bytes: 0,
+            total_bytes: 0,
+            model_path: None,
+            error: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Skills (P0-05.1)
 // ---------------------------------------------------------------------------
 
@@ -298,6 +396,21 @@ pub struct InferenceErrorEvent {
 pub enum SkillId {
     KitchenTimer,
     CookingAssistant,
+}
+
+/// Args for the `compose_agent` command. A single struct (like every other
+/// command's `args`) so the webview's `invoke(cmd, { args })` wrapping maps
+/// cleanly - `compose_agent` was previously the lone command taking positional
+/// params, which broke that wrapping ("missing required key manifests").
+/// `camelCase` to match `ComposeAgentArgs` in contract.ts (`primaryHint`/`nCtx`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeAgentArgs {
+    pub manifests: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub primary_hint: Option<String>,
+    #[serde(default)]
+    pub n_ctx: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -380,11 +493,527 @@ pub const TELEMETRY_SCHEMA_VERSION: u32 = 1;
 /// producer of telemetry envelopes (it knows the UI-side "why"), Rust is
 /// just the sink that appends a validated JSON line to the session's
 /// `.jsonl` file. `serde_json::Value` here (rather than a matching Rust
-/// enum of the 6 event shapes) avoids the two sides needing to release in
+/// enum of every event shape — the P0 session events plus the P1-25.1
+/// product metrics: `activation`, `composition`, `offline_usage`,
+/// `crash_free_session`) avoids the two sides needing to release in
 /// lockstep on every new event field — the schema is versioned
 /// (`schema_version`) precisely so this sink can validate/reject on that
 /// field without needing to know every variant.
 pub type TelemetryEvent = serde_json::Value;
+
+// ---------------------------------------------------------------------------
+// Marketplace / live-flow commands (P1-08.x) — catalog, orders, entitlements,
+// license, download. UNLIKE the rest of this file (snake_case on the IPC wire,
+// see the header + IPC-CONTRACT.md), these commands use **camelCase** field
+// names on the Rust<->Angular boundary: that is the shape both halves of the
+// live-flow wiring were specified against, and the shape Angular's
+// `invoke(name, { args })` sends/expects. The Rust core (not the webview) owns
+// network egress — the webview CSP is `connect-src 'self'` — so these cross the
+// IPC boundary as Tauri commands that call `backend_client.rs`. The backend's
+// own wire shape is snake_case and reshaped here; `backend_client.rs` decodes
+// the backend JSON into these types.
+// ---------------------------------------------------------------------------
+
+// --- catalog (PUBLIC — no bearer) ------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogListArgs {
+    #[serde(default)]
+    pub region: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogDetailArgs {
+    pub skill_id: String,
+}
+
+/// One marketplace card. `priceCents == 0` means free. `sizeBytes`/`category`/
+/// `pitch`/`ownership` are `null` when the backend has no value (e.g. bundles
+/// carry no category/size; `ownership` is `null` for an anonymous caller,
+/// distinguishing "not authenticated" from "authenticated and not owned").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogItem {
+    pub id: String,
+    pub name: String,
+    pub pitch: Option<String>,
+    pub category: Option<String>,
+    pub price_cents: i64,
+    pub size_bytes: Option<i64>,
+    pub hardware_badge: String,
+    pub ownership: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogListResult {
+    pub skills: Vec<CatalogItem>,
+}
+
+/// `GET /v1/catalog/skills/{id}` reshaped for the detail page. Carries the
+/// backend's `compressed_prompt` teaser ONLY — never a full system prompt
+/// (there is no such field on the wire; see SkillDetailDto's javadoc).
+///
+/// `capabilities` (F05) is the skill's manifest-derived capability-token
+/// array (e.g. `["timers","unit_conversion","list_management"]`) sourced
+/// from the backend's `SkillDetailDto.capabilities` — the REAL input to the
+/// install-time capability-consent dialog (Task 10's `capability_disclose`),
+/// as opposed to deriving it client-side from `tools`. Always present
+/// (possibly empty), never omitted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDetail {
+    pub id: String,
+    pub name: String,
+    pub pitch: Option<String>,
+    pub category: Option<String>,
+    pub price_cents: i64,
+    pub is_free: bool,
+    pub status: String,
+    pub compressed_prompt: Option<String>,
+    pub has_preview: bool,
+    pub min_model_tier: Option<String>,
+    pub hardware_badge: String,
+    pub size_bytes: Option<i64>,
+    pub current_version: Option<String>,
+    pub changelog: Option<String>,
+    pub ownership: Option<bool>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+// --- orders (optional bearer) ----------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderCheckoutArgs {
+    pub target_id: String,
+    pub region: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutResult {
+    pub order_id: String,
+    pub checkout_url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderGetArgs {
+    pub order_id: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderStatusResult {
+    pub order_id: String,
+    pub status: String,
+}
+
+// --- entitlements (optional bearer) ----------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitlementsGetArgs {
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitlementItem {
+    pub skill_id: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitlementsResult {
+    pub skills: Vec<EntitlementItem>,
+}
+
+// --- license issue (optional bearer) ---------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseFetchArgs {
+    pub skill_id: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+/// The offline-verifiable compact JWS (the backend's `token`); `license_verify.rs`
+/// is what checks it against the pinned per-`kid` key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseResult {
+    pub compact_jws: String,
+}
+
+// --- download URL (optional bearer) ----------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadUrlArgs {
+    pub skill_id: String,
+    pub version: String,
+    #[serde(default)]
+    pub bearer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadUrlResult {
+    pub url: String,
+    pub expires_at: String,
+    pub watermark: String,
+}
+
+// ---------------------------------------------------------------------------
+// Accounts / licensing (P1-09.x) + step-up (P1-09.8). Same camelCase IPC family
+// as the marketplace commands above. The Rust core owns the session: it persists
+// the access+refresh token pair (T2 SQLite store) and re-attaches the bearer to
+// every authed backend call, so the webview never handles a raw token. `deviceId`
+// is the STABLE local install id (always present, even signed-out / offline).
+// ---------------------------------------------------------------------------
+
+/// `auth_register` / `auth_login` args — email + password.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthCredentialsArgs {
+    pub email: String,
+    pub password: String,
+}
+
+/// The account+device status the webview hydrates from (`auth_status`,
+/// `device_ensure`, and the return of register/login/logout). `email` is
+/// present only for an authenticated account that has one; `deviceId` is the
+/// stable install id.
+///
+/// `status` is the field the webview's `AuthState.status` (contract.ts) — and
+/// therefore `AuthService.hasIdentity()`/`isAuthenticated()` — actually reads.
+/// P0 fix: earlier this struct had no `status` field at all, so every one of
+/// these commands silently violated the `IpcCommandMap` contract (which
+/// declares `result: AuthState`); the webview's `_state().status` came back
+/// `undefined`, and `hasIdentity()`'s `status !== 'anonymous'` check happened
+/// to read `undefined` as "has an identity" regardless of whether a backend
+/// session actually existed — masking `device_ensure` never having minted one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStatus {
+    /// `"anonymous"` (no session at all) | `"device"` (a session with no email —
+    /// the device-only account) | `"authenticated"` (a session with an email).
+    /// Mirrors the TS `AuthStatusKind` union exactly.
+    pub status: String,
+    pub authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    pub device_id: String,
+}
+
+/// `step_up_answer` args — the server-issued step-up challenge string to sign
+/// (P1-09.8 client half).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepUpAnswerArgs {
+    pub challenge: String,
+}
+
+/// `step_up_answer` result — the base64 Ed25519 signature over the challenge, plus
+/// the signing device's stable install id.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepUpAnswerResult {
+    pub signature: String,
+    pub device_id: String,
+}
+
+// ---------------------------------------------------------------------------
+// .hpskill install / uninstall (P1-03.2). Same camelCase IPC family as the
+// marketplace commands above. The Rust core (`hpskill.rs`) opens a downloaded
+// `.hpskill` package from a local `path`, verifies its detached signature against
+// the pinned package-signing trust set, re-validates the manifest, gates on host
+// compatibility, extracts the sanitized assets to the app-data skills dir, and
+// registers + persists the install. Fail-closed: on any failure nothing is
+// written or registered and the command rejects with `CmdError::Package`.
+// ---------------------------------------------------------------------------
+
+/// `skill_install` args — the local filesystem path of the `.hpskill` archive the
+/// downloader already fetched (the webview never handles package bytes).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallArgs {
+    pub path: String,
+}
+
+/// `skill_install` result — the installed skill's id + resolved version, the
+/// on-disk extraction dir, and its resulting lifecycle state (normally
+/// `installed_disabled`; the composer enables it in a later step).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallResult {
+    pub skill_id: String,
+    pub version: String,
+    pub dir: String,
+    pub state: String,
+}
+
+/// `skill_download_install` args — the signed `.hpskill` blob URL `download_url`
+/// returned (the P1-08.x purchase-flow bridge into this P1-03.2 install pipeline).
+/// The Rust core fetches the bytes itself over `backend_client` (the webview CSP
+/// is `connect-src 'self'`, so it cannot reach the blob URL) and installs them
+/// through the SAME fail-closed `SkillInstaller::install_bytes` pipeline
+/// `skill_install` (path-based) uses — just sourced from a URL instead of a local
+/// file the caller already downloaded.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDownloadInstallArgs {
+    pub url: String,
+}
+
+/// `skill_uninstall` args — the skill id to remove (frees the disk, keeps
+/// ownership; §11.3 reinstall is free).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUninstallArgs {
+    pub skill_id: String,
+}
+
+/// `skill_uninstall` result — the id and its resulting lifecycle state (normally
+/// `owned_not_installed`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUninstallResult {
+    pub skill_id: String,
+    pub state: String,
+}
+
+/// `skills_list_installed` result row (W06 gap fix): one entry of the on-device
+/// `installed_skills` registry (`store::list_installed_skills`), flattened for the
+/// dashboard's dynamic skill list — installed skills beyond the two hardcoded P0
+/// ones (kitchen-timer / cooking-assistant, which never pass through this
+/// `.hpskill` pipeline and so never appear here) were previously invisible in the
+/// UI even after a successful install. `name` is the verified manifest's declared
+/// display name (`manifest.name`), falling back to the raw `skill_id` for a
+/// manifest that unexpectedly lacks one; `enabled` mirrors the store's persisted
+/// flag. Plain snake_case wire (no `rename_all`) — like `TemplateView` above, this
+/// is a direct on-device store read, not a P1 network DTO, so it follows that
+/// family's convention rather than the camelCase `SkillInstallResult` family.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InstalledSkillView {
+    pub skill_id: String,
+    pub name: String,
+    pub version: String,
+    pub enabled: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Capability disclosure (Task 10, SPEC §8.5 / §11 — the B4 trust surface). Same
+// camelCase IPC family as the marketplace commands above. The webview calls this
+// BEFORE an install/buy proceeds, so the shopper sees a plain-language "This
+// skill can: …" summary and can still cancel with no state change. The command
+// is a thin IPC wrapper — it delegates entirely to the existing, tested
+// `tool_routing` capability model (`parse_capabilities` + `disclose`).
+// ---------------------------------------------------------------------------
+
+/// `capability_disclose` args — the skill's declared capability tokens (the v1
+/// closed set from `tool_routing::Capability::as_manifest_str`, e.g. `"timers"`,
+/// `"list_management"`). An out-of-set token (only network/file/system are
+/// excluded in v1) makes the command reject with `CmdError::InvalidArgs` naming
+/// it — never a panic.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityDiscloseArgs {
+    pub capabilities: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// App auto-update (P1-11.2). Same camelCase IPC family as the marketplace
+// commands above. `tauri-plugin-updater` owns the actual signed-build check (and,
+// later, download+apply) against the configured endpoint; the `check_for_update`
+// command maps that to this typed status the update surface renders. See
+// `updater.rs` for the pure classifier + the plugin call.
+//
+// OFFLINE-SAFE (§18): a check that can't complete — offline, an unreachable
+// endpoint, or the PLACEHOLDER endpoint/pubkey that ships until the update server +
+// signing key are provisioned (the release GATE) — resolves to `Error`, NEVER a
+// rejected promise, so an update check can never block offline use.
+// ---------------------------------------------------------------------------
+
+/// The phase the update surface renders. `UpToDate` = no newer build; `UpdateAvailable`
+/// = a newer signed build is published at the endpoint; `Downloading` = an apply is in
+/// progress; `Error` = the check couldn't complete (treated as non-blocking, §18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdatePhase {
+    UpToDate,
+    UpdateAvailable,
+    Downloading,
+    Error,
+}
+
+/// `check_for_update` result — the typed status the webview's update surface renders.
+/// `available_version`/`notes` are set only when `phase == UpdateAvailable`
+/// (or `Downloading`); `error` carries a diagnostic only when `phase == Error`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub phase: UpdatePhase,
+    /// The running app version (always present) — the "current" the UI shows.
+    pub current_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl UpdateCheckResult {
+    /// No newer build than the one running.
+    pub fn up_to_date(current: impl Into<String>) -> Self {
+        Self {
+            phase: UpdatePhase::UpToDate,
+            current_version: current.into(),
+            available_version: None,
+            notes: None,
+            error: None,
+        }
+    }
+
+    /// A newer signed build is published at the endpoint.
+    pub fn available(current: impl Into<String>, version: impl Into<String>, notes: Option<String>) -> Self {
+        Self {
+            phase: UpdatePhase::UpdateAvailable,
+            current_version: current.into(),
+            available_version: Some(version.into()),
+            notes,
+            error: None,
+        }
+    }
+
+    /// An update is being downloaded/applied.
+    pub fn downloading(current: impl Into<String>, version: impl Into<String>) -> Self {
+        Self {
+            phase: UpdatePhase::Downloading,
+            current_version: current.into(),
+            available_version: Some(version.into()),
+            notes: None,
+            error: None,
+        }
+    }
+
+    /// The check could not complete — offline, unreachable endpoint, or the
+    /// placeholder-gate config. Non-blocking (§18): the UI treats it as "couldn't
+    /// check", never a failure that stops the app.
+    pub fn error(current: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            phase: UpdatePhase::Error,
+            current_version: current.into(),
+            available_version: None,
+            notes: None,
+            error: Some(message.into()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Templates (Task 11a, SPEC §10) — save / list / load a named skill
+// combination (the "Weeknight Chef" B2 demo beat). UNLIKE the marketplace /
+// account / hpskill / capability / auto-update families above, this is a
+// pure on-device feature (no backend network call) — same snake_case wire
+// convention as the P0 seed at the top of this file (plain
+// `#[derive(Serialize)]`, no `rename_all`). The Rust core (`templates.rs`)
+// owns the save/load/version-pin logic; this layer only persists it in the
+// on-device store (`store.rs`) and shapes the result for the gallery.
+//
+// `template_load` NEVER bare-rejects for a resolvable template whose combo
+// can't be fully restored (a missing or version-incompatible skill) — it
+// always resolves to a `TemplateLoadResult`, `ok: false` with the offending
+// skill id named in `missing_skills`, so the UI can explain and offer
+// reinstall (SPEC §10). An unknown template `id` is a genuine caller error
+// and still rejects (`CmdError::InvalidArgs`).
+// ---------------------------------------------------------------------------
+
+/// `template_save` args — the current agent's combo to save as a named
+/// template. `skill_refs` is `(skill_id, running_version)` pairs, already in
+/// composed/merge order (mirrors `templates::save_as_template`'s `enabled`
+/// parameter); each version is parsed with the same `SemVer` grammar
+/// `templates.rs` uses — an unparseable version rejects with
+/// `CmdError::InvalidArgs` naming the offending skill.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TemplateSaveArgs {
+    pub name: String,
+    pub skill_refs: Vec<(String, String)>,
+    pub base_model: String,
+    pub ui_overrides: serde_json::Value,
+}
+
+/// A saved template as the gallery renders it — the flattened view over
+/// `templates::Template` (skill ids only; the version pin is an
+/// implementation detail the gallery does not need to render).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TemplateView {
+    pub id: String,
+    pub name: String,
+    pub skill_refs: Vec<String>,
+    pub base_model: String,
+}
+
+/// `template_load` args — the template id to resolve + restore.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TemplateLoadArgs {
+    pub id: String,
+}
+
+/// `template_load` result — ALWAYS the successful side of the IPC boundary for
+/// a known template id (see the section header above). `ok: true` carries the
+/// restored combo (`skill_ids`, in template/merge order) and the layout to
+/// reapply (`ui_overrides`, opaque — the UI layer owns its shape). `ok: false`
+/// carries the skill id that could not be resolved (missing OR
+/// installed-but-version-incompatible; both are named in `missing_skills`
+/// because the same "explain + offer reinstall" remediation applies to both,
+/// SPEC §10) and `skill_ids`/`ui_overrides` are left empty/`null`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TemplateLoadResult {
+    pub ok: bool,
+    pub skill_ids: Vec<String>,
+    pub ui_overrides: serde_json::Value,
+    pub missing_skills: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// UI / panel state (Task 12, SPEC §9) — persist the webview's panel/layout
+// state to the on-device store so it survives an app restart (B2 reload
+// continuity: arrange panels → quit → relaunch → arrangement restored). A
+// pure on-device feature (no backend network call), same shape as templates
+// above; this layer only forwards to `store.rs`'s EXISTING
+// `save_panel_state`/`load_panel_state` (Task 10.1/.4) — no new store logic.
+// `body` is opaque JSON: the Angular `StorageBackend` seam
+// (client/web/.../persistence/storage-backend.ts) owns what it contains, this
+// layer just round-trips it keyed by `agent_id`.
+// ---------------------------------------------------------------------------
+
+/// `ui_state_save` args — the opaque panel/UI state blob to persist, keyed by
+/// `agent_id`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiStateSaveArgs {
+    pub agent_id: String,
+    pub body: serde_json::Value,
+}
+
+/// `ui_state_load` args — the agent id to load panel/UI state for.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiStateLoadArgs {
+    pub agent_id: String,
+}
 
 // ---------------------------------------------------------------------------
 // Command errors
@@ -406,6 +1035,43 @@ pub enum CmdError {
     /// redeemed (P0-05.3/.5). The webview surfaces this as the locked state.
     #[error("skill is locked; redeem an unlock code first")]
     SkillLocked,
+    /// A backend HTTP call (catalog / orders / entitlements / license / download)
+    /// failed — network, non-2xx status, or an undecodable body. Carries the
+    /// `backend_client::BackendError`'s message; see that module for the taxonomy.
+    #[error("backend request failed: {0}")]
+    Backend(String),
+    /// A local account/session/device store operation failed (P1-09.x): the
+    /// on-device SQLite session/device tables, or device-key handling. Carries the
+    /// `store::StoreError` / `device::DeviceError` message.
+    #[error("account store error: {0}")]
+    Account(String),
+    /// A model download (P1-02.7) failed — transport, a non-2xx status, an I/O error,
+    /// or (crucially) the finished file failing signature verification. Carries the
+    /// `downloader::DownloadError` message.
+    #[error("model download failed: {0}")]
+    Download(String),
+    /// A `.hpskill` install/uninstall (P1-03.2) failed — a malformed archive, an
+    /// unsigned / tampered / unknown-kid signature, a manifest that failed
+    /// re-validation, an incompatible host (min_app_version / min_model_tier), a
+    /// path-traversal or non-`.svg`/`.json` entry, or an on-disk error. Fail-closed:
+    /// nothing is registered or persisted. Carries the `hpskill::HpSkillError` message.
+    #[error("skill package error: {0}")]
+    Package(String),
+    /// A local template (SPEC §10) store operation failed — the on-device
+    /// `templates` table (save/list/load). Carries the `store::StoreError`
+    /// message.
+    #[error("template store error: {0}")]
+    Template(String),
+    /// A local UI/panel-state (SPEC §9) store operation failed — the on-device
+    /// `panel_state` table (save/load). Carries the `store::StoreError` message.
+    #[error("ui state store error: {0}")]
+    UiState(String),
+    /// Reading the local installed-skill (P1-03.2) registry failed — the
+    /// on-device `installed_skills` table (`skills_list_installed`, W06 gap fix).
+    /// Carries the `store::StoreError` message. Install/uninstall themselves still
+    /// fail as `Package` (`hpskill::HpSkillError`) — this is only the list read.
+    #[error("installed-skills store error: {0}")]
+    InstalledSkills(String),
 }
 
 impl From<std::io::Error> for CmdError {

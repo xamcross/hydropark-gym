@@ -1,7 +1,7 @@
 <section class="panel timer-stack" aria-label="Timers">
   <header>
     <h2>Timers</h2>
-    <button type="button" class="add-btn" (click)="showAddForm.set(!showAddForm())" aria-expanded="showAddForm()">
+    <button type="button" class="add-btn" (click)="openAddForm()">
       + Timer
     </button>
   </header>
@@ -13,6 +13,7 @@
       <label class="sr-only" for="timer-minutes">Minutes</label>
       <input id="timer-minutes" type="number" min="1" step="1" [ngModel]="minutesDraft()" (ngModelChange)="minutesDraft.set($event)" name="minutes" />
       <span class="unit-label">min</span>
+      <button type="button" (click)="cancelAddForm()">Cancel</button>
       <button type="submit">Start</button>
     </form>
   }
@@ -26,9 +27,12 @@
       <li class="timer-card" [class.finished]="t.remaining_sec === 0">
         <div class="timer-head">
           <span class="label">{{ t.label }}</span>
+          @if (t.remaining_sec === 0) {
+            <span class="timer-flag"><span aria-hidden="true">✓</span> Done</span>
+          }
           <span class="remaining">{{ formatRemaining(t.remaining_sec) }}</span>
         </div>
-        <div class="progress-track" role="progressbar" [attr.aria-valuenow]="progress(t) * 100" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-track" role="progressbar" [attr.aria-label]="t.label + ' time remaining'" [attr.aria-valuenow]="progress(t) * 100" aria-valuemin="0" aria-valuemax="100">
           <div class="progress-fill" [style.width.%]="progress(t) * 100"></div>
         </div>
         <div class="timer-actions">

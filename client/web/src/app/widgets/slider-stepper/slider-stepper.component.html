@@ -1,0 +1,127 @@
+<section class="panel slider-stepper" [attr.aria-label]="title()">
+  <header>
+    <h2>{{ title() }}</h2>
+    @if (showValue() && effectivePhase() !== 'loading') {
+      <span class="readout" aria-hidden="true">
+        {{ displayText() }}@if (unitLabel()) {<span class="unit"> {{ unitLabel() }}</span>}
+      </span>
+    }
+  </header>
+
+  <!-- LOADING (contract §6) -->
+  @if (effectivePhase() === 'loading') {
+    <div class="state-loading" role="status" aria-live="polite">
+      <span class="bar" aria-hidden="true"><span class="bar-fill"></span></span>
+      <span class="state-text">{{ loadingLabel() }}</span>
+    </div>
+  } @else {
+    <!-- READ-ONLY owner note (contract §5) -->
+    @if (readonly()) {
+      <p class="managed-note" [id]="managedId" [attr.title]="'Managed by ' + managedBy()">
+        <span class="icon" aria-hidden="true">🔒</span>
+        Managed by {{ managedBy() }}
+      </p>
+    }
+
+    <!-- EMPTY (contract §6) — control stays operable so the user can begin -->
+    @if (effectivePhase() === 'empty') {
+      <p class="empty">{{ emptyLabel() }} — {{ emptyHint() }}</p>
+    }
+
+    <!-- ERROR (contract §6) -->
+    @if (effectivePhase() === 'error') {
+      <p class="state-error" role="alert">
+        <span class="icon" aria-hidden="true">⚠</span>
+        <span><strong>{{ errorLabel() }}</strong> {{ errorHint() }}</span>
+      </p>
+    }
+
+    <!-- OUT-OF-RANGE badge when clamp=true (text + icon, never hue-only, §8) -->
+    @if (showClampBadge()) {
+      <p class="clamp-badge" role="status">
+        <span class="icon" aria-hidden="true">⚠</span>
+        Value clamped to the allowed range.
+      </p>
+    }
+
+    <!-- SLIDER presentation -->
+    @if (showSlider()) {
+      <div class="slider-row">
+        <label class="sr-only" [attr.for]="rangeId">{{ title() }}</label>
+        <input
+          class="range"
+          [id]="rangeId"
+          type="range"
+          [min]="min()"
+          [max]="max()"
+          [step]="step()"
+          [value]="displayValue()"
+          [disabled]="controlDisabled()"
+          [attr.aria-label]="title()"
+          [attr.aria-valuetext]="valueText()"
+          [attr.aria-describedby]="readonly() ? managedId : null"
+          (input)="onSliderInput($any($event.target).value)"
+          (change)="onSliderChange($any($event.target).value)"
+          (keydown)="onSliderKeydown($event)"
+        />
+      </div>
+
+      @if (marks()) {
+        <div class="marks" aria-hidden="true">
+          @for (t of ticks(); track t.value) {
+            <span class="tick" [style.left.%]="t.pct"></span>
+          }
+          <span class="mark-label mark-min">{{ minLabel() }}</span>
+          <span class="mark-label mark-max">{{ maxLabel() }}</span>
+        </div>
+      }
+    }
+
+    <!-- STEPPER presentation: −/＋ around an editable value field -->
+    @if (showStepper()) {
+      <div class="stepper-row">
+        <button
+          type="button"
+          class="step-btn"
+          [disabled]="decDisabled()"
+          [attr.aria-label]="'Decrease ' + title()"
+          (click)="stepBy(-1)"
+        >
+          <span aria-hidden="true">−</span>
+        </button>
+
+        <label class="sr-only" [attr.for]="fieldId">{{ title() }}</label>
+        <input
+          class="value-field"
+          [id]="fieldId"
+          type="number"
+          inputmode="decimal"
+          [min]="min()"
+          [max]="max()"
+          [step]="step()"
+          [value]="displayValue()"
+          [disabled]="controlDisabled()"
+          [attr.aria-label]="title()"
+          [attr.aria-valuetext]="valueText()"
+          [attr.aria-describedby]="readonly() ? managedId : null"
+          (change)="onNumberChange($any($event.target))"
+          (keydown)="onNumberKeydown($event)"
+        />
+
+        @if (unitLabel()) {
+          <span class="unit-suffix" aria-hidden="true">{{ unitLabel() }}</span>
+        }
+
+        <button
+          type="button"
+          class="step-btn"
+          [disabled]="incDisabled()"
+          [attr.aria-label]="'Increase ' + title()"
+          (click)="stepBy(1)"
+        >
+          <span aria-hidden="true">＋</span>
+        </button>
+      </div>
+    }
+  }
+</section>

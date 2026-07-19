@@ -101,10 +101,16 @@ pub mod unit_math {
 // client/web/src/app/tools/tool-validation.ts.
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub enum TypedToolArgs {
     StartTimer(StartTimerArgs),
     ConvertUnits(ConvertUnitsArgs),
     ListManage(ListManageArgs),
+    /// A validated STATELESS catalog call (`calculate` / `date_math`, P1-05.1):
+    /// parsed and executed by `crate::tool_catalog`, which touches no `AppState`.
+    /// The three P0 tools keep their own variants above so their state behaviour
+    /// is untouched — this variant only ever carries a `Calculate`/`DateMath` call.
+    Stateless(crate::tool_catalog::TypedArgs),
 }
 
 pub fn validate_and_parse(
@@ -157,7 +163,58 @@ pub fn validate_and_parse(
             }
             Ok(TypedToolArgs::ListManage(args))
         }
+        ToolName::Calculate | ToolName::DateMath => {
+            // Route the two stateless first-party tools through the audited
+            // catalog's resolve + typed-parse + validation gate (tool_catalog).
+            // `tool.to_string()` is the snake_case ref the catalog resolves on.
+            // They carry no `AppState`, so `execute` runs them via
+            // `tool_catalog::execute` — the three P0 tools above are untouched.
+            let typed = crate::tool_catalog::validate_and_parse(&tool.to_string(), raw)
+                .map_err(cmd_error_from_tool_error)?;
+            Ok(TypedToolArgs::Stateless(typed))
+        }
     }
+}
+
+/// Map a structured `tool_catalog::ToolError` (P1-05.4) onto the wire `CmdError`,
+/// preserving its kind: `InvalidArgs` (bad/missing/ill-typed field) stays
+/// `InvalidArgs`, `ExecutionFailed` (e.g. divide-by-zero, out-of-range date) stays
+/// `ExecutionError`, an unknown ref stays `UnknownTool`. The offending-`field`
+/// detail is carried in the message via `ToolError`'s `Display`.
+fn cmd_error_from_tool_error(e: crate::tool_catalog::ToolError) -> CmdError {
+    use crate::tool_catalog::ToolError as TE;
+    let msg = e.to_string();
+    match e {
+        TE::UnknownTool { .. } => CmdError::UnknownTool(msg),
+        TE::InvalidArgs { .. } => CmdError::InvalidArgs(msg),
+        TE::ExecutionFailed { .. } => CmdError::ExecutionError(msg),
+    }
+}
+
+/// Execute an already-validated STATELESS catalog call and reshape its typed
+/// result into the wire `(ToolName, JSON)` pair `main.rs`'s `tool_call` embeds in
+/// a `ToolCallResponse`. No `AppState`/`AppHandle`: `calculate` / `date_math` are
+/// pure (`tool_catalog::execute`), so the live path routes them here without
+/// touching app state. A structured failure is preserved (P1-05.4).
+fn execute_stateless(
+    args: &crate::tool_catalog::TypedArgs,
+) -> Result<(ToolName, serde_json::Value), CmdError> {
+    use crate::tool_catalog::ToolResult as TR;
+    let result = crate::tool_catalog::execute(args).map_err(cmd_error_from_tool_error)?;
+    Ok(match result {
+        TR::Calculate(x) => (ToolName::Calculate, serde_json::to_value(x).unwrap()),
+        TR::DateMath(x) => (ToolName::DateMath, serde_json::to_value(x).unwrap()),
+        // `convert_units` is also stateless in the catalog, but the live path
+        // handles it via its own arm above, so it never reaches here; map it for
+        // completeness. `start_timer`/`list_manage` are stateful — the catalog
+        // itself refuses to run them purely — and never validate into `Stateless`.
+        TR::ConvertUnits(x) => (ToolName::ConvertUnits, serde_json::to_value(x).unwrap()),
+        other => {
+            return Err(CmdError::ExecutionError(format!(
+                "unexpected stateless catalog result: {other:?}"
+            )))
+        }
+    })
 }
 
 /// Executes an already-validated call, returning `(tool, json result)` —
@@ -180,6 +237,9 @@ pub fn execute(
             let result = list_manage(state, a)?;
             Ok((ToolName::ListManage, serde_json::to_value(result).unwrap()))
         }
+        // Stateless catalog tools (`calculate` / `date_math`) run purely — they
+        // ignore `state`/`app` — via `tool_catalog::execute` (P1-05.1).
+        TypedToolArgs::Stateless(a) => execute_stateless(&a),
     }
 }
 
@@ -441,4 +501,138 @@ fn list_manage(state: &AppState, args: ListManageArgs) -> Result<ListManageResul
         }
     }
     Ok(ListManageResult { ingredients: inner.ingredients.clone() })
+}
+
+// ---------------------------------------------------------------------------
+// Tests (P1-05.1). Exercise the LIVE `tool_call` path for the two stateless
+// first-party tools (`calculate`, `date_math`) — the exact sequence
+// `main.rs::tool_call` runs: `validate_and_parse` (the audited gate) then the
+// stateless executor the `Stateless` arm of `execute` delegates to. These two
+// tools are pure, so this IS their full live path (no `AppState`/`AppHandle`,
+// which the stateful `start_timer`/`list_manage` arms alone need). The three P0
+// tools' routing is asserted unchanged.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The live stateless dispatch: validate, confirm it routed to the catalog,
+    /// then execute — mirroring `tool_call`'s `Ok(typed) => execute(..)` branch.
+    fn live_stateless(
+        tool: ToolName,
+        raw: serde_json::Value,
+    ) -> Result<(ToolName, serde_json::Value), CmdError> {
+        match validate_and_parse(tool, &raw)? {
+            TypedToolArgs::Stateless(a) => execute_stateless(&a),
+            _ => panic!("expected {tool} to route to the stateless catalog"),
+        }
+    }
+
+    #[test]
+    fn tool_call_executes_calculate_end_to_end() {
+        let (tool, result) =
+            live_stateless(ToolName::Calculate, json!({"op": "add", "operands": [2.0, 3.0, 4.0]}))
+                .unwrap();
+        assert_eq!(tool, ToolName::Calculate);
+        assert_eq!(result.get("value").and_then(|v| v.as_f64()), Some(9.0));
+
+        // a different op, still through the live path
+        let (_, result) =
+            live_stateless(ToolName::Calculate, json!({"op": "div", "operands": [100.0, 2.0, 5.0]}))
+                .unwrap();
+        assert_eq!(result.get("value").and_then(|v| v.as_f64()), Some(10.0));
+    }
+
+    #[test]
+    fn tool_call_executes_date_math_end_to_end() {
+        let (tool, result) = live_stateless(
+            ToolName::DateMath,
+            json!({"base": "2026-07-11T09:00:00Z", "op": "add", "delta": {"hours": 2, "minutes": 30}}),
+        )
+        .unwrap();
+        assert_eq!(tool, ToolName::DateMath);
+        let s = result.get("result").and_then(|v| v.as_str()).expect("result string");
+        assert!(s.starts_with("2026-07-11T11:30:00"), "got {s}");
+    }
+
+    #[test]
+    fn tool_call_bad_arg_returns_structured_invalid_args() {
+        // Fewer than two operands is rejected at the validate gate — the branch
+        // `main.rs::tool_call` surfaces as `ToolCallErrorCode::InvalidArgs`.
+        let err = validate_and_parse(ToolName::Calculate, &json!({"op": "add", "operands": [1.0]}))
+            .unwrap_err();
+        assert!(matches!(err, CmdError::InvalidArgs(_)), "expected InvalidArgs, got {err:?}");
+        assert!(err.to_string().contains("operands"), "field named in message: {err}");
+
+        // A malformed date base is likewise a structured InvalidArgs, not an
+        // ExecutionError (the offending field is named — P1-05.4).
+        let err = validate_and_parse(
+            ToolName::DateMath,
+            &json!({"base": "not-a-date", "op": "add", "delta": {"days": 1}}),
+        )
+        .unwrap_err();
+        assert!(matches!(err, CmdError::InvalidArgs(_)), "expected InvalidArgs, got {err:?}");
+        assert!(err.to_string().contains("base"), "field named in message: {err}");
+    }
+
+    #[test]
+    fn tool_call_calculate_divide_by_zero_is_structured_execution_error() {
+        // Validation passes; the failure surfaces at execution as a structured
+        // ExecutionError — the branch `main.rs::tool_call` surfaces as
+        // `ToolCallErrorCode::ExecutionError`. Never silently swallowed (§8.4 pt 4).
+        let typed =
+            validate_and_parse(ToolName::Calculate, &json!({"op": "div", "operands": [1.0, 0.0]}))
+                .unwrap();
+        let stateless = match typed {
+            TypedToolArgs::Stateless(a) => a,
+            _ => panic!("calculate must route to the stateless catalog"),
+        };
+        let err = execute_stateless(&stateless).unwrap_err();
+        assert!(matches!(err, CmdError::ExecutionError(_)), "expected ExecutionError, got {err:?}");
+    }
+
+    #[test]
+    fn existing_three_tools_route_unchanged() {
+        // Each P0 tool still parses into its OWN variant (executed against
+        // `AppState` in `execute`), never the new `Stateless` arm.
+        assert!(matches!(
+            validate_and_parse(
+                ToolName::StartTimer,
+                &json!({"label": "pasta", "duration_sec": 480})
+            )
+            .unwrap(),
+            TypedToolArgs::StartTimer(_)
+        ));
+        assert!(matches!(
+            validate_and_parse(
+                ToolName::ConvertUnits,
+                &json!({"domain": "mass", "value": 1.0, "from_unit": "kg", "to_unit": "g"})
+            )
+            .unwrap(),
+            TypedToolArgs::ConvertUnits(_)
+        ));
+        assert!(matches!(
+            validate_and_parse(ToolName::ListManage, &json!({"op": "add", "item": {"name": "flour"}}))
+                .unwrap(),
+            TypedToolArgs::ListManage(_)
+        ));
+
+        // Their existing validation still rejects bad args the same way.
+        assert!(matches!(
+            validate_and_parse(ToolName::StartTimer, &json!({"label": "  ", "duration_sec": 30})),
+            Err(CmdError::InvalidArgs(_))
+        ));
+
+        // The deterministic convert_units arithmetic is byte-for-byte unchanged.
+        let r = unit_math::convert(&ConvertUnitsArgs {
+            domain: UnitDomain::Mass,
+            value: 1.0,
+            from_unit: UnitId::Kg,
+            to_unit: UnitId::G,
+        })
+        .unwrap();
+        assert_eq!(r.value, 1000.0);
+    }
 }

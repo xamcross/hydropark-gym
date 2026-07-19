@@ -21,13 +21,21 @@
 // Tool registry (P0-03.1)
 // ---------------------------------------------------------------------------
 
-/** The fixed, hardcoded Phase-0 tool catalog. No manifest, no discovery. */
-export type ToolName = 'start_timer' | 'convert_units' | 'list_manage';
+/**
+ * The fixed, first-party, audited tool catalog. The three P0 tools plus the two
+ * Phase-1 stateless additions (`calculate`, `date_math`, P1-05.1) — the exact
+ * closed set the manifest schema's `toolRef` enum and the Rust
+ * `tool_catalog::ToolName` expose (snake_case wire names). No manifest can invent
+ * a tool outside this set; adding one is a reviewed catalog change on both sides.
+ */
+export type ToolName = 'start_timer' | 'convert_units' | 'list_manage' | 'calculate' | 'date_math';
 
 export const TOOL_NAMES: readonly ToolName[] = [
   'start_timer',
   'convert_units',
   'list_manage',
+  'calculate',
+  'date_math',
 ] as const;
 
 // --- start_timer -----------------------------------------------------------
@@ -97,18 +105,66 @@ export interface ListManageResult {
   ingredients: IngredientItem[];
 }
 
+// --- calculate (P1-05.1) ---------------------------------------------------
+//
+// One deterministic arithmetic op over two-or-more operands — NO free-form
+// expression evaluation. Mirrors `tool_catalog::CalculateArgs/CalculateResult`.
+
+/** The closed arithmetic-op set (snake_case wire, matches Rust `CalcOp`). */
+export type CalcOp = 'add' | 'sub' | 'mul' | 'div';
+
+export interface CalculateArgs {
+  op: CalcOp;
+  /** Two or more finite operands, folded left-to-right by `op`. */
+  operands: number[];
+}
+
+export interface CalculateResult {
+  value: number;
+}
+
+// --- date_math (P1-05.1) ---------------------------------------------------
+//
+// Add/subtract a whole days/hours/minutes delta to an RFC 3339 instant. Mirrors
+// `tool_catalog::DateMathArgs/DateMathResult`.
+
+export type DateOp = 'add' | 'sub';
+
+/** A signed offset in whole days/hours/minutes; each component defaults to 0. */
+export interface DateDelta {
+  days?: number;
+  hours?: number;
+  minutes?: number;
+}
+
+export interface DateMathArgs {
+  /** The base instant as an RFC 3339 date-time (e.g. `2026-07-11T09:00:00Z`). */
+  base: string;
+  op: DateOp;
+  delta: DateDelta;
+}
+
+export interface DateMathResult {
+  /** The resulting instant, RFC 3339. */
+  result: string;
+}
+
 // --- generic tool args/result map ------------------------------------------
 
 export interface ToolArgsMap {
   start_timer: StartTimerArgs;
   convert_units: ConvertUnitsArgs;
   list_manage: ListManageArgs;
+  calculate: CalculateArgs;
+  date_math: DateMathArgs;
 }
 
 export interface ToolResultMap {
   start_timer: StartTimerResult;
   convert_units: ConvertUnitsResult;
   list_manage: ListManageResult;
+  calculate: CalculateResult;
+  date_math: DateMathResult;
 }
 
 /** Who triggered the call — the UI-first path (P0-03.6) or the model path (P0-04.1). */
@@ -345,6 +401,69 @@ export interface OutcomeEvent extends TelemetryEventBase {
   detail?: string;
 }
 
+// --- product metrics (P1-25.1) ---------------------------------------------
+//
+// The four north-star product metrics, emitted through the SAME `telemetry_log`
+// sink as everything above. Each carries ONLY enums/booleans/counts/durations —
+// never a name, message, or any conversation content (SPEC §15, §25). They are
+// suppressed wholesale when the P1-10.3 opt-in toggle is off (see
+// telemetry.service.ts's consent guard).
+
+/**
+ * ACTIVATION — the user enabled a skill during a session. Emitted once per
+ * session, on the FIRST skill enabled that session (telemetry.service.ts owns
+ * the once-per-session bookkeeping). `first_session` marks the install's very
+ * first session (a best-effort local flag), so "activation in the first
+ * session" is computable from the log alone.
+ */
+export interface ActivationEvent extends TelemetryEventBase {
+  event: 'activation';
+  skill_id: SkillId;
+  /** True when the app has no local record of a prior session. */
+  first_session: boolean;
+}
+
+/**
+ * COMPOSITION RATE — the live agent is composed from more than one skill, or
+ * from an adopted template. Emitted once per composition-active transition
+ * (CompositionService), never per re-compose. Counts + a boolean only.
+ */
+export interface CompositionEvent extends TelemetryEventBase {
+  event: 'composition';
+  /** Skills active in the composed agent (≥ 2 for an ad-hoc composition). */
+  skills_active: number;
+  /** True when a saved template drove the composition (vs. ad-hoc toggling). */
+  via_template: boolean;
+}
+
+/**
+ * OFFLINE-USAGE SHARE — session-level: did the session run without touching the
+ * backend (pure on-device use)? `backend_calls` is the count of network-backed
+ * IPC calls made this session; `offline` is `backend_calls === 0`. No URLs, no
+ * payloads — just the count and the derived boolean.
+ */
+export interface OfflineUsageEvent extends TelemetryEventBase {
+  event: 'offline_usage';
+  /** True when the session made no backend/network call at all. */
+  offline: boolean;
+  /** Number of backend calls this session (0 ⇒ fully offline). */
+  backend_calls: number;
+}
+
+/**
+ * CRASH-FREE SESSION — session-level: did the session reach a clean end with no
+ * unhandled error? `errors` counts observed unhandled errors/rejections;
+ * `crash_free` is `errors === 0`. NEVER carries a message or stack (those can
+ * leak content) — a count and a boolean only.
+ */
+export interface CrashFreeSessionEvent extends TelemetryEventBase {
+  event: 'crash_free_session';
+  /** True when no unhandled error/rejection was observed this session. */
+  crash_free: boolean;
+  /** Number of unhandled errors observed (0 ⇒ crash-free). */
+  errors: number;
+}
+
 export type TelemetryEvent =
   | SkillEnabledEvent
   | SkillDisabledEvent
@@ -352,7 +471,586 @@ export type TelemetryEvent =
   | ListEditedEvent
   | UnitsFlippedEvent
   | TokPerSecEvent
-  | OutcomeEvent;
+  | OutcomeEvent
+  | ActivationEvent
+  | CompositionEvent
+  | OfflineUsageEvent
+  | CrashFreeSessionEvent;
+
+// ---------------------------------------------------------------------------
+// Marketplace + agent-composition commands (P1 live-flow wiring)
+// ---------------------------------------------------------------------------
+//
+// NB: unlike the P0 seed above (which mirrors `ipc.rs` field-for-field in
+// snake_case), these Phase-1 commands use camelCase wire field names — that is
+// the shape the live-flow task fixes as the cross-agent contract, and the Rust
+// half builds its Tauri commands (`#[serde(rename_all = "camelCase")]`) to the
+// same names. Base URL for the network-backed ones comes from
+// `HYDROPARK_API_BASE` on the Rust side; the webview never talks HTTP directly.
+//
+// `catalog_list` / `catalog_detail` are PUBLIC (no bearer). Orders,
+// entitlements, license and download take an OPTIONAL `bearer` access token —
+// the client auth flow that mints it is a later tranche; the plumbing passes it
+// through when present and omits it otherwise.
+
+/** One row of `catalog_list` — the card projection (SPEC §11.1). `priceCents === 0` ⇒ free. */
+export interface CatalogItem {
+  id: string;
+  name: string;
+  pitch: string;
+  category: string;
+  /** Minor units (cents). `0` = free. */
+  priceCents: number;
+  sizeBytes: number;
+  /** Human-readable hardware-fit chip, e.g. "Runs on your PC" / "Needs a larger model". */
+  hardwareBadge: string;
+  /** Effective ownership/lifecycle state string (e.g. "not-owned" | "owned" | "installed" | "active"). */
+  ownership: string;
+}
+
+export interface CatalogListArgs {
+  region?: string;
+}
+
+export interface CatalogListResult {
+  skills: CatalogItem[];
+}
+
+export interface CatalogDetailArgs {
+  skillId: string;
+}
+
+/**
+ * `catalog_detail` result. Carries `compressedPrompt` ONLY — never the full paid
+ * `system_prompt` (IP protection SF8); there is deliberately no field for it.
+ */
+export interface SkillDetail {
+  id: string;
+  name: string;
+  pitch: string;
+  category: string;
+  priceCents: number;
+  sizeBytes: number;
+  hardwareBadge: string;
+  ownership: string;
+  description?: string;
+  /** The compressed teaser prompt — the only prompt text ever exposed. */
+  compressedPrompt?: string;
+  panels?: string[];
+  tools?: string[];
+  samplePrompts?: string[];
+  hasPreview?: boolean;
+  currentVersion?: string;
+  changelog?: string;
+  /**
+   * F05: the skill's manifest-derived capability-token array (e.g.
+   * `["timers","unit_conversion","list_management"]`), sourced from the backend's
+   * `SkillDetailDto.capabilities`. Mirrors `ipc::SkillDetail.capabilities` in
+   * `ipc.rs` — always present (possibly empty) on a real detail response, unlike
+   * `tools` (which the backend never populates).
+   */
+  capabilities?: string[];
+}
+
+export interface OrderCheckoutArgs {
+  targetId: string;
+  region: string;
+  bearer?: string;
+}
+
+export interface OrderCheckoutResult {
+  orderId: string;
+  checkoutUrl: string;
+}
+
+export interface OrderGetArgs {
+  orderId: string;
+  bearer?: string;
+}
+
+export interface OrderGetResult {
+  orderId: string;
+  status: string;
+}
+
+export interface EntitlementsGetArgs {
+  bearer?: string;
+}
+
+/** One owned entitlement row (SPEC §11.3 / §13). */
+export interface EntitlementItem {
+  skillId: string;
+  /** e.g. "owned" | "installed" | "active". */
+  state: string;
+  version?: string;
+}
+
+export interface EntitlementsGetResult {
+  skills: EntitlementItem[];
+}
+
+export interface LicenseFetchArgs {
+  skillId: string;
+  bearer?: string;
+}
+
+export interface LicenseFetchResult {
+  /** The compact-JWS license token (ES256, see HSM migration doc). */
+  compactJws: string;
+}
+
+export interface DownloadUrlArgs {
+  skillId: string;
+  version: string;
+  bearer?: string;
+}
+
+export interface DownloadUrlResult {
+  url: string;
+  /** ISO-8601 expiry of the signed URL. */
+  expiresAt: string;
+  /** Per-user watermark token embedded in the package (BE anti-piracy). */
+  watermark: string;
+}
+
+// ---------------------------------------------------------------------------
+// Agent composition (`compose_agent`) — mirrors client/src-tauri/src/composition.rs
+// ---------------------------------------------------------------------------
+//
+// The Rust `compose_agent` command chains manifest validation → merge (order /
+// persona / tools / conflicts) → capacity gate → tool routing, and returns the
+// flattened `ComposedAgentView` (or throws a structured `ComposeError`). These
+// interfaces are the 1:1 TypeScript mirror of the `#[derive(Serialize)]` views
+// in composition.rs so the webview consumes it type-safely.
+
+/** One composed tool (mirrors Rust `ToolView`). */
+export interface ComposedToolView {
+  call_name: string;
+  tool_ref: string;
+  contributors: string[];
+  namespaced: boolean;
+}
+
+/** One tool's resolved routing (mirrors Rust `RouteView`). `target` is `"chat"` or `"widget:<name>"`. */
+export interface ComposedRouteView {
+  tool_ref: string;
+  reads: string[];
+  writes: string[];
+  target: string;
+}
+
+/** The context-capacity projection (mirrors Rust `CapacityView`). */
+export interface ComposedCapacityView {
+  ctx_window: number;
+  reserve_tokens: number;
+  skill_tokens: number;
+  used_tokens: number;
+  remaining: number;
+  blocked: boolean;
+  overflow: number;
+}
+
+/** The fully composed agent the `compose_agent` command returns (mirrors Rust `ComposedAgentView`). */
+export interface ComposedAgentView {
+  order: string[];
+  primary: string | null;
+  persona: string;
+  tools: ComposedToolView[];
+  routing: ComposedRouteView[];
+  capacity: ComposedCapacityView;
+}
+
+/**
+ * A structured composition failure (mirrors Rust `ComposeErrorView`). The Tauri
+ * command surfaces this as the rejected-promise payload; the client also uses
+ * this shape for transport/parse failures it raises itself (`kind: 'ipc'`).
+ */
+export interface ComposeError {
+  /** `invalid_manifest` | `malformed` | `conflict` | `capacity_overflow` | `ipc`. */
+  kind: string;
+  message: string;
+}
+
+export interface ComposeAgentArgs {
+  /**
+   * Raw `.hpskill` manifest JSON for the currently-enabled skills. Typed
+   * `unknown[]` because the Rust side treats each as an opaque `serde_json::Value`
+   * and validates it — the webview passes the manifest objects through verbatim.
+   */
+  manifests: unknown[];
+  /** The user's chosen lead skill, if any (otherwise merge order decides). */
+  primaryHint?: string;
+  /** Model context window in tokens (e.g. 4096). */
+  nCtx?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Account / auth (P1-09.1/.2) + purchase deep-link (P1-08.6/.8)
+// ---------------------------------------------------------------------------
+//
+// Email-OPTIONAL identity (SPEC §12 / §13). The app is fully usable with NO
+// account; identity only becomes necessary to BUY. Three escalating states:
+//   - `anonymous`     — no identity yet (default; the app still works fully).
+//   - `device`        — a device-scoped identity (`device_ensure`) that CAN buy
+//                       but is not portable; the no-email "continue on this
+//                       device" path.
+//   - `authenticated` — an email/password account, so entitlements restore on
+//                       another install (`entitlements_refresh`).
+//
+// camelCase wire names, same cross-agent convention as the marketplace block:
+// the Rust half builds `#[serde(rename_all = "camelCase")]` commands to match.
+// Network-backed calls take an OPTIONAL device/account `bearer`; the webview
+// never talks HTTP directly.
+
+export type AuthStatusKind = 'anonymous' | 'device' | 'authenticated';
+
+/**
+ * A pending step-up challenge (SPEC §13.4) — e.g. an emailed code or TOTP the
+ * backend demands before a sensitive action completes. While set, the identity
+ * is NOT yet `authenticated`; the webview renders `prompt` and answers with
+ * `step_up_answer`.
+ */
+export interface StepUpChallenge {
+  challengeId: string;
+  /** e.g. "email_code" | "totp". */
+  kind: string;
+  /** Human-readable instruction to render verbatim. */
+  prompt: string;
+}
+
+/** The whole client-visible identity state — the result of every auth command. */
+export interface AuthState {
+  status: AuthStatusKind;
+  /** Stable device identity id, present once `device_ensure` has run. */
+  deviceId?: string | null;
+  /** Account id, present when `status === 'authenticated'`. */
+  userId?: string | null;
+  /** Linked email, if any (optional even when authenticated in some flows). */
+  email?: string | null;
+  /** Bearer access token for the authed order/entitlement/license/download calls. */
+  accessToken?: string | null;
+  /** Set when the last command raised a step-up challenge that must be answered. */
+  stepUp?: StepUpChallenge | null;
+}
+
+/** Check/hydrate current identity. Optional `bearer` re-validates a stored token. */
+export interface AuthStatusArgs {
+  bearer?: string;
+}
+
+/** Create an email account. Email/password are OPTIONAL here only so the Rust side can 400 with a structured error the UI renders — the UI itself requires them for this path. */
+export interface AuthRegisterArgs {
+  email?: string;
+  password?: string;
+  region?: string;
+}
+
+export interface AuthLoginArgs {
+  email: string;
+  password: string;
+}
+
+export interface AuthLogoutArgs {
+  bearer?: string;
+}
+
+/** Mint (or return the existing) device-scoped identity — the no-email buy path. */
+export interface DeviceEnsureArgs {
+  region?: string;
+}
+
+export interface StepUpAnswerArgs {
+  challengeId: string;
+  answer: string;
+}
+
+/** Restore purchases (P1-08.8): re-pull the authed entitlement set. */
+export interface EntitlementsRefreshArgs {
+  bearer?: string;
+}
+
+/** Hand a URL to the OS default browser (Rust owns the actual `open`). */
+export interface OpenExternalArgs {
+  url: string;
+}
+
+/**
+ * The purchase deep-link return (P1-08.6). After the buyer completes checkout in
+ * the system browser, the backend redirects to the app's `purchase://callback`
+ * custom scheme; the OS routes that to the Tauri shell, which re-emits it here.
+ * The webview treats it as ONE of two settle signals (the other is polling
+ * `order_get`) — whichever arrives first wins.
+ */
+export interface PurchaseCallbackEvent {
+  orderId?: string | null;
+  skillId?: string | null;
+  /** e.g. "settled" | "cancelled" | "failed". */
+  status: string;
+  /** The raw deep-link URL, for diagnostics. */
+  raw?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// On-demand model download (P1-02.7) — resumable, REAL-progress downloader
+// ---------------------------------------------------------------------------
+//
+// The bundled 3B model ships inside the app, so nothing is required to start
+// (SPEC §16.1). This block covers PULLING an optional larger model on demand.
+// The Rust core owns the actual HTTP range-download, the on-disk temp file, the
+// resume offset, and the SHA-256 verify; the webview only starts/cancels it and
+// RENDERS the progress it streams back. camelCase wire names, same P1 convention
+// as the marketplace block.
+//
+// Honesty contract (P1-02.7): every byte figure that crosses this seam is a REAL
+// count the core measured — there is deliberately no "estimated %" field the UI
+// could animate. When the total isn't known yet the UI shows an indeterminate
+// bar, never a fabricated fraction.
+
+/** Which downloadable model to fetch. `modelId` keys the core-side model registry. */
+export interface ModelDownloadStartArgs {
+  modelId: string;
+  /**
+   * Resume from a retained partial file when one exists (default true). `false`
+   * forces a clean restart from byte 0, discarding any partial.
+   */
+  resume?: boolean;
+}
+
+export interface ModelDownloadStatusArgs {
+  modelId: string;
+}
+
+export interface ModelDownloadCancelArgs {
+  modelId: string;
+}
+
+/** Lifecycle phase of a model download — drives which UI state renders. */
+export type ModelDownloadPhase =
+  | 'queued' //      accepted, not yet transferring (no headers yet)
+  | 'downloading' // bytes moving
+  | 'verifying' //   transfer complete, checking SHA-256
+  | 'complete' //    verified + installed on disk
+  | 'paused' //      stopped with a resumable partial retained
+  | 'cancelled' //   user-cancelled (a resumable partial may be retained)
+  | 'error'; //      failed — see `message`; often resumable
+
+/**
+ * A download status snapshot — the SHARED shape returned by `model_download_status`
+ * / `model_download_start` AND pushed on every `model://progress` event. Carries
+ * `bytes` / `totalBytes` / `phase` / `resumed` (plus a `message` on error). Never
+ * an estimated percentage — the UI derives the fraction as `bytes / totalBytes`
+ * only when `totalBytes` is known.
+ */
+export interface ModelDownloadStatus {
+  modelId: string;
+  phase: ModelDownloadPhase;
+  /** Bytes transferred so far — a REAL count measured by the core, never estimated. */
+  bytes: number;
+  /** Total content length in bytes, or null until the core knows it (pre-headers). */
+  totalBytes: number | null;
+  /** True when this run resumed from a retained partial rather than starting at 0. */
+  resumed: boolean;
+  /** Human-readable failure reason; set only when `phase === 'error'`. */
+  message?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// .hpskill install / uninstall (P1-03.2) — mirrors ipc.rs SkillInstall*/SkillUninstall*
+// ---------------------------------------------------------------------------
+//
+// camelCase wire names, same P1 convention as the marketplace block. The Rust core
+// (`hpskill.rs`) verifies the downloaded `.hpskill` package's signature against the
+// pinned trust set, re-validates the manifest, gates on host compatibility, extracts
+// the sanitized assets to the app-data skills dir, and registers + persists the
+// install. Fail-closed: on any failure nothing is written and the command REJECTS
+// (surfaced as the rejected-promise `CmdError` string). The webview never handles
+// package bytes — it passes the local `path` the downloader already fetched.
+
+/** `skill_install` args — the local filesystem path of the fetched `.hpskill` archive. */
+export interface SkillInstallArgs {
+  path: string;
+}
+
+/**
+ * `skill_install` result — the installed skill's id + resolved version, the on-disk
+ * extraction dir, and its resulting lifecycle `state` (normally `"installed_disabled"`;
+ * the composer enables it in a later step). `state` is the snake_case lifecycle label
+ * from the Rust `state_label` (e.g. `"owned_not_installed"` | `"installed_disabled"` |
+ * `"enabled_active"`).
+ */
+export interface SkillInstallResult {
+  skillId: string;
+  version: string;
+  dir: string;
+  state: string;
+}
+
+/**
+ * `skill_download_install` args — the signed `.hpskill` blob URL `download_url`
+ * returned (the purchase flow's bridge from P1-08.x commerce into this P1-03.2
+ * install pipeline). The Rust core fetches the bytes itself (the webview CSP is
+ * `connect-src 'self'`, so it cannot reach the blob URL) and installs them through
+ * the SAME fail-closed pipeline `skill_install` (path-based) uses, returning the
+ * SAME {@link SkillInstallResult} shape.
+ */
+export interface SkillDownloadInstallArgs {
+  url: string;
+}
+
+/** `skill_uninstall` args — the skill id to remove (frees disk, keeps ownership; §11.3). */
+export interface SkillUninstallArgs {
+  skillId: string;
+}
+
+/** `skill_uninstall` result — the id and its resulting lifecycle state (normally `"owned_not_installed"`). */
+export interface SkillUninstallResult {
+  skillId: string;
+  state: string;
+}
+
+// ---------------------------------------------------------------------------
+// Capability disclosure (Task 10, SPEC §8.5 / §11 — the B4 trust surface).
+// Same camelCase P1 convention. The webview calls this BEFORE an install/buy
+// proceeds so the shopper sees a plain-language "This skill can: …" summary
+// and can still cancel with no state change. The Rust core owns the closed v1
+// capability set and the phrasing (`tool_routing::parse_capabilities` +
+// `disclose`) — this command is a thin wrapper over it.
+// ---------------------------------------------------------------------------
+
+/** `capability_disclose` args — the skill's declared capability tokens (the v1 closed
+ * set, e.g. `"timers"`, `"list_management"`). An out-of-set token rejects the promise. */
+export interface CapabilityDiscloseArgs {
+  capabilities: string[];
+}
+
+// ---------------------------------------------------------------------------
+// App auto-update (P1-11.2) — mirrors ipc.rs UpdatePhase / UpdateCheckResult
+// ---------------------------------------------------------------------------
+//
+// `check_for_update` asks the Rust core (which owns `tauri-plugin-updater`) whether a
+// newer SIGNED build is published at the configured endpoint and returns this typed
+// status the update surface renders. camelCase wire names, same P1 convention.
+//
+// OFFLINE-SAFE (§18): the command NEVER rejects — a check that can't complete
+// (offline, an unreachable endpoint, or the PLACEHOLDER endpoint/pubkey that ships
+// until the update server + signing key are provisioned) resolves to `phase: 'error'`,
+// so an update check can never block offline use. `args` is `void` (no input).
+
+/** Which update state to render. `'error'` = the check couldn't complete (non-blocking, §18). */
+export type UpdatePhase = 'upToDate' | 'updateAvailable' | 'downloading' | 'error';
+
+export interface UpdateCheckResult {
+  phase: UpdatePhase;
+  /** The running app version — always present. */
+  currentVersion: string;
+  /** The newer version, set only when `phase === 'updateAvailable'` (or `'downloading'`). */
+  availableVersion?: string;
+  /** Optional release notes for the available update. */
+  notes?: string;
+  /** Diagnostic set only when `phase === 'error'` (rendered quietly, never alarmingly). */
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Templates (Task 11a, SPEC §10) — save / list / load a named skill
+// combination (the "Weeknight Chef" B2 demo beat).
+// ---------------------------------------------------------------------------
+//
+// UNLIKE the P1 marketplace/account/hpskill/capability/auto-update families
+// above, this is a pure on-device feature (no backend network call) — snake_case
+// wire names, mirroring `ipc.rs` field-for-field (plain `#[derive(Serialize)]`,
+// no camelCase `rename_all`), same convention as the P0 seed at the top of this
+// file. The Rust core (`templates.rs`) owns the save/load/version-pin logic;
+// `template_load` NEVER bare-rejects for a resolvable template whose combo
+// can't be fully restored (a missing or version-incompatible skill) — it always
+// resolves to a `TemplateLoadResult`, `ok: false` with the offending skill id
+// named in `missing_skills`, so the gallery can explain and offer reinstall.
+
+/**
+ * `template_save` args — the current agent's combo to save as a named template.
+ * `skill_refs` is `[skill_id, running_version]` pairs, already in
+ * composed/merge order (from `CompositionService.enabledManifests()`).
+ */
+export interface TemplateSaveArgs {
+  name: string;
+  skill_refs: Array<[string, string]>;
+  base_model: string;
+  /** Opaque panel/layout overrides (`LayoutService.snapshot()`); the UI owns the shape. */
+  ui_overrides: unknown;
+}
+
+/**
+ * A saved template as the gallery renders it — the flattened view over Rust
+ * `templates::Template` (skill ids only; the version pin is an implementation
+ * detail the gallery does not need to render).
+ */
+export interface TemplateView {
+  id: string;
+  name: string;
+  skill_refs: string[];
+  base_model: string;
+}
+
+export interface TemplateLoadArgs {
+  id: string;
+}
+
+/**
+ * `template_load` result — ALWAYS the successful side of the IPC boundary for a
+ * known template id. `ok: true` carries the restored combo (`skill_ids`, in
+ * template/merge order) and the layout to reapply (`ui_overrides`, opaque —
+ * pass to `LayoutService.restore()`). `ok: false` carries the skill id that
+ * could not be resolved (missing OR installed-but-version-incompatible; both
+ * are named in `missing_skills`, since the same "explain + offer reinstall"
+ * remediation applies to both, SPEC §10) and `skill_ids`/`ui_overrides` are
+ * left empty/`null`.
+ */
+export interface TemplateLoadResult {
+  ok: boolean;
+  skill_ids: string[];
+  ui_overrides: unknown;
+  missing_skills: string[];
+}
+
+// ---------------------------------------------------------------------------
+// UI / panel state (Task 12, SPEC §9) — persist the webview's panel/layout
+// state to the on-device SQLite store so it survives an app restart (B2
+// reload continuity: arrange panels → quit → relaunch → arrangement
+// restored). Mirrors `ipc.rs` `UiStateSaveArgs`/`UiStateLoadArgs` field-for-
+// field — snake_case wire names, same convention as the Templates block
+// above (a pure on-device feature, no backend network call). Not called
+// directly by feature code — it's the transport the `SqliteStorageBackend`
+// (shared/persistence/sqlite-storage.backend.ts) drives; see that file for
+// how the generic `(agent_id, body)` shape maps onto the `StorageBackend`
+// seam's `(key, value)` shape.
+// ---------------------------------------------------------------------------
+
+export interface UiStateSaveArgs {
+  agent_id: string;
+  body: unknown;
+}
+
+export interface UiStateLoadArgs {
+  agent_id: string;
+}
+
+// ---------------------------------------------------------------------------
+// W06 gap fix — the dashboard's dynamic installed-skills list. Mirrors
+// `ipc.rs` `InstalledSkillView` field-for-field — snake_case wire names, same
+// on-device-store convention as the Templates / UI-state blocks above (a pure
+// on-device read, not a P1 network DTO). `skills_list_installed` surfaces
+// every `.hpskill` package the on-device `installed_skills` registry knows
+// about (kitchen-timer/cooking-assistant never appear here — see the Rust
+// doc comment) so a just-installed skill (e.g. Packing List) is no longer
+// invisible in the Assistant dashboard.
+// ---------------------------------------------------------------------------
+
+export interface InstalledSkillView {
+  skill_id: string;
+  name: string;
+  version: string;
+  enabled: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Command / event maps — exhaustive typing for the IPC port (see ipc.port.ts)
@@ -371,6 +1069,60 @@ export interface IpcCommandMap {
   get_hardware_profile: { args: void; result: HardwareProfile };
   telemetry_log: { args: TelemetryEvent; result: void };
   notify: { args: NotifyArgs; result: void };
+
+  // --- P1 marketplace + composition ---
+  catalog_list: { args: CatalogListArgs; result: CatalogListResult };
+  catalog_detail: { args: CatalogDetailArgs; result: SkillDetail };
+  order_checkout: { args: OrderCheckoutArgs; result: OrderCheckoutResult };
+  order_get: { args: OrderGetArgs; result: OrderGetResult };
+  entitlements_get: { args: EntitlementsGetArgs; result: EntitlementsGetResult };
+  license_fetch: { args: LicenseFetchArgs; result: LicenseFetchResult };
+  download_url: { args: DownloadUrlArgs; result: DownloadUrlResult };
+  compose_agent: { args: ComposeAgentArgs; result: ComposedAgentView };
+
+  // --- P1 .hpskill install / uninstall (P1-03.2) ---
+  skill_install: { args: SkillInstallArgs; result: SkillInstallResult };
+  /** Fetch + install the signed `.hpskill` blob at `download_url`'s URL (P1-08.x purchase-flow bridge). */
+  skill_download_install: { args: SkillDownloadInstallArgs; result: SkillInstallResult };
+  skill_uninstall: { args: SkillUninstallArgs; result: SkillUninstallResult };
+
+  // --- Task 10: install-time capability disclosure (SPEC §8.5 / §11) ---
+  /** Render the plain-language "This skill can: …" summary for a skill's declared capabilities. */
+  capability_disclose: { args: CapabilityDiscloseArgs; result: string };
+
+  // --- P1 app auto-update (P1-11.2) — offline-safe, never rejects (§18) ---
+  check_for_update: { args: void; result: UpdateCheckResult };
+
+  // --- P1 account / auth (P1-09.1/.2) + commerce handoff (P1-08.6/.8) ---
+  auth_status: { args: AuthStatusArgs; result: AuthState };
+  auth_register: { args: AuthRegisterArgs; result: AuthState };
+  auth_login: { args: AuthLoginArgs; result: AuthState };
+  auth_logout: { args: AuthLogoutArgs; result: AuthState };
+  device_ensure: { args: DeviceEnsureArgs; result: AuthState };
+  step_up_answer: { args: StepUpAnswerArgs; result: AuthState };
+  entitlements_refresh: { args: EntitlementsRefreshArgs; result: EntitlementsGetResult };
+  open_external: { args: OpenExternalArgs; result: void };
+
+  // --- P1 on-demand model download (P1-02.7) ---
+  /** Begin (or resume) a model download; the initial snapshot returns synchronously. */
+  model_download_start: { args: ModelDownloadStartArgs; result: ModelDownloadStatus };
+  /** Poll the current status — `null` when nothing has ever been started for this model. */
+  model_download_status: { args: ModelDownloadStatusArgs; result: ModelDownloadStatus | null };
+  /** Cancel an in-flight download (the core may retain a resumable partial). */
+  model_download_cancel: { args: ModelDownloadCancelArgs; result: void };
+
+  // --- Task 11a: templates (save / list / load a named skill combination, SPEC §10) ---
+  template_save: { args: TemplateSaveArgs; result: TemplateView };
+  template_list: { args: void; result: TemplateView[] };
+  template_load: { args: TemplateLoadArgs; result: TemplateLoadResult };
+
+  // --- Task 12: on-device SQLite persistence for panel/UI state (SPEC §9) ---
+  ui_state_save: { args: UiStateSaveArgs; result: void };
+  /** `null` when nothing has been saved yet for this `agent_id`. */
+  ui_state_load: { args: UiStateLoadArgs; result: unknown };
+
+  // --- W06 gap fix: the dashboard's dynamic installed-skills list ---
+  skills_list_installed: { args: void; result: InstalledSkillView[] };
 }
 
 export type IpcCommand = keyof IpcCommandMap;
@@ -386,6 +1138,10 @@ export interface IpcEventMap {
   'timer://tick': TimerTickEvent;
   'timer://finished': TimerFinishedEvent;
   'timer://updated': TimerStateSnapshot;
+  /** Deep-link return from the system-browser checkout (P1-08.6). */
+  'purchase://callback': PurchaseCallbackEvent;
+  /** Streamed model-download progress (P1-02.7) — REAL byte counts, never estimated. */
+  'model://progress': ModelDownloadStatus;
 }
 
 export type IpcEvent = keyof IpcEventMap;

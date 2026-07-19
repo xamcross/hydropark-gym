@@ -89,7 +89,7 @@
   padding: 1px var(--space-2);
   border-radius: 999px;
   background: var(--color-accent);
-  color: var(--color-primary-contrast);
+  color: var(--color-on-accent);
   font-size: 0.7rem;
   font-weight: 700;
   vertical-align: middle;
@@ -108,8 +108,4 @@
 
 .dev-unlock:hover {
   background: var(--color-surface-alt);
-}
-
-.cooking-dock {
-  padding: var(--space-4);
 }

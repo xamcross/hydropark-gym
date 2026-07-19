@@ -1,0 +1,95 @@
+<section class="mdl" [attr.data-phase]="phase()">
+  <header class="mdl-head">
+    <div class="mdl-id">
+      <span class="mdl-name">{{ displayName() }}</span>
+      @if (sizeText() && !isTransferring()) {
+        <span class="mdl-size">{{ sizeText() }}</span>
+      }
+    </div>
+    <span class="mdl-chip" [attr.data-tone]="chipTone()">
+      <span class="mdl-chip-icon" aria-hidden="true">{{ chipIcon() }}</span>
+      <span>{{ chipLabel() }}</span>
+    </span>
+  </header>
+
+  @if (isTransferring()) {
+    <!-- REAL-progress bar: fill is ONLY ever bytes/totalBytes; indeterminate when
+         the total is unknown or while verifying. Magnitude carried by extent AND
+         text (aria-valuetext), never colour alone. -->
+    <div class="mdl-bar" [class.mdl-bar--busy]="!determinate()">
+      <div
+        class="mdl-track"
+        role="progressbar"
+        [attr.aria-label]="barLabel()"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-valuenow]="determinate() ? percent() : null"
+        [attr.aria-valuetext]="barValueText()"
+        [attr.aria-busy]="determinate() ? null : 'true'"
+      >
+        @if (determinate()) {
+          <span class="mdl-fill" [style.width.%]="percent()"></span>
+        } @else {
+          <span class="mdl-fill mdl-fill--indeterminate"></span>
+        }
+      </div>
+      <span class="mdl-pct">{{ barValueText() }}</span>
+    </div>
+
+    <!-- Fast, visual-only readout (NOT a live region — it would spam a reader). -->
+    <p class="mdl-live" aria-hidden="true">
+      <span class="mdl-bytes">{{ bytesText() }}</span>
+      @if (rateText()) {
+        <span class="mdl-dot">·</span><span class="mdl-rate">{{ rateText() }}</span>
+      }
+      @if (etaText()) {
+        <span class="mdl-dot">·</span><span class="mdl-eta">{{ etaText() }}</span>
+      }
+      @if (status()?.resumed) {
+        <span class="mdl-dot">·</span><span class="mdl-resumed">resumed</span>
+      }
+    </p>
+
+    <div class="mdl-actions">
+      <button type="button" class="mdl-btn" (click)="cancel()">Cancel</button>
+    </div>
+  } @else if (phase() === 'complete') {
+    <p class="mdl-done">
+      <span class="mdl-done-icon" aria-hidden="true">✓</span>
+      <span>Downloaded and verified — this model is on your disk and ready to use.</span>
+    </p>
+    <div class="mdl-actions">
+      <button type="button" class="mdl-btn mdl-btn--ghost" (click)="redownload()">Re-download</button>
+    </div>
+  } @else if (phase() === 'error') {
+    <p class="mdl-error" role="alert">
+      <span class="mdl-error-icon" aria-hidden="true">!</span>
+      <span>{{ errorMessage() }}</span>
+    </p>
+    <div class="mdl-actions">
+      <button type="button" class="mdl-btn mdl-btn--primary" (click)="resume()">
+        {{ resumable() ? 'Resume' : 'Try again' }}
+      </button>
+      @if (resumable() && retainedText()) {
+        <span class="mdl-hint">{{ retainedText() }} already downloaded — resuming keeps it.</span>
+      }
+    </div>
+  } @else if (phase() === 'paused' || phase() === 'cancelled') {
+    <p class="mdl-paused">
+      <span class="mdl-paused-icon" aria-hidden="true">⏸</span>
+      <span>{{ pausedLine() }}</span>
+    </p>
+    <div class="mdl-actions">
+      <button type="button" class="mdl-btn mdl-btn--primary" (click)="resume()">Resume</button>
+      <button type="button" class="mdl-btn mdl-btn--ghost" (click)="redownload()">Start over</button>
+    </div>
+  } @else {
+    <p class="mdl-idle">{{ idleLine }}</p>
+    <div class="mdl-actions">
+      <button type="button" class="mdl-btn mdl-btn--primary" (click)="download()">{{ downloadLabel() }}</button>
+    </div>
+  }
+
+  <!-- Milestone-throttled polite announcements (10% buckets + phase changes). -->
+  <span class="sr-only" role="status" aria-live="polite">{{ announce() }}</span>
+</section>

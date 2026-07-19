@@ -1,0 +1,378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/table.schema.json",
+  "title": "Hydropark Widget — table (v1)",
+  "description": "The `table` widget (SPEC 9.4 'table — structured data'): typed COLUMNS + ROWS, optional column SORT, and CELLS TYPED PER COLUMN. It `allOf`-extends the base widget contract (_widget-base.schema.json): the base envelope (id/title/region/priority/binds_state/reads_state/binds_tool/emits/states/a11y/style/min_widget_version) governs, and this schema pins `type` to the const `table`, closes `props` (columns + sort + selection config), and constrains `emits` to the table event set. It validates the CANONICAL widget object; a manifest may author the SHORTHAND projection (props inline; region/priority/emits/min_widget_version omitted) which the app normalizes before validating (base contract §1, SPEC 9.2). Binding fit: `binds_state` accepts a `list<record<…>>` slot — each column.key maps to a field of the row record (base contract §9; see $defs/bindsStateAcceptsKind). Read-first by default; a column may opt into inline edit, which is gated by writer-of-record (base contract §5).",
+  "type": "object",
+  "allOf": [
+    { "$ref": "_widget-base.schema.json" }
+  ],
+  "required": ["type", "props"],
+  "properties": {
+    "type": {
+      "const": "table",
+      "description": "Pins this instance to the `table` widget type (base $defs/knownWidgetTypeV1). The base keeps `type` a shape-checked string (not a closed enum) so a too-new type placeholders instead of failing; this const is the table-specific tightening applied via allOf."
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns"],
+      "description": "Typed, immutable-per-instance configuration for the table (base contract §2). The row DATA is NOT authored here — it is the live value of the `binds_state` slot (a `list<record<…>>`), produced by tools/slots/user input and passed to the renderer as runtime state (see $defs/runtimeState).",
+      "properties": {
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/columnDef" },
+          "description": "Ordered column definitions (left→right in LTR; mirrored under RTL by the layout engine). Each column names a record field via `key` and declares its cell TYPE. Column `key`s MUST be unique within the table — uniqueness across objects cannot be expressed structurally, so it is a certification check (P1-04.5), not enforced here by uniqueItems (which only rejects fully-identical column objects)."
+        },
+        "row_key": {
+          "$ref": "_widget-base.schema.json#/$defs/slotName",
+          "default": "id",
+          "description": "The row-record field used as the STABLE identity for diffing, sort-stability, selection, and inline-edit targeting. Defaults to `id` (the app-assigned stable entry id on `item`/record rows, base $defs/itemRecord). Must name a field present on every row record — a cross-artifact certification check."
+        },
+        "sortable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Master switch for the OPTIONAL sort feature. `false` renders a static, non-sortable table (headers are plain `columnheader`s with no `aria-sort`, not focusable sort controls). Individual columns may still opt out via `column.sortable:false`."
+        },
+        "default_sort": {
+          "$ref": "#/$defs/sortSpec",
+          "description": "Optional initial sort applied at first render. Its `column` must reference an existing, sortable column `key` (certification check). Omitted → rows render in the slot's natural (insertion) order."
+        },
+        "multi_sort": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the user may layer sort keys (primary, secondary, …) and each sorted header exposes its sort rank to assistive tech. When false, activating a new header replaces the sort. Ignored when `sortable:false`."
+        },
+        "selectable": {
+          "type": "string",
+          "enum": ["none", "single", "multiple"],
+          "default": "none",
+          "description": "Row-selection mode. `none` (default) = display/sort only. `single`/`multiple` add a roving-focus selection affordance (checkbox/row-toggle) and enable the `selection_changed` event. Selection is RUNTIME state (session-scoped projection), not authored here."
+        },
+        "row_activation": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, activating a row (click, or Enter/Space on the focused row) invokes `binds_tool` deterministically with the row's `row_key` value — the UI-first path (base contract §3 dir 2) — and emits `row_activated`. Requires `binds_tool` to be set (certification check). When false, rows are not actionable."
+        },
+        "paginate": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, rows are paged in fixed windows of `page_size` with keyboard-reachable pager controls and `aria-rowcount` reflecting the FULL row count. When false, the full set renders in a scroll region (the renderer virtualizes large lists for performance); no data is truncated."
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 25,
+          "description": "Rows per page when `paginate:true`. Ignored otherwise."
+        },
+        "sticky_header": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep the header row pinned while the body scrolls (layout behavior, not styling). Does not affect focus order or ARIA."
+        },
+        "caption": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Localizable table caption/summary. Rendered as the table's accessible caption (native `<caption>` semantics) describing what the rows represent — distinct from `a11y.description`. Also shown visually below the title when present."
+        }
+      }
+    },
+    "binds_state": {
+      "$ref": "_widget-base.schema.json#/$defs/slotName",
+      "description": "The primary shared-state slot this table renders. MUST resolve to a `list<record<…>>` slot (see $defs/bindsStateAcceptsKind): each element is one ROW; each `column.key` reads a field of the row record. Renders live on every slot update (base contract §3 dir 3). Editing is possible only when (a) a column sets `editable:true` AND (b) the owning skill is the slot's writer-of-record; otherwise the table binds READ-ONLY (renders live, edit affordances disabled, writer named — base contract §5)."
+    },
+    "reads_state": {
+      "type": "array",
+      "items": { "$ref": "_widget-base.schema.json#/$defs/slotName" },
+      "uniqueItems": true,
+      "description": "Additional slots observed READ-ONLY (base contract §4). A table may read a scalar/record slot to derive computed or annotation columns for the rows it does not own; an update to any listed slot re-renders the table. Never a write path."
+    },
+    "binds_tool": {
+      "$ref": "_widget-base.schema.json#/$defs/toolRefName",
+      "description": "The tool a user action invokes deterministically (base contract §3 dir 2). Used by `row_activation` (invoked with the activated row's `row_key`) and by inline cell edit commits on `editable` columns (invoked with the row id, column key, and new value). Row/cell WRITE-BACK to the slot happens through THIS tool's `writes_state` declaration (authored on the tool ref, not on the widget — base contract §4/§5); the table envelope has no `writes_state` of its own, so a skill cannot grant itself write access to a slot it does not own."
+    },
+    "emits": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/tableEventDecl" },
+      "default": ["row_activated", "sort_changed"],
+      "description": "Events this table posts to the agent bus (base contract §3, $defs/eventContract). Constrained to the table event set ($defs/tableEventName); each has a per-type `to_chat` default (all default `false` — table interactions are UI-local and should not clutter the transcript), overridable per event via the {name,to_chat} object form. Certification rejects duplicate event names. Omitted in the manifest → the type default set above."
+    }
+  },
+  "$defs": {
+    "columnDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "description": "One typed column. `key` binds it to a field of the row record; `type` selects the cell renderer and its default alignment/format. All styling is via design-token variants only (align/tone) — no raw color/size (base contract §7).",
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The row-record field this column reads (snake_case). Must exist on the bound row records — a cross-artifact certification check against the slot's `record<…>` schema."
+        },
+        "header": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Localizable column heading (the `columnheader` accessible name). Omitted → a humanized form of `key`."
+        },
+        "type": {
+          "$ref": "#/$defs/columnCellType",
+          "default": "text",
+          "description": "The cell TYPE for every cell in this column (base contract §2 'cells typed per column'). Drives formatting, default alignment, sort comparator, and the a11y presentation (e.g. `status`/`bool` always pair color with text+icon)."
+        },
+        "align": {
+          "$ref": "_widget-base.schema.json#/$defs/styleVariants/properties/align",
+          "description": "Cell/column text alignment, drawn from the closed style-variant vocabulary (start/center/end) — a design-token reference, never a raw value. Omitted → the type default: `end` for number/integer/currency/percent/duration, `center` for bool, `start` otherwise."
+        },
+        "width": {
+          "type": "string",
+          "enum": ["auto", "flex", "min"],
+          "default": "auto",
+          "description": "SEMANTIC column sizing — no raw px/rem is expressible (base contract §7). `auto` = size to content; `flex` = grow to absorb free space; `min` = clamp to the narrowest legible width and truncate. Concrete widths resolve first-party to spacing tokens."
+        },
+        "sortable": {
+          "type": "boolean",
+          "description": "Whether this column participates in sort. Omitted → the type default (sortable for text/number/integer/date/datetime/time/duration/currency/percent/enum; not for bool/status unless set). Ignored when `props.sortable:false`."
+        },
+        "editable": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, cells in this column offer inline edit (typed to `type`). Edits commit through `binds_tool` and are ENABLED only when the owning skill is the slot's writer-of-record; otherwise the affordance is present but disabled with the 'Managed by {writer}' description (base contract §5). A committed edit emits `cell_edited`."
+        },
+        "truncate": {
+          "type": "boolean",
+          "description": "Ellipsize overflowing cell content, exposing the full value via accessible tooltip/title. Omitted → true for text/enum/status, false for numeric/date/bool types."
+        },
+        "format": {
+          "$ref": "#/$defs/columnFormat",
+          "description": "Optional DATA-formatting hints (locale-aware; not styling). Which fields apply depends on `type` (e.g. `precision` for number/percent/currency, `date_style` for date/datetime) — the applicability is a certification check, not enforced structurally here."
+        },
+        "values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "The closed set of allowed cell values for `type:enum`/`type:status` columns. Used to validate/render chips and to key `labels`/`tone_map`. Optional for open enum display."
+        },
+        "labels": {
+          "type": "object",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "$ref": "_widget-base.schema.json#/$defs/localizableString" },
+          "description": "Optional map from raw enum/status value → localizable DISPLAY text. Absent entries fall back to the raw value."
+        },
+        "tone_map": {
+          "type": "object",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "$ref": "_widget-base.schema.json#/$defs/styleVariants/properties/tone" },
+          "description": "For `type:status` only: map from status value → semantic `tone` variant (default/neutral/accent/positive/caution/danger), a design-token reference. The tone is NEVER the sole signal — the status cell always renders the value's label text and a per-tone icon alongside the color (WCAG 1.4.1 / base contract §8.2)."
+        }
+      }
+    },
+    "columnCellType": {
+      "type": "string",
+      "enum": [
+        "text",
+        "number",
+        "integer",
+        "bool",
+        "enum",
+        "date",
+        "datetime",
+        "time",
+        "duration",
+        "currency",
+        "percent",
+        "status"
+      ],
+      "description": "The closed set of cell types a column may declare. `bool` renders a check/dash glyph paired with a text label (never color-only). `status` renders a token-toned pill with label + icon (never hue-only). `duration` renders a human span (e.g. 12:30 / '12 min'). Date/time types render locale-aware. No `link`/`image`/`html` cell types exist — skills ship no remote content or markup (SPEC 9.1)."
+    },
+    "columnFormat": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Closed set of locale-aware data-formatting hints. This is data presentation (number of decimals, date style), NOT styling — all visual styling remains token-driven via `style`/`align` (base contract §7).",
+      "properties": {
+        "precision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Fraction digits for number/percent/currency."
+        },
+        "grouping": {
+          "type": "boolean",
+          "description": "Apply locale thousands grouping to numeric types."
+        },
+        "currency_code": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "description": "ISO-4217 code for `type:currency` (e.g. USD, EUR). Rendered with the locale's currency formatting."
+        },
+        "unit_label": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Localizable unit suffix/label for numeric cells (e.g. 'g', 'kcal')."
+        },
+        "date_style": {
+          "type": "string",
+          "enum": ["short", "medium", "long", "full"],
+          "description": "Locale date presentation for date/datetime."
+        },
+        "time_style": {
+          "type": "string",
+          "enum": ["short", "medium", "long"],
+          "description": "Locale time presentation for datetime/time."
+        },
+        "duration_style": {
+          "type": "string",
+          "enum": ["clock", "words", "compact"],
+          "description": "Presentation for `type:duration`: `clock` (12:30), `words` ('12 min 30 s'), or `compact` ('12m')."
+        },
+        "true_label": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Localizable text paired with the check glyph for a true `bool` cell (e.g. 'Yes'). The icon+text pairing keeps meaning non-hue-only."
+        },
+        "false_label": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Localizable text paired with the dash/× glyph for a false `bool` cell (e.g. 'No')."
+        },
+        "null_text": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "description": "Text shown for a missing/empty cell value. Defaults first-party to an em-dash ('—'). Distinct from the table-level empty state (which fires only when there are no rows at all)."
+        }
+      }
+    },
+    "sortSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["column", "direction"],
+      "properties": {
+        "column": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 64,
+          "description": "A column `key` to sort by. Must reference an existing, sortable column (certification check)."
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["asc", "desc"]
+        }
+      },
+      "description": "A single sort key. Comparison is by the column's `type` (numeric, lexical, temporal, or `values`-index order for enum/status), stable on `row_key`."
+    },
+    "tableEventName": {
+      "type": "string",
+      "enum": ["row_activated", "sort_changed", "selection_changed", "cell_edited"],
+      "description": "The closed table event vocabulary. `row_activated` — a row was activated (requires `row_activation`); `sort_changed` — the user changed sort order; `selection_changed` — the selected-row set changed (requires `selectable≠none`); `cell_edited` — an inline-editable cell was committed (requires an `editable` column + writer-of-record)."
+    },
+    "tableEventDecl": {
+      "description": "An emitted table event in shorthand (bare name) or canonical ({name,to_chat}) form — a name-restricted specialization of the base $defs/eventDecl. All table events default `to_chat:false` (UI-local); set `to_chat:true` to also post a system transcript line. Posting an event never auto-runs inference (base contract §3, SPEC 9.3 #4).",
+      "oneOf": [
+        { "$ref": "#/$defs/tableEventName" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "$ref": "#/$defs/tableEventName" },
+            "to_chat": {
+              "type": "boolean",
+              "description": "Override the per-type default (false). true appends a system line to the transcript when the event fires."
+            }
+          }
+        }
+      ]
+    },
+    "bindsStateAcceptsKind": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node). `table.binds_state` accepts a `list` slot whose element is a `record` — i.e. `list<record<…>>` (base contract §9, SPEC 8.3.4): the list supplies ROWS, each record supplies the fields the `columns[].key`s read. Vocabulary: base $defs/acceptsSlotKind value `list`. Because the concrete slot's kind lives in `shared_state`, this widget↔slot fit is a cross-artifact certification check (P1-04.5), not an in-envelope constraint. Slot↔slot compatibility of two skills' row records follows the record rule in base $defs/slotCompatibilityRule (same REQUIRED field set; extra optional fields widen away)."
+    },
+    "eventContract": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node). EMITS: `row_activated`, `sort_changed`, `selection_changed`, `cell_edited` (see $defs/tableEventName), all `to_chat:false` by default; type-default emit set is [row_activated, sort_changed]. CONSUMES: the table subscribes to SLOT-UPDATE signals for its `binds_state` and every `reads_state` slot and re-renders on each (base contract §3 dir 3, routing keyed on slot NAME) — it does NOT subscribe to arbitrary named bus events, and it never receives UI code/directives from the model (SPEC 9.3 'Model↔UI bridge'). A tool result targeting this widget's `id` via `updates_widget` (base contract §4) also re-renders it."
+    },
+    "lifecycleStates": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node). Type-default copy for the mandatory states (base contract §6; overridable via the envelope `states` field, never suppressible). loading → label 'Loading table…' (determinate progress when a row count is known, else indeterminate — never a blank grid). empty → label 'No rows yet.' (bound OK, zero rows; distinct from a per-cell null_text). error → label 'Couldn't load the table.', hint 'Try again.' with a retry affordance; structured tool-execution errors are surfaced, never swallowed (SPEC 8.4). read-only → renders live with all edit/inline affordances disabled and a 'Managed by {writer}' description (base contract §5). placeholder → for an unknown/too-new library version, the first-party placeholder panel (base contract §11), terminal."
+    },
+    "a11yContract": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node). The MECHANICAL a11y contract the first-party `table` implementation guarantees and the X-A11Y gate enforces in BOTH themes on every state (base contract §8) — not waivable by a skill; skills may override only accessible name/description via `a11y`. ROLES: a static table (sortable:false, selectable:none, no editable/actionable rows) uses native `table`/`row`/`columnheader`/`rowheader`/`cell` semantics with a `<caption>` from props.caption; an INTERACTIVE table (sortable, selectable, editable, or row_activation) uses `grid` semantics with `gridcell`/`columnheader` and `aria-rowcount`/`aria-colcount` (full counts under pagination/virtualization) plus `aria-rowindex`/`aria-colindex`. KEYBOARD: Tab moves focus INTO the grid to a single roving-tabindex cell; Arrow keys move cell-to-cell; Home/End to row ends, Ctrl+Home/End to grid corners; PageUp/PageDown page when paginated. Enter/Space on a `columnheader` toggles/cycles its sort (asc→desc→none) and updates `aria-sort` (ascending/descending/none) which is announced; on a row it activates it (row_activation) or toggles selection (selectable). Editable cells enter edit mode on Enter/F2 and commit on Enter / cancel on Escape. FOCUS ORDER: header row before body; body rows in current VISUAL (sorted) order; a single tab stop for the whole grid (roving tabindex), visible focus ring from motion/focus tokens. LIVE REGION: out-of-band slot updates (a tool writing new/changed rows) announce via a polite live region ('Table updated, N rows') — the type-default `a11y.live_region` is `polite`; time-critical semantics are not a table concern. NO HUE-ONLY MEANING (WCAG 1.4.1): sort direction shows an arrow glyph + `aria-sort` (not color); `status` cells pair `tone_map` color with the value's label and a per-tone icon; `bool` cells pair color with a check/dash glyph and true/false label. CONTRAST: header/body/zebra/selected/focus/status token pairs are AA-verified PER THEME (a token passing on dark may fail on light — the --sulphur-ink precedent, P1-01.4). Text scales/zooms without loss (X-A11Y.3); transitions collapse under OS reduce-motion (base contract §8.6)."
+    },
+    "runtimeState": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "NON-NORMATIVE (documentation node — NOT authored in the manifest; produced by the core/renderer, base contract §2). The typed runtime projection the `table` renders: the resolved rows and interaction state. Session-scoped by default (SPEC 9.9).",
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["loading", "ready_empty", "ready_populated", "error", "read_only", "placeholder"],
+          "description": "Current lifecycle-machine state (see $defs/lifecycleStates)."
+        },
+        "rows": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "The current row records — the live value of the `binds_state` `list<record<…>>` slot, in display (sorted) order."
+        },
+        "sort": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sortSpec" },
+          "description": "Active sort keys (one entry unless multi_sort)."
+        },
+        "selection": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Selected rows by `row_key` value (empty unless selectable≠none)."
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based current page when paginated."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "True when the owning skill is not the slot's writer-of-record; edit affordances are disabled (base contract §5)."
+        },
+        "writer": {
+          "type": "string",
+          "description": "The writer-of-record skill id/name, surfaced in the 'Managed by {writer}' description when readonly."
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Structured tool-execution error surfaced in the error state (SPEC 8.4)."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "type": "table",
+      "id": "nutrition_breakdown",
+      "title": "Per-ingredient nutrition",
+      "region": "side",
+      "priority": 40,
+      "props": {
+        "columns": [
+          { "key": "name", "header": "Ingredient", "type": "text", "width": "flex" },
+          { "key": "grams", "header": "Amount", "type": "number", "format": { "precision": 0, "unit_label": "g" } },
+          { "key": "kcal", "header": "Calories", "type": "number", "format": { "precision": 0, "unit_label": "kcal" } },
+          { "key": "flag", "header": "Status", "type": "status", "sortable": true,
+            "values": ["ok", "high", "over"],
+            "labels": { "ok": "OK", "high": "High", "over": "Over limit" },
+            "tone_map": { "ok": "positive", "high": "caution", "over": "danger" } }
+        ],
+        "row_key": "id",
+        "sortable": true,
+        "default_sort": { "column": "kcal", "direction": "desc" },
+        "caption": "Calories and macros for each ingredient in the recipe."
+      },
+      "reads_state": ["ingredients"],
+      "style": { "density": "compact", "tone": "accent" },
+      "emits": ["sort_changed"],
+      "min_widget_version": "1.0"
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+<section
+  class="panel quick-actions"
+  [class.density-compact]="density() === 'compact'"
+  [attr.aria-label]="label()"
+  [attr.aria-busy]="phase() === 'loading' ? 'true' : null"
+>
+  <!-- LOADING (§6): never blank the panel — indeterminate status, cluster still shown below. -->
+  @if (phase() === 'loading') {
+    <p class="qa-status" role="status">
+      <span class="spinner" aria-hidden="true"></span>{{ copy().loading }}
+    </p>
+  }
+
+  <!-- ERROR (§6): human message + recovery (retry the failed action / dismiss). role=alert announces it. -->
+  @if (phase() === 'error') {
+    <div class="qa-error" role="alert">
+      <span class="qa-error-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 9v4" /><path d="M12 17h.01" />
+          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        </svg>
+      </span>
+      <span class="qa-error-msg">{{ error()?.message || copy().errorFallback }}</span>
+      <span class="qa-error-actions">
+        @if (error()?.action_id) {
+          <button type="button" class="qa-link" (click)="retryFailed()">Try again</button>
+        }
+        <button type="button" class="qa-link" (click)="onDismiss()">Dismiss</button>
+      </span>
+    </div>
+  }
+
+  <!-- EMPTY (§6): every action is currently gated off — non-alarming line, distinct from error. -->
+  @if (phase() === 'empty') {
+    <p class="empty">{{ copy().empty }}</p>
+  } @else {
+    <div
+      class="qa-cluster"
+      [class.layout-row]="layout() === 'row'"
+      [class.layout-column]="layout() === 'column'"
+      [class.layout-grid]="layout() === 'grid'"
+      [class.align-center]="align() === 'center'"
+      [class.align-end]="align() === 'end'"
+      [style.grid-template-columns]="gridStyle()"
+      role="group"
+      [attr.aria-label]="label()"
+    >
+      @for (a of view(); track a.index) {
+        <div class="qa-item">
+          <button
+            type="button"
+            class="qa-btn"
+            [class.tone-neutral]="a.tone === 'neutral'"
+            [class.tone-accent]="a.tone === 'accent'"
+            [class.tone-positive]="a.tone === 'positive'"
+            [class.tone-caution]="a.tone === 'caution'"
+            [class.tone-danger]="a.tone === 'danger'"
+            [class.emphasis-strong]="a.emphasis === 'strong'"
+            [class.emphasis-subtle]="a.emphasis === 'subtle'"
+            [class.is-pending]="a.pending"
+            [class.is-disabled]="!a.enabled && !a.pending"
+            [class.is-readonly]="a.readonly"
+            [attr.aria-disabled]="!a.enabled || a.pending ? 'true' : null"
+            [attr.aria-busy]="a.pending ? 'true' : null"
+            [attr.aria-expanded]="a.confirm ? isConfirming(a.index) : null"
+            [attr.aria-describedby]="a.readonly && a.writer ? 'qa-owner-' + a.index : null"
+            (click)="activate(a, $event)"
+          >
+            <!-- Leading marker: spinner while pending, else the decorative icon. Both non-chromatic. -->
+            @if (a.pending) {
+              <span class="spinner" aria-hidden="true"></span>
+            } @else if (a.icon) {
+              <span class="qa-icon" aria-hidden="true">
+                @switch (a.icon) {
+                  @case ('plus') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                  }
+                  @case ('trash') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /></svg>
+                  }
+                  @case ('timer') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4" /><path d="M12 14l3-3" /><circle cx="12" cy="14" r="8" /></svg>
+                  }
+                  @case ('check') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                  }
+                  @case ('refresh') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
+                  }
+                  @case ('edit') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  }
+                  @case ('play') {
+                    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7Z" /></svg>
+                  }
+                  @case ('pause') {
+                    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5h3v14H7Z" /><path d="M14 5h3v14h-3Z" /></svg>
+                  }
+                  @case ('close') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg>
+                  }
+                  @case ('arrow-right') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
+                  }
+                }
+              </span>
+            }
+
+            <span class="qa-label">{{ a.label }}</span>
+
+            <!-- Read-only lock marker: the disabled/owned state is carried by icon + text, never colour alone. -->
+            @if (a.readonly) {
+              <span class="qa-lock" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              </span>
+            }
+          </button>
+
+          <!-- "Managed by {writer}" — announced via aria-describedby on read-only-bound actions (§5). -->
+          @if (a.readonly && a.writer) {
+            <span class="sr-only" [id]="'qa-owner-' + a.index">Managed by {{ a.writer }}</span>
+          }
+
+          <!-- First-party confirmation step: focus moves in, Enter confirms, Esc cancels (schema action.confirm). -->
+          @if (isConfirming(a.index)) {
+            <div class="qa-confirm" role="alertdialog" [attr.aria-label]="'Confirm ' + a.label" (keydown)="onConfirmKeydown($event)">
+              <span class="qa-confirm-msg">Confirm &ldquo;{{ a.label }}&rdquo;?</span>
+              <span class="qa-confirm-actions">
+                <button #confirmBtn type="button" class="qa-btn emphasis-strong confirm-yes" (click)="confirmYes(a)">Confirm</button>
+                <button type="button" class="qa-btn confirm-no" (click)="confirmCancel()">Cancel</button>
+              </span>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+</section>

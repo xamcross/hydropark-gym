@@ -1,0 +1,132 @@
+/* Token-only styling — every colour / space / radius / motion value references
+   the tokens.css vocabulary. See _widget-contract §7 "no literal hex/px". */
+
+:host {
+  display: contents;
+}
+
+.toast-host {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 1000; /* above panels; no z-index token exists */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: max-content;
+  max-width: min(22rem, calc(100vw - var(--space-5)));
+  pointer-events: none; /* let clicks through the gaps; toasts re-enable it */
+}
+
+.toast {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  padding-left: var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  animation: hp-toast-in var(--transition-panel);
+}
+
+/* Exit beat — driven by the .leaving class the service sets before removal. */
+.toast.leaving {
+  opacity: 0;
+  transform: translateX(var(--space-4));
+  transition:
+    opacity var(--transition-panel),
+    transform var(--transition-panel);
+}
+
+/* Left accent bar carries the semantic tone (never colour alone — the title
+   text always states what happened, satisfying WCAG 1.4.1). */
+.toast-accent {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: var(--space-1);
+  background: var(--color-primary);
+}
+.toast[data-severity='critical'] .toast-accent {
+  background: var(--color-danger-fill);
+}
+.toast[data-severity='attention'] .toast-accent {
+  background: var(--color-primary); /* sulphur = "careful" / attention */
+}
+.toast[data-severity='success'] .toast-accent {
+  background: var(--tone-fine-fill);
+}
+.toast[data-severity='info'] .toast-accent {
+  background: var(--color-accent);
+}
+
+.toast-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.toast-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-snug);
+}
+
+.toast-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+  line-height: 1;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.toast-close:hover {
+  color: var(--color-text);
+  background: var(--color-surface-alt);
+}
+.toast-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+@keyframes hp-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--space-4));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Belt-and-suspenders: the tokens above already collapse under reduce-motion,
+   but pin enter/exit to instant here too so neither the keyframe nor the
+   transition ever plays when the OS forbids motion (SPEC §8.6 / §9.6). */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation-duration: 0.01ms;
+  }
+  .toast.leaving {
+    transition-duration: 0.01ms;
+  }
+}

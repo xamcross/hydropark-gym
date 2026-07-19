@@ -1,0 +1,28 @@
+{
+  "manifest" : {
+    "manifest_version" : "1.0",
+    "id" : "golden-vector-skill",
+    "name" : "Golden Vector — café façade",
+    "persona" : {
+      "role" : "primary_eligible",
+      "system_prompt" : "Line one — be brief.\nLine two: convert café measures, e.g. 200 g → 7 oz at 30°C."
+    },
+    "requirements" : {
+      "min_params_b" : 3,
+      "min_ram_gb" : 8
+    },
+    "capabilities" : [ "timers", "unit_conversion" ],
+    "tools" : [ {
+      "ref" : "convert_units",
+      "config" : {
+        "domains" : [ "mass", "volume", "temperature" ],
+        "precision" : 2
+      }
+    } ],
+    "signature" : "ed25519:NUIv2dZaDi/Q6hrSh1uaGh2GklngcdZy1S7zplzz3DaeyjqYuSZFKyBLnpt2wFBkndRN3//kbQjKflxgZOYNAw==",
+    "signing_key_id" : "hp-pkg-golden"
+  },
+  "package_public_key_b64" : "MCowBQYDK2VwAyEACwrzbmHCF9Y2OMvFV7uPNT9CatIze2w4bipaQ1jAea8=",
+  "kid" : "hp-pkg-golden",
+  "jcs_canonical" : "{\"capabilities\":[\"timers\",\"unit_conversion\"],\"id\":\"golden-vector-skill\",\"manifest_version\":\"1.0\",\"name\":\"Golden Vector — café façade\",\"persona\":{\"role\":\"primary_eligible\",\"system_prompt\":\"Line one — be brief.\\nLine two: convert café measures, e.g. 200 g → 7 oz at 30°C.\"},\"requirements\":{\"min_params_b\":3,\"min_ram_gb\":8},\"tools\":[{\"config\":{\"domains\":[\"mass\",\"volume\",\"temperature\"],\"precision\":2},\"ref\":\"convert_units\"}]}"
+}

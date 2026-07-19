@@ -1,6 +1,7 @@
 # Hydropark
 
-An offline-first desktop AI assistant. A free local agent (Qwen2.5-3B via llama.cpp) is specialised by
+An offline-first desktop AI assistant. A free local agent (Qwen2.5-7B via llama.cpp, swapped from
+3B on 2026-07-19 for tool-chaining/arg consistency) is specialised by
 installable **skills** — a prompt, a set of tools, and a dynamic-UI pack. Two skills are free; the rest
 are a one-time purchase. You buy online and use offline, forever: ownership is an Ed25519-signed,
 per-device license that the app verifies locally, with no clock, no callback, and no keep-alive.

@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/quick_actions.schema.json",
+  "title": "Hydropark Widget — quick_actions (v1)",
+  "description": "A stateless ACTION LAUNCHER: a small cluster of labeled buttons, each of which either (a) invokes a FIXED tool deterministically via the UI-first path — no model round-trip (SPEC 9.3 #2 / 8.4, the reliability backstop for a 3B model) — or (b) inserts a fixed prompt into the chat composer (a prompt starter). This schema `allOf`-extends the base widget contract, pins `type` to the const `quick_actions`, and closes `props`. Per SPEC 9.4 quick_actions = 'buttons that trigger tools or insert prompts'.\n\nDESIGN STANCE (recorded in the schema so certification and the renderer share one source of truth):\n  • quick_actions binds NO primary shared-state slot — it renders nothing of its own from state, it launches actions. Therefore `binds_state` is FORBIDDEN here (property schema `false`). Writes reach shared state ONLY through the per-action tool's own `writes_state` declaration (SPEC 9.3 #3), never from the widget directly.\n  • The tool binding is PER-ACTION (`props.actions[].tool`), not the single widget-level `binds_tool` — a cluster of buttons cannot share one ambiguous tool hook — so widget-level `binds_tool` is FORBIDDEN here (property schema `false`).\n  • `reads_state` IS permitted (optional, read-only) purely to gate/disable actions contextually (e.g. disable 'Clear list' when the `ingredients` slot is empty). Observing a slot never edits it; an update to any observed slot re-renders the cluster (SPEC 9.3 routing keyed on slot name).\n  • Prompt-insert actions INSERT into the composer and do NOT auto-send — the user reviews and sends, so the '#4: the model only responds on the next USER turn' invariant (SPEC 9.3) is preserved and no button press ever auto-runs inference.",
+  "type": "object",
+  "allOf": [
+    { "$ref": "_widget-base.schema.json" }
+  ],
+  "required": ["type", "props"],
+  "properties": {
+    "type": {
+      "const": "quick_actions",
+      "$comment": "One of $defs/knownWidgetTypeV1 in the base. Pinned so the renderer maps this instance to the quick_actions component and certification can dispatch this per-widget schema.",
+      "description": "Fixed widget-type discriminator."
+    },
+
+    "binds_state": false,
+    "binds_tool": false,
+
+    "reads_state": {
+      "type": "array",
+      "items": { "$ref": "_widget-base.schema.json#/$defs/slotName" },
+      "uniqueItems": true,
+      "maxItems": 8,
+      "$comment": "acceptsSlotKind (SPEC 9 / base $defs/acceptsSlotKind): ANY — scalar | list | list_item | record. quick_actions observes slots READ-ONLY only to derive per-action enablement/visibility; it never binds a slot two-way and never writes one. The concrete slot kind lives in shared_state, so the fit is a cross-artifact certification check (P1-04.5), not enforced in-envelope here.",
+      "description": "Optional. Extra shared-state slots this cluster observes READ-ONLY to gate actions (enable/disable a button, show/hide it) — SPEC 9.3 #1 (read side). An update to any listed slot re-renders the cluster. quick_actions is otherwise stateless; it has no primary `binds_state`."
+    },
+
+    "emits": {
+      "type": "array",
+      "uniqueItems": true,
+      "default": [
+        { "name": "action_invoked", "to_chat": false }
+      ],
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": ["action_invoked", "action_failed"]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "enum": ["action_invoked", "action_failed"] },
+              "to_chat": { "type": "boolean" }
+            }
+          }
+        ]
+      },
+      "$comment": "Closed event vocabulary for this widget type (tightens the base's open $defs/eventDecl via allOf intersection). Default event set (filled at normalization when `emits` is omitted): [action_invoked]. Per-event to_chat DEFAULTS: action_invoked -> false, action_failed -> false. Rationale: a deterministic tool invocation must not spam the transcript — the tool RESULT routes itself (SPEC 9.3 #3: writes_state re-renders bound widgets, else updates_widget, else chat). A skill may override to_chat per event (e.g. set action_invoked.to_chat=true to log 'Started timer' as a system line). Certification rejects duplicate event names (base contract §3).",
+      "description": "Events this cluster posts to the agent bus. action_invoked fires on a successful button press (carries the action id/kind); action_failed fires when a tool action's execution errors. Both default to_chat=false. Posting an event NEVER auto-runs inference (SPEC 9.3 #4)."
+    },
+
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actions"],
+      "description": "Typed, immutable-per-instance configuration for the button cluster. Closed (additionalProperties:false). Shorthand `actions:[...]` in a manifest normalizes into `props.actions` (SPEC 9.2; skill-manifest.schema.json quick_actions block).",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "description": "The buttons, in authored order = visual + focus order. 1–12 (a launcher, not a menu system; more belongs in a `table` or nested `tabs`). Each button either invokes a tool (deterministic, no model round-trip) or inserts a prompt (composer starter).",
+          "items": { "$ref": "#/$defs/action" }
+        },
+        "layout": {
+          "type": "string",
+          "enum": ["row", "column", "grid"],
+          "default": "row",
+          "description": "Semantic arrangement of the buttons (token-driven spacing/wrapping — NOT raw sizes). `row` = horizontal, wraps below the min width and in a narrow dock; `column` = vertical stack; `grid` = wrapped grid (see `columns`). Button size/gap come from design tokens and `style.density`."
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "description": "Only meaningful when `layout` = `grid`: the target column count (the token-based grid reflows below the min width). Ignored for `row`/`column`."
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "description": "One button. Exactly ONE of `tool` (deterministic invocation, the primary purpose) or `prompt` (composer insert) — enforced by the oneOf below, mirroring skill-manifest.schema.json's quick_actions shorthand item. Extra fields (id/icon/tone/emphasis/confirm) are the canonical superset the shorthand normalizes into.",
+      "properties": {
+        "id": {
+          "$ref": "_widget-base.schema.json#/$defs/widgetId",
+          "description": "Optional stable action id (snake_case, unique within the cluster). Payload of action_invoked/action_failed, and the target key when a tool result uses `updates_widget` to flip a single action's runtime flags (busy/enabled). Cross-action uniqueness is a merge-time check."
+        },
+        "label": {
+          "$ref": "_widget-base.schema.json#/$defs/localizableString",
+          "maxLength": 40,
+          "description": "Visible button text and the button's accessible name. ALWAYS present, so meaning is never carried by color or icon alone (WCAG 1.4.1)."
+        },
+        "tool": {
+          "$ref": "_widget-base.schema.json#/$defs/toolRefName",
+          "description": "TOOL action (SPEC 9.3 #2 / 8.4): pressing this button invokes the fixed tool DETERMINISTICALLY via the UI-first path — no model round-trip. The tool's result routes per its own writes_state/updates_widget/chat declaration (the widget declares nothing about the slot). May be a namespaced `skill.tool` ref after collision resolution (SPEC 8.3.3)."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400,
+          "description": "PROMPT action (SPEC 9.4 'insert prompts'): pressing this button INSERTS this text into the chat composer. It does NOT auto-send — the user reviews and submits, preserving 'the model responds only on the next user turn' (SPEC 9.3 #4). Not localizable-by-key (it is model-facing input text)."
+        },
+        "icon": {
+          "$ref": "#/$defs/iconToken",
+          "description": "Optional leading icon, named from the first-party design-system icon set (token-referenced, never a raw asset/path/color/size). DECORATIVE only — the `label` carries the meaning (icon is aria-hidden); never an icon-only affordance (WCAG 1.4.1)."
+        },
+        "tone": {
+          "$ref": "_widget-base.schema.json#/$defs/styleVariants/properties/tone",
+          "description": "Optional per-action semantic color role (e.g. `danger` on a destructive 'Clear all', `positive` on 'Add all'). Maps per-theme to AA-safe tokens; NEVER the sole signal — always paired with the button `label` (and optional icon)."
+        },
+        "emphasis": {
+          "$ref": "_widget-base.schema.json#/$defs/styleVariants/properties/emphasis",
+          "description": "Optional per-action visual weight (`strong` marks the primary button in the cluster). Token-mapped."
+        },
+        "confirm": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, activation opens a confirmation step before invoking (recommended for destructive tool actions). The confirmation is a first-party dialog: focus moves into it, Enter confirms, Esc cancels (default copy is widget-type-supplied). Prompt inserts are non-destructive and normally leave this false."
+        }
+      },
+      "oneOf": [
+        {
+          "$comment": "TOOL action: has `tool`, no `prompt`.",
+          "required": ["tool"],
+          "not": { "required": ["prompt"] }
+        },
+        {
+          "$comment": "PROMPT action: has `prompt`, no `tool`.",
+          "required": ["prompt"],
+          "not": { "required": ["tool"] }
+        }
+      ]
+    },
+
+    "iconToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 1,
+      "maxLength": 48,
+      "description": "Name of a glyph in the first-party design-system icon set (e.g. `plus`, `trash`, `timer`). A TOKEN reference, not a raw SVG/data-URI/path/color/size — consistent with the no-CSS/no-raw-asset house rule (SPEC 9.1/9.10; base $defs/designTokenNamespace). Certification's non-token-styling lint rejects anything that is not a registered icon name."
+    },
+
+    "runtimeState": {
+      "$comment": "NON-MANIFEST. This typed runtime state is produced by the core (Rust) and projected to the webview over the IPC contract (see IPC-CONTRACT.md, responsibility split) — it is NOT authored in a skill manifest. It is documented here so the renderer, the orchestrator's merge layer, and the IPC projection validate against one shape. Session-scoped by default (SPEC 9.9). Every quick_actions instance passes through the lifecycle state machine of the base contract §6; `placeholder` is resolved by the renderer before this state exists.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "actions"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["loading", "ready", "empty", "error"],
+          "description": "Lifecycle phase (base contract §6). `loading` = one or more actions' tools are in flight (per-action `pending`); the panel is never blanked. `ready` = idle with ≥1 usable action. `empty` = every action is currently gated OFF (all disabled by read-only/reads_state gating) → the non-alarming empty line, distinct from error. `error` = the most recent tool action failed → human message + retry on that action."
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/actionRuntime" },
+          "description": "Per-action live projection (same order as props.actions)."
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message"],
+          "properties": {
+            "message": { "$ref": "_widget-base.schema.json#/$defs/localizableString" },
+            "action_id": { "$ref": "_widget-base.schema.json#/$defs/widgetId" }
+          },
+          "description": "Present in the `error` phase: the surfaced structured tool-execution error (never silently swallowed — base contract §6 / SPEC 8.4) plus the failing action id for inline retry."
+        }
+      }
+    },
+
+    "actionRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "kind", "enabled", "pending"],
+      "description": "Live state of one button. `enabled`/`pending`/`readonly`/`writer` are RESOLVED (merge + execution), never authored.",
+      "properties": {
+        "id": { "$ref": "_widget-base.schema.json#/$defs/widgetId" },
+        "label": { "$ref": "_widget-base.schema.json#/$defs/localizableString" },
+        "kind": {
+          "type": "string",
+          "enum": ["tool", "prompt"],
+          "description": "Whether this button invokes a tool or inserts a prompt."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "False when gated off by a `reads_state` condition or by the read-only rule below. A disabled button stays FOCUSABLE (aria-disabled) so its state/owner is announceable, but is not activatable."
+        },
+        "pending": {
+          "type": "boolean",
+          "description": "True while this action's tool is in flight (button shows a busy affordance, aria-busy, and is non-activatable). Always false for prompt actions."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Read-only-bound behavior (base contract §5 / SPEC 8.3.4). True when this action's `tool` would perform a non-commutative write (a scalar `set`, or a delete) on a slot whose writer-of-record is a DIFFERENT skill. Such an action renders disabled with a 'Managed by {writer}' description; append/patch tool actions on list/record slots owned by others stay enabled (they are commutative)."
+        },
+        "writer": {
+          "type": "string",
+          "description": "Skill id/name of the slot's writer-of-record, shown in the 'Managed by {writer}' tooltip/description when `readonly` is true."
+        }
+      }
+    }
+  }
+}

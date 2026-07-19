@@ -1,0 +1,47 @@
+{
+  "_comment": [
+    "ES256 golden vector for the Hydropark offline license JWS (BACKLOG P1-16.8).",
+    "PURPOSE: let the lead independently prove the license signature is a REAL JWS ES256 signature",
+    "(fixed 64-byte R||S, IEEE P1363 / RFC 7518 3.4) and NOT accidentally left as ASN.1/DER.",
+    "The `token` below was minted by the production Es256Signer path over the fixed test key here;",
+    "backend's Es256GoldenVectorTest re-verifies it with the production LicenseVerifier AND via an",
+    "independent BigInteger->DER path on every build. The key is TEST-ONLY and reproducible.",
+    "Curve: P-256 = secp256r1 = prime256v1 = NIST P-256. Hash: SHA-256."
+  ],
+  "alg": "ES256",
+  "kid": "hp-lic-es256-golden",
+  "curve": "P-256 (secp256r1 / prime256v1)",
+  "hash": "SHA-256",
+  "signature_encoding": "raw R||S, 64 bytes, base64url (unpadded) as the JWS third segment — NOT DER",
+  "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImhwLWxpYy1lczI1Ni1nb2xkZW4iLCJ0eXAiOiJocC1saWMrandzIn0.eyJsaWNlbnNlX2lkIjoibGljX2dvbGRlbl9lczI1NiIsInN1YiI6InVzZXJfZ29sZGVuIiwic2tpbGxfaWQiOiJjb29raW5nLWFzc2lzdGFudCIsInZlcnNpb25fY29uc3RyYWludCI6Ij49MS4wLjAiLCJlbnRpdGxlbWVudCI6InBlcnBldHVhbCIsImRldmljZV9pZCI6ImRldl9nb2xkZW4iLCJkZXZpY2VfYmluZGluZyI6ImZwLWdvbGRlbi1jb2Fyc2UiLCJtYXhfZGV2aWNlcyI6NSwiaWF0IjoxNzcwMDAwMDAwLCJleHAiOm51bGwsImlzcyI6Imh5ZHJvcGFyay1saWNlbnNpbmcifQ.F8Voe4mHXDNmh5Fcq_URQmbDvfK3qpmTzDuUzz7HSzWzLqEpOBKrfi13_qSL3Rvpbzr2HDl9J8svihaSTQPDvg",
+  "signing_input": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImhwLWxpYy1lczI1Ni1nb2xkZW4iLCJ0eXAiOiJocC1saWMrandzIn0.eyJsaWNlbnNlX2lkIjoibGljX2dvbGRlbl9lczI1NiIsInN1YiI6InVzZXJfZ29sZGVuIiwic2tpbGxfaWQiOiJjb29raW5nLWFzc2lzdGFudCIsInZlcnNpb25fY29uc3RyYWludCI6Ij49MS4wLjAiLCJlbnRpdGxlbWVudCI6InBlcnBldHVhbCIsImRldmljZV9pZCI6ImRldl9nb2xkZW4iLCJkZXZpY2VfYmluZGluZyI6ImZwLWdvbGRlbi1jb2Fyc2UiLCJtYXhfZGV2aWNlcyI6NSwiaWF0IjoxNzcwMDAwMDAwLCJleHAiOm51bGwsImlzcyI6Imh5ZHJvcGFyay1saWNlbnNpbmcifQ",
+  "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETskyjyX+ajbBJ3jsWYUmFZGRtGLffDl9gNpoPl9RqvXtgAEDnF/YJSSvdJ0EzZ6G3WvrL9WHsm39DShGw480GQ==",
+  "private_key_pkcs8_b64_TEST_ONLY": "MEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCDFJGvTfcjMmrlHOeBGI0GVYi51l/DL0vzcXwPlK1CGag==",
+  "expected_header": {
+    "alg": "ES256",
+    "kid": "hp-lic-es256-golden",
+    "typ": "hp-lic+jws"
+  },
+  "expected_payload": {
+    "license_id": "lic_golden_es256",
+    "sub": "user_golden",
+    "skill_id": "cooking-assistant",
+    "version_constraint": ">=1.0.0",
+    "entitlement": "perpetual",
+    "device_id": "dev_golden",
+    "device_binding": "fp-golden-coarse",
+    "max_devices": 5,
+    "iat": 1770000000,
+    "exp": null,
+    "iss": "hydropark-licensing"
+  },
+  "webcrypto_verification_recipe": [
+    "const [h,p,s] = token.split('.');",
+    "const spki = Uint8Array.from(atob(public_key_spki_b64), c => c.charCodeAt(0));",
+    "const key = await crypto.subtle.importKey('spki', spki, {name:'ECDSA', namedCurve:'P-256'}, false, ['verify']);",
+    "const b64u = x => Uint8Array.from(atob(x.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(x.length/4)*4,'=')), c=>c.charCodeAt(0));",
+    "const sig = b64u(s);  // must be exactly 64 bytes (R||S); WebCrypto ECDSA expects this, NOT DER",
+    "const data = new TextEncoder().encode(h + '.' + p);",
+    "const ok = await crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, key, sig, data);  // => true"
+  ]
+}

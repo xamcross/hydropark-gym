@@ -61,6 +61,22 @@ public class Order {
   @Field("status")
   private String status;
 
+  /**
+   * SF10 - a stable cross-account hash of the funding instrument (card fingerprint), stamped at
+   * settlement from the MoR event. Null until settled / when the provider surfaces none. Backs the
+   * per-instrument velocity limit that stops one card farming many accounts.
+   */
+  @Field("payment_fingerprint")
+  private String paymentFingerprint;
+
+  /**
+   * SF10 - true when a risk-scored settlement flipped the order to {@code paid} but withheld the
+   * grant: no {@code settled_orders} row and no active grant are written, so the Issuer refuses
+   * offline issuance until a clear event releases it. See {@code SettlementService.clearHeldOrder}.
+   */
+  @Field("grant_held")
+  private boolean grantHeld;
+
   @Field("created_at")
   private Instant createdAt;
 
@@ -144,6 +160,14 @@ public class Order {
 
   public String getStatus() {
     return status;
+  }
+
+  public String getPaymentFingerprint() {
+    return paymentFingerprint;
+  }
+
+  public boolean isGrantHeld() {
+    return grantHeld;
   }
 
   public Instant getCreatedAt() {

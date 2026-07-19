@@ -1,66 +1,9 @@
-/* Hydropark Phase-0 — global design tokens (prototype-grade, per PHASE0-PLAN §7:
-   "polish only the transform moment + the carbonara happy path"). */
-
-:root {
-  --color-bg: #faf9f7;
-  --color-surface: #ffffff;
-  --color-surface-alt: #f1ede7;
-  --color-border: #e2ddd4;
-  --color-text: #211d18;
-  --color-text-muted: #6b6357;
-  --color-primary: #b5651d;
-  --color-primary-strong: #8f4e14;
-  --color-primary-contrast: #ffffff;
-  --color-accent: #3f7d5c;
-  --color-danger: #b3392c;
-
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-
-  --transition-fast: 120ms ease;
-  --transition-panel: 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #1b1815;
-    --color-surface: #241f1a;
-    --color-surface-alt: #2c2620;
-    --color-border: #3a332b;
-    --color-text: #f2ede4;
-    --color-text-muted: #b3a996;
-    --color-primary: #e0954a;
-    --color-primary-strong: #f0ab68;
-    --color-primary-contrast: #1b1815;
-    --color-accent: #6bbf95;
-    --color-danger: #e07463;
-  }
-}
-
-/* Respect OS reduce-motion globally (P0-05.2) — every transition/animation
-   in the app collapses to near-zero duration rather than being coded twice. */
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --transition-fast: 0.01ms;
-    --transition-panel: 0.01ms;
-  }
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
+/* Hydropark — global entry sheet.
+   The design-token SYSTEM (P1-01.3) and the theme sets (P1-01.4) live in
+   styles/tokens.css; the offline @font-face wiring lives in styles/fonts.css.
+   Everything below is the token-consuming base layer — no literal hex/px. */
+@import "./styles/fonts.css";
+@import "./styles/tokens.css";
 
 * {
   box-sizing: border-box;
@@ -74,9 +17,33 @@ html, body {
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.45;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reduce-motion: collapse any animation/transition globally (P0-05.2). The
+   duration TOKENS themselves also collapse (tokens.css §5) so widget CSS needs
+   no second copy of this rule. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+::selection {
+  background: var(--sulphur);
+  color: var(--iron);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 button {
@@ -90,8 +57,8 @@ input, textarea, select {
   color: inherit;
 }
 
-/* Shared panel chrome — every dynamic-UI widget (SPEC §9.2) uses this
-   base so a dozen different widgets still read as one system (§9.10). */
+/* Shared panel chrome — every dynamic-UI widget (SPEC §9.2) uses this base so a
+   dozen different widgets still read as one system (§9.10). */
 .panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -110,16 +77,18 @@ input, textarea, select {
 
 .panel > header h2 {
   margin: 0;
-  font-size: 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-wider);
   color: var(--color-text-muted);
 }
 
 .panel .empty {
   color: var(--color-text-muted);
   font-style: italic;
-  font-size: 13px;
+  font-size: var(--text-sm);
   margin: 0;
 }
 

@@ -78,13 +78,15 @@ public class CatalogSeeder implements ApplicationRunner {
 
   /**
    * The 2 free skills are exactly the ones named in SPECIFICATION as the always-installed free
-   * tier (also the two free "plates" on the landing-gym rack). The 8 paid skills at $5 are the 6
+   * tier (also the two free "plates" on the landing-gym rack). The 8 paid skills at $5 each are
+   * exactly the certified catalog of record ({@code contracts/catalog/*.manifest.json}, P1-22): 6
    * named in {@code landing-gym/index.html} (cooking-assistant, nutrition-coach, travel-planner,
-   * home-diy, garden-plants, car-care) plus 2 more to reach the 8-paid floor
-   * (SPRINT-BACKLOG.md §6 / BACKLOG.md §6: picking the final 2 is an explicit open owner/content
-   * decision - see the two marked PROVISIONAL below and the seeder's final report).
+   * home-diy, garden-plants, car-care) plus budget-bills and study-flashcards, which settled the
+   * previously-open "2 more to reach the 8-paid floor" decision (SPRINT-BACKLOG.md §6 /
+   * BACKLOG.md §6). Every id, {@code free} flag, price, and {@code compressed_prompt} below must
+   * agree with its manifest - {@code CatalogSeederManifestConsistencyTest} locks this.
    */
-  private List<SkillSeed> catalog() {
+  List<SkillSeed> catalog() {
     return List.of(
         // --- free (2) ---
         new SkillSeed(
@@ -98,65 +100,100 @@ public class CatalogSeeder implements ApplicationRunner {
             "kitchen",
             true,
             0,
-            "Timers and unit conversion."),
+            "Kitchen timers plus exact US/metric unit conversion and a tick-off ingredient checklist.",
+            List.of("timers", "unit_conversion", "list_management")),
         new SkillSeed(
-            "packing-list", "Packing List", "travel", true, 0, "Packing lists and trip dates."),
+            "packing-list",
+            "Packing List",
+            "travel",
+            true,
+            0,
+            "Turns a trip description into a grouped, tick-off packing checklist scaled to trip"
+                + " length, with date math to shift a departure date by the trip length to find"
+                + " your return date.",
+            List.of("list_management", "date_math", "calculation")),
 
         // --- paid (8), $5 each, base_currency USD ---
-        // 6 named in landing-gym/index.html:
+        // 6 named in landing-gym/index.html, plus budget-bills and study-flashcards:
         new SkillSeed(
             "cooking-assistant",
             "Cooking Assistant",
             "kitchen",
             false,
             500,
-            "Cooking specialist: recipes, substitutions, timers, units."),
+            "Cooking specialist: recipes, ingredient substitutions with ratios, serving-scaling,"
+                + " and step timers, with deterministic allergen warnings.",
+            List.of("timers", "unit_conversion", "list_management")),
         new SkillSeed(
             "nutrition-coach",
             "Nutrition Coach",
             "kitchen",
             false,
             500,
-            "Nutrition: calories and macros for the current list. Informational only."),
+            "Educational nutrition helper: balanced-eating concepts, rough calorie and macro"
+                + " estimates, a food log, and unit conversion. Informational only, not medical"
+                + " advice.",
+            List.of("calculation", "list_management", "unit_conversion")),
         new SkillSeed(
             "travel-planner",
             "Travel Planner",
             "travel",
             false,
             500,
-            "Travel planning: itineraries, dates, budgets."),
+            "Trip-planning specialist: day-by-day itineraries, date math to shift a departure or"
+                + " return date, rough budget splits, and C/F weather conversion — no live"
+                + " bookings or prices.",
+            List.of("list_management", "date_math", "calculation", "unit_conversion")),
         new SkillSeed(
             "home-diy",
             "Home & DIY",
             "home",
             false,
             500,
-            "Home repair: measurements, materials, cut lists."),
+            "Home-improvement helper: material estimates (paint, tile, flooring, concrete),"
+                + " metric/US conversion, a tools-and-materials checklist, and drying timers."
+                + " Safety-critical work is referred to a professional.",
+            List.of("calculation", "unit_conversion", "list_management", "timers", "date_math")),
         new SkillSeed(
             "garden-plants",
             "Garden & Plants",
             "home",
             false,
             500,
-            "Garden care: watering schedules, seasons."),
+            "Gardening companion: planting windows from frost dates, watering and care routines,"
+                + " spacing and fertilizer math, and care timers. It never identifies wild or"
+                + " foraged plants for eating.",
+            List.of("date_math", "list_management", "calculation", "unit_conversion", "timers")),
         new SkillSeed(
-            "car-care", "Car Care", "home", false, 500, "Car maintenance: schedules, fluids, service log."),
-        // 2 PROVISIONAL additions to reach the 8-paid floor (owner decision still open - flagged
-        // in the final report; pick sensible placeholders, do not treat as final content):
-        new SkillSeed(
-            "cleaning-schedule",
-            "Home Cleaning Planner",
+            "car-care",
+            "Car Care",
             "home",
             false,
             500,
-            "PROVISIONAL: Cleaning rotations and reminders, room by room."),
+            "Routine car-care helper: service-interval reminders, a maintenance log, fuel-economy"
+                + " and fluid math, owner-level checks, and general warning-light explanations."
+                + " Safety-critical repairs go to a mechanic.",
+            List.of("list_management", "date_math", "calculation", "unit_conversion", "timers")),
         new SkillSeed(
-            "pet-care",
-            "Pet Care Companion",
-            "home",
+            "budget-bills",
+            "Budget & Bills",
+            "budget",
             false,
             500,
-            "PROVISIONAL: Feeding schedules, vet reminders, and care logs for a pet."));
+            "Everyday budgeting helper: a bills checklist with due-date math, totals and cost"
+                + " splits, percentage-of-income and savings-goal math, and plain explanations of"
+                + " budgeting frameworks. General education, not financial advice.",
+            List.of("list_management", "calculation", "date_math")),
+        new SkillSeed(
+            "study-flashcards",
+            "Study & Flashcards",
+            "study",
+            false,
+            500,
+            "Study coach: turns your notes into flashcards, quizzes with active recall, schedules"
+                + " spaced-repetition reviews, runs focus timers, and does grade math. It works"
+                + " only from material you provide.",
+            List.of("list_management", "date_math", "timers", "calculation")));
   }
 
   private int seedSkills() {
@@ -164,24 +201,34 @@ public class CatalogSeeder implements ApplicationRunner {
     int count = 0;
     for (SkillSeed s : catalog()) {
       Instant createdAt = existingCreatedAt(coll, s.id());
-      Document doc =
-          new Document("_id", s.id())
-              .append("name", s.name())
-              .append("category", s.category())
-              .append("is_free", s.free())
-              .append("status", "published")
-              .append("base_price", s.basePriceMinor())
-              .append("base_currency", "USD")
-              .append("compressed_prompt", s.compressedPrompt())
-              // Never a live curated demo transcript in seed data - left null deliberately.
-              .append("preview_transcript_uri", null)
-              .append("min_model_tier", "small")
-              .append("created_at", createdAt)
-              .append("updated_at", Instant.now());
+      Document doc = buildSkillDocument(s, createdAt);
       coll.replaceOne(Filters.eq("_id", s.id()), doc, new ReplaceOptions().upsert(true));
       count++;
     }
     return count;
+  }
+
+  /**
+   * Builds the {@code skills} document for one seed entry. Pure - no Mongo interaction - so
+   * {@code CatalogSeederManifestConsistencyTest} can assert its shape (notably: no {@code
+   * system_prompt} key, ever - SF8) without a live database.
+   */
+  static Document buildSkillDocument(SkillSeed s, Instant createdAt) {
+    return new Document("_id", s.id())
+        .append("name", s.name())
+        .append("category", s.category())
+        .append("is_free", s.free())
+        .append("status", "published")
+        .append("base_price", s.basePriceMinor())
+        .append("base_currency", "USD")
+        .append("compressed_prompt", s.compressedPrompt())
+        // Never a live curated demo transcript in seed data - left null deliberately.
+        .append("preview_transcript_uri", null)
+        .append("min_model_tier", "small")
+        // F05: the manifest's top-level capability-token array (install-time disclosure source).
+        .append("capabilities", s.capabilities())
+        .append("created_at", createdAt)
+        .append("updated_at", Instant.now());
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -359,6 +406,12 @@ public class CatalogSeeder implements ApplicationRunner {
     return sb.toString();
   }
 
-  private record SkillSeed(
-      String id, String name, String category, boolean free, long basePriceMinor, String compressedPrompt) {}
+  record SkillSeed(
+      String id,
+      String name,
+      String category,
+      boolean free,
+      long basePriceMinor,
+      String compressedPrompt,
+      List<String> capabilities) {}
 }

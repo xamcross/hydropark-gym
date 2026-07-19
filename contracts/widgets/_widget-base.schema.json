@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/_widget-base.schema.json",
+  "title": "Hydropark Widget — Base Contract (canonical form)",
+  "description": "The common envelope every widget instance conforms to (SPEC 9.2). Per-widget schemas (chat, timer_stack, editable_list, …) `allOf`-extend this file: they pin `type` to a const, tighten `props`, add per-type `required`, and reference the shared `$defs` here (slot type language, event decls, style variants). This schema validates the CANONICAL widget object; a skill manifest may author the SHORTHAND projection (inline props, omitted region/priority/emits/min_widget_version), which the app normalizes to this canonical form at load before validating (SPEC 9.2 'One canonical schema; the manifest uses shorthand'). Unknown/too-new `type` values are NOT rejected here — they degrade to a graceful placeholder at render (SPEC 9.8); see $defs/widgetTypeName.",
+  "type": "object",
+  "required": ["type", "id"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "$ref": "#/$defs/widgetTypeName"
+    },
+    "id": {
+      "$ref": "#/$defs/widgetId"
+    },
+    "title": {
+      "$ref": "#/$defs/localizableString",
+      "description": "Panel heading. Localizable (see $defs/localizableString). Also the default accessible name when a11y.label is absent."
+    },
+    "region": {
+      "$ref": "#/$defs/region",
+      "description": "Layout dock region. Optional in the manifest; normalization fills the widget-type's default region (SPEC 9.5)."
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 50,
+      "description": "Placement order within a region (higher first). Panels from all active skills are placed by region then priority, then deduplicated by type+id+binding (SPEC 8.3.3 / 9.5)."
+    },
+    "min_widget_version": {
+      "$ref": "#/$defs/widgetVersion",
+      "default": "1.0",
+      "description": "Minimum widget-LIBRARY version this instance needs. If it exceeds the installed library version (or `type` is unknown), the app renders a placeholder, never a crash/blank (SPEC 9.8)."
+    },
+    "props": {
+      "type": "object",
+      "description": "Typed, per-type configuration. The base leaves this OPEN; each per-widget schema constrains it (own field set + additionalProperties:false). In shorthand the manifest may inline these props at the top level; normalization folds them under `props` (SPEC 9.2)."
+    },
+    "binds_state": {
+      "$ref": "#/$defs/slotName",
+      "description": "Two-way binding to a shared-state slot (SPEC 8.3.4). The widget renders the slot's live value and, IFF its owning skill is the slot's writer-of-record, its edits write back; otherwise it binds READ-ONLY (renders live, edit affordances disabled, tooltip naming the writer — SPEC 8.3.4 / 9.3 #1). The effective read/write mode is RESOLVED at merge time; it is not authored here."
+    },
+    "reads_state": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/slotName"
+      },
+      "uniqueItems": true,
+      "description": "Additional slots this widget observes READ-ONLY for display beyond its primary `binds_state` (e.g. a key_value_panel showing macros for the `ingredients` slot it does not own). Routing is keyed on slot NAME, so an update to any listed slot re-renders this widget (SPEC 9.3 'Tool ↔ slot ↔ widget routing')."
+    },
+    "binds_tool": {
+      "$ref": "#/$defs/toolRefName",
+      "description": "User actions on this widget invoke this tool deterministically — the UI-first path, no model round-trip (SPEC 9.3 #2 / 8.4). May be a namespaced ref (e.g. `cooking.convert_units`) after collision resolution (SPEC 8.3.3)."
+    },
+    "emits": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/eventDecl"
+      },
+      "uniqueItems": true,
+      "description": "Events this widget posts to the agent's event bus (SPEC 9.3 #4). Each carries a `to_chat` flag — a per-widget-type default, overridable per event. Optional in the manifest; normalization fills the widget-type's default event set. Certification rejects duplicate event names."
+    },
+    "states": {
+      "$ref": "#/$defs/stateCopyOverrides",
+      "description": "Optional COPY overrides for the mandatory loading/empty/error states. The widget TYPE ships sensible defaults so skills never have to (SPEC 9.2); a skill may only override the localizable strings, never suppress a state."
+    },
+    "a11y": {
+      "$ref": "#/$defs/a11yMeta"
+    },
+    "style": {
+      "$ref": "#/$defs/styleVariants"
+    }
+  },
+  "$defs": {
+    "widgetId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Unique within the agent (cross-widget uniqueness is enforced at merge, not by this schema). Snake_case."
+    },
+    "widgetTypeName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "minLength": 1,
+      "maxLength": 48,
+      "description": "Snake_case widget-type identifier. Deliberately NOT a closed enum: a manifest built against a newer library may reference a type an older app has never heard of, and that MUST render a placeholder (SPEC 9.8), not fail validation. The known v1 registry is $defs/knownWidgetTypeV1 — used by the renderer's 'is this type installed?' check and by certification, not to gate envelope validity."
+    },
+    "knownWidgetTypeV1": {
+      "description": "The v1 first-party widget library (SPEC 9.4). Non-normative for envelope validation; the renderer uses it to decide render-vs-placeholder, and per-widget schemas pin `type` to one of these. `chart`/`sparkline`/`map` are deferred to Phase 2 and intentionally absent.",
+      "enum": [
+        "chat",
+        "timer_stack",
+        "editable_list",
+        "segmented_toggle",
+        "switch",
+        "key_value_panel",
+        "slider",
+        "stepper",
+        "table",
+        "quick_actions",
+        "media_note",
+        "tabs",
+        "progress",
+        "date_time_picker"
+      ]
+    },
+    "region": {
+      "type": "string",
+      "enum": ["side", "bottom", "inline"],
+      "description": "SPEC 9.5. Below the minimum window width, `side` panels move to a bottom drawer (layout engine, P1-06.5)."
+    },
+    "widgetVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$",
+      "description": "MAJOR.MINOR[.PATCH]. The manifest example uses the two-part form (\"1.0\")."
+    },
+    "slotName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Name of a shared-state slot (SPEC 8.3.4). Routing between tools and widgets is keyed on this name."
+    },
+    "toolRefName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$",
+      "minLength": 1,
+      "maxLength": 96,
+      "description": "A fixed-catalog tool ref (SPEC 8.1/8.5). The optional `skill.tool` dotted form is the namespaced variant produced by collision resolution (SPEC 8.3.3)."
+    },
+    "localizableString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Display text. May be a literal (default-locale/dev) or an `@`-prefixed key resolved against the skill's localized string table (SPEC 8.7). Certification verifies key completeness for every declared locale."
+    },
+    "eventDecl": {
+      "description": "An emitted event, in canonical (object) or shorthand (bare name string) form. Shorthand uses the widget-type's default `to_chat` for that event; the object form overrides it (SPEC 9.2 / 9.3 #4).",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 48
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "maxLength": 48
+            },
+            "to_chat": {
+              "type": "boolean",
+              "description": "true posts a system line into the transcript when the event fires ('⏱ Pasta timer finished'). Posting appends to the transcript (and, if time-critical, fires the OS notification, SPEC 9.7) — it NEVER auto-runs inference (SPEC 9.3 #4)."
+            }
+          }
+        }
+      ]
+    },
+    "stateCopyOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-state copy overrides. Presence of a key overrides only that state's strings; absence uses the widget-type default. A skill cannot disable a state.",
+      "properties": {
+        "loading": { "$ref": "#/$defs/stateCopy" },
+        "empty": { "$ref": "#/$defs/stateCopy" },
+        "error": { "$ref": "#/$defs/stateCopy" }
+      }
+    },
+    "stateCopy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "$ref": "#/$defs/localizableString" },
+        "hint": { "$ref": "#/$defs/localizableString" }
+      }
+    },
+    "a11yMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Accessible-name/description overrides the skill supplies. The MECHANICAL accessibility contract — keyboard operability, ARIA roles, focus order, per-theme WCAG-AA contrast, and no-hue-only meaning (WCAG 1.4.1) — is guaranteed by the first-party widget-library implementation and enforced by the X-A11Y gate; it is NOT the skill's to author or waive.",
+      "properties": {
+        "label": {
+          "$ref": "#/$defs/localizableString",
+          "description": "Accessible name override (falls back to `title`)."
+        },
+        "description": {
+          "$ref": "#/$defs/localizableString",
+          "description": "Longer accessible description (aria-describedby target)."
+        },
+        "live_region": {
+          "type": "string",
+          "enum": ["off", "polite", "assertive"],
+          "description": "aria-live politeness for content that updates out-of-band (e.g. a finished timer). Default is the widget-type's own choice."
+        }
+      }
+    },
+    "styleVariants": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The ENTIRE skill-facing styling surface (P1-03.8). A skill selects from this closed vocabulary of semantic variants only; each maps first-party to design tokens (color/spacing/type/radius). Skills ship NO CSS, NO raw token references, NO inline styles (SPEC 9.1/9.10). A certification lint rejects any non-token styling in the widget library itself and any attempt to smuggle raw style through the manifest (P1-20.1). NOTE: `tone` must never be the SOLE carrier of meaning — the widget always pairs it with text/icon (WCAG 1.4.1); see $defs/designTokenNamespace for the underlying vocabulary the lint enforces.",
+      "properties": {
+        "tone": {
+          "type": "string",
+          "enum": ["default", "neutral", "accent", "positive", "caution", "danger"],
+          "description": "Semantic color role. Maps per-theme to AA-safe token pairs; never hue-only (paired with label/icon)."
+        },
+        "emphasis": {
+          "type": "string",
+          "enum": ["subtle", "normal", "strong"]
+        },
+        "density": {
+          "type": "string",
+          "enum": ["comfortable", "compact"]
+        },
+        "align": {
+          "type": "string",
+          "enum": ["start", "center", "end"]
+        }
+      }
+    },
+    "designTokenNamespace": {
+      "type": "string",
+      "pattern": "^--(color|space|radius|font|text|transition|motion|shadow|z)-[a-z0-9-]+$",
+      "description": "NON-NORMATIVE for the manifest (skills never write these). This is the closed design-token vocabulary the widget-library IMPLEMENTATION draws from and the target of the non-token-styling lint (P1-03.8/P1-20.1): every color/spacing/type/radius value in widget CSS must be a `var(--token)` from these namespaces — no literal hex/px/rem/keyword styling. Enumerated so the lint and the token system (P1-01.3) share one definition."
+    },
+    "slotType": {
+      "description": "The closed shared-state type language (SPEC 8.3.4), NORMALIZED object form. A slot's authored `schema` string (see $defs/slotSchemaDSL) normalizes to one of these. Widget↔slot compatibility (which widget may bind which slot kind) and slot↔slot compatibility (structural equality after optional-field widening) are checked against this form by the orchestrator (P1-04.5) — see $defs/slotCompatibilityRule.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "scalar"],
+          "properties": {
+            "kind": { "const": "scalar" },
+            "scalar": {
+              "type": "string",
+              "enum": ["string", "number", "bool", "enum"]
+            },
+            "values": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1,
+              "uniqueItems": true,
+              "description": "The enum member set; required iff scalar==enum."
+            }
+          },
+          "if": {
+            "properties": { "scalar": { "const": "enum" } }
+          },
+          "then": {
+            "required": ["values"]
+          },
+          "else": {
+            "not": { "required": ["values"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "of"],
+          "properties": {
+            "kind": { "const": "list" },
+            "of": {
+              "oneOf": [
+                { "$ref": "#/$defs/slotType" },
+                {
+                  "const": "item",
+                  "description": "Shorthand for the app-defined item record; see $defs/itemRecord. `list<item>` is the canonical multi-select/checklist slot."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "fields"],
+          "properties": {
+            "kind": { "const": "record" },
+            "fields": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": { "$ref": "#/$defs/slotType" },
+              "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" }
+            },
+            "required_fields": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true,
+              "description": "Names (subset of `fields`) that are required. Fields not listed are optional and may be widened away in a compatible peer schema (SPEC 8.3.4)."
+            }
+          }
+        }
+      ]
+    },
+    "itemRecord": {
+      "type": "object",
+      "description": "The app-defined `item` record used by `list<item>` slots (SPEC 8.3.4). `id` is a STABLE, APP-ASSIGNED entry id set on insert — never chosen by a caller on `add` — which makes cross-skill append/patch merges commutative and deterministic. Extra OPTIONAL fields are permitted (schema widening); `id` and `name` are the only required fields, so two skills' `list<item>` slots stay compatible.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "qty": { "type": "number" },
+        "unit": { "type": "string" },
+        "checked": { "type": "boolean" }
+      },
+      "required": ["id", "name"],
+      "additionalProperties": true
+    },
+    "slotSchemaDSL": {
+      "type": "string",
+      "pattern": "^(scalar<(string|number|bool|enum\\([^()]+\\))>|list<[^<>]+>|record<\\{.+\\}>|item)$",
+      "description": "The authored STRING form of a slot schema as it appears in a manifest's `shared_state[].schema` (e.g. \"list<item>\", \"scalar<enum(US|Metric)>\", \"record<{kcal:number, protein_g:number}>\"). Shape-checked here; the app normalizes it to $defs/slotType (the authoritative form). Mirrors the widget shorthand→canonical pattern."
+    },
+    "acceptsSlotKind": {
+      "type": "string",
+      "enum": ["scalar", "list", "list_item", "record"],
+      "description": "Used by per-widget schemas (as a $comment / documented constraint) to declare which slot KIND a widget's `binds_state` accepts — e.g. editable_list → list_item, segmented_toggle → scalar(enum), key_value_panel → record. The concrete slot's kind lives in `shared_state`, so this compatibility is a cross-artifact certification check (P1-04.5), not an in-envelope constraint."
+    },
+    "slotCompatibilityRule": {
+      "description": "NON-SCHEMA (documentation node): two skills declaring the same slot name are COMPATIBLE iff their normalized slotType values are structurally equal after optional-field widening — same base `kind`; for scalar, same `scalar` primitive (and, for enum, the same required member set); for list, compatible `of`; for record, the same set of REQUIRED fields (extra OPTIONAL fields on either side are allowed). Incompatible schemas BLOCK the combination with a message naming the differing fields (SPEC 8.3.4). JSON Schema cannot compare two instances, so the orchestrator (P1-04.5) implements this; the rule is recorded here as the single source of truth.",
+      "type": "null"
+    }
+  }
+}

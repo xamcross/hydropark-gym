@@ -1,0 +1,299 @@
+/* layout-dock — token-only styling (contract §7 / P1-20.1 non-token lint).
+   Zero literal hex/px: every colour/space/type/radius/motion value resolves
+   through the design-token vocabulary in styles/tokens.css, so both themes and
+   reduce-motion are inherited for free. In-between sizes are COMPOSED from the
+   4px space scale with calc(). `.sr-only` is the global visually-hidden helper. */
+
+:host {
+  display: block;
+}
+
+.layout-dock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ---- Regions --------------------------------------------------------------
+   The dock owns only the panel stacks; the consumer positions the dock next to
+   / below chat. `side` is a fixed-ish column; `bottom`/`inline` flow full-width. */
+.region {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.region-side {
+  width: calc(var(--space-6) * 10); /* 320px — matches the P0 dock column */
+  min-width: 0;
+}
+
+.region-bottom,
+.region-inline {
+  width: 100%;
+}
+
+/* ---- Panel ---------------------------------------------------------------- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.panel.is-pinned {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-1);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+}
+
+.panel.is-collapsed .panel-header {
+  border-bottom-color: transparent;
+}
+
+/* The disclosure IS the header hit-target (title + chevron). */
+.panel-disclosure {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0;
+  text-align: start;
+  cursor: pointer;
+}
+
+.panel-disclosure:disabled {
+  cursor: default;
+}
+
+.chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.panel-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-snug);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+/* Pin flag pairs the pinned state with TEXT+icon, never colour alone (WCAG 1.4.1). */
+.pin-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--tone-careful-tint);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.panel-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--space-5) + var(--space-1)); /* 28px touch target */
+  min-height: calc(var(--space-5) + var(--space-1));
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.panel-tool:hover {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.panel-tool[aria-pressed='true'] {
+  color: var(--color-primary);
+}
+
+/* ---- Panel body ----------------------------------------------------------- */
+.panel-body {
+  padding: var(--space-3);
+  /* `--panel-size` is set per-panel when resized; natural height otherwise. */
+  min-block-size: var(--panel-size, auto);
+}
+
+.panel-body[hidden] {
+  display: none;
+}
+
+.panel-fallback {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
+.panel-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.spinner {
+  width: var(--space-4);
+  height: var(--space-4);
+  flex: none;
+  border-radius: var(--radius-pill);
+  border: calc(var(--space-1) * 0.5) solid var(--color-border); /* 2px */
+  border-top-color: var(--color-primary);
+  animation: ld-spin var(--transition-slow) linear infinite;
+}
+
+/* Reduce-motion: the token collapses to ~0, so pin the spinner instead of racing it. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@keyframes ld-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Resize separator (keyboard-operable) --------------------------------- */
+.panel-resize {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--space-3);
+  cursor: ns-resize;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+}
+
+.resize-grip {
+  width: var(--space-6);
+  height: calc(var(--space-1) * 0.5); /* 2px */
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+}
+
+.panel-resize:hover .resize-grip {
+  background: var(--color-primary);
+}
+
+/* ---- Drawer (narrow-folded side) ------------------------------------------ */
+.region-drawer {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+  gap: 0;
+}
+
+.drawer-heading {
+  margin: 0;
+}
+
+.drawer-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: none;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.drawer-count {
+  margin-inline-start: auto;
+  min-width: var(--space-5);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+}
+
+.drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  /* Overflow scrolls (SPEC §9.5) rather than pushing chat off-screen. */
+  max-height: calc(var(--space-6) * 15);
+  overflow-y: auto;
+}
+
+.drawer-body[hidden] {
+  display: none;
+}
+
+/* ---- Empty state ---------------------------------------------------------- */
+.dock-empty {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+/* ---- Focus visibility (contract §8.3 — visible focus, both themes) -------- */
+.panel-disclosure:focus-visible,
+.panel-tool:focus-visible,
+.drawer-toggle:focus-visible,
+.panel-resize:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

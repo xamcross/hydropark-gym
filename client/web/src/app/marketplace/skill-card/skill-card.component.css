@@ -1,0 +1,113 @@
+/* skill-card — token-only styling. The whole card is one focusable button;
+   badges pair a glyph/label with meaning so nothing is colour-only (WCAG 1.4.1). */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  inline-size: 100%;
+  block-size: 100%;
+  text-align: start;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast),
+    transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.card:hover {
+  border-color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-1);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.card:active {
+  transform: translateY(0);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.card-icon {
+  font-size: var(--text-xl);
+  line-height: 1;
+}
+
+.card-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--leading-snug);
+}
+
+.card-pitch {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block-start: auto;
+  padding-block-start: var(--space-2);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--space-1) * 0.75);
+  padding: calc(var(--space-1) * 0.5) var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.badge.price {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+  background: var(--tone-careful-tint);
+}
+
+.badge.price.is-free {
+  border-color: var(--tone-fine-fill);
+  background: var(--tone-fine-tint);
+}
+
+.badge.category {
+  color: var(--color-text-muted);
+}
+
+.badge.size {
+  color: var(--color-text-muted);
+  border-style: dashed;
+}
+
+.badge.runs.ok {
+  border-color: var(--tone-fine-fill);
+  color: var(--tone-fine-text);
+  background: var(--tone-fine-tint);
+}
+
+.badge.runs.needs {
+  border-color: var(--tone-careful-fill);
+  color: var(--tone-careful-text);
+  background: var(--tone-careful-tint);
+}

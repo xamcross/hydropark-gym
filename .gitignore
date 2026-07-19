@@ -33,7 +33,12 @@ dist/
 # committed (PHASE0-PLAN §8: bundled/side-loaded, no download manager).
 # ---------------------------------------------------------------------------
 *.gguf
-models/
+# Anchored to the model-ARTIFACT dirs ONLY. A bare `models/` also matched the Angular
+# source dir client/web/src/app/models/ (F2 model-download UI) and silently dropped it
+# from the repo - keep these anchored so real source under any */models/ stays tracked.
+/models/
+/client/models/
+/client/src-tauri/models/
 
 # ---------------------------------------------------------------------------
 # Tooling / OS
@@ -57,6 +62,27 @@ npm-debug.log*
 /BACKLOG.md
 /SPRINT-BACKLOG.md
 /PHASE0-PLAN.md
+/DEMAND-RESEARCH.md
+/IMPLEMENTATION-STATUS.md
+/PHASE0-GO-NO-GO-PROJECTED.md
+/PHASE0-H3-DECISION.md
+/DEMO-READINESS-DESIGN.md
+/DEMO-READINESS-PLAN.md
+/UX-PUNCH-LIST.md
+/DEMO-BEATS.md
+/H1-SESSION-SCRIPT.md
+/DEMO-SHOTLIST.md
+/demos/
+/.superpowers/
+# superpowers-generated planning docs (same untracked-docs convention as above)
+/docs/
+# local dev-loop state (demo-readiness push): mongo replica-set data + blobstore root
+# (blobstore-dev unanchored: the backend resolves its default ./blobstore-dev against
+# its own working dir, so the root lands at backend/blobstore-dev in the dev loop)
+/.mongo-rs0/
+/.mongo-native/
+blobstore-dev/
+/research/
 /sprint/
 backend/docs/KEY-COMPROMISE-RUNBOOK.md
 
@@ -66,6 +92,10 @@ backend/docs/KEY-COMPROMISE-RUNBOOK.md
 # binary and the exact dependency graph should be reproducible.
 # ---------------------------------------------------------------------------
 client/src-tauri/gen/
+# T17 preview capture output: raw per-skill transcripts from real model runs.
+# The CURATED transcripts are committed in web preview-transcripts.ts; these raw
+# JSON artifacts are regenerable capture output, not source.
+client/src-tauri/previews/
 
 # Python + eval transient output
 __pycache__/

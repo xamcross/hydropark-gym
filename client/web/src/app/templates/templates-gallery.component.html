@@ -1,0 +1,72 @@
+<section class="tmpl-gallery" aria-label="My Templates">
+  @if (loading() && isEmpty()) {
+    <div class="tmpl-state" role="status" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span>
+      <span>Loading your templates…</span>
+    </div>
+  } @else if (isEmpty()) {
+    <div class="tmpl-state" role="status">
+      <p class="tmpl-state-title">No templates saved yet.</p>
+      <p class="tmpl-state-msg">
+        Enable a skill combo in the Assistant view, then "Save as template" to build your first one.
+      </p>
+    </div>
+  } @else {
+    <ul class="tmpl-list">
+      @for (t of templates(); track trackTemplate($index, t)) {
+        <li class="tmpl-card">
+          <div class="tmpl-card-main">
+            <h3 class="tmpl-name">{{ t.name }}</h3>
+            @if (t.skill_refs.length) {
+              <div class="tmpl-chips" aria-label="Skills in this template">
+                @for (id of t.skill_refs; track id) {
+                  <span class="tmpl-chip">{{ skillLabel(id) }}</span>
+                }
+              </div>
+            } @else {
+              <p class="tmpl-empty-combo">No skills — chat-only.</p>
+            }
+          </div>
+
+          <button
+            type="button"
+            class="load-btn"
+            [disabled]="loadingId() === t.id"
+            (click)="onLoad(t.id)"
+          >
+            {{ loadingId() === t.id ? 'Loading…' : 'Load' }}
+          </button>
+
+          @if (outcomeFor(t.id); as outcome) {
+            @if (!outcome.ok) {
+              <div class="tmpl-outcome tmpl-outcome-missing" role="alert">
+                <p class="tmpl-outcome-title">Couldn't load this template.</p>
+                <p class="tmpl-outcome-msg">
+                  {{ outcome.missingSkills.length === 1 ? 'This skill is' : 'These skills are' }}
+                  missing or need an update: {{ outcome.missingSkills.join(', ') }}.
+                </p>
+                <div class="tmpl-reinstall-row">
+                  @for (skillId of outcome.missingSkills; track skillId) {
+                    <button
+                      type="button"
+                      class="reinstall-btn"
+                      [disabled]="purchase.stateFor(skillId) === 'installing'"
+                      (click)="onReinstall(skillId)"
+                    >
+                      {{ purchase.stateFor(skillId) === 'installing' ? 'Reinstalling…' : 'Reinstall ' + skillId }}
+                    </button>
+                  }
+                </div>
+              </div>
+            } @else if (outcome.unresolved.length) {
+              <p class="tmpl-outcome tmpl-outcome-unresolved" role="status">
+                Loaded — but {{ outcome.unresolved.join(', ') }} can't be auto-enabled yet; turn it on yourself once
+                it's installed.
+              </p>
+            }
+          }
+        </li>
+      }
+    </ul>
+  }
+</section>

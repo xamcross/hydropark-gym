@@ -1,7 +1,8 @@
 # Pre-scale HSM/KMS migration for the License Issuer
 
 > **Ticket:** BACKLOG **P1-16.8** — replace the interim software-secret key custody (P1-16.3) with a
-> real key-protection backend **before paid acquisition / real catalog revenue**.
+> real key-protection backend **before scale / real catalog revenue** (paid acquisition is ruled out per
+> SPEC §22.19, so the trigger is revenue/install-scale, not ad spend).
 >
 > **Design refs:** BACKEND-DESIGN §6.1 (JWS format), §6.2 (key custody & isolation), §6.3 (K=5
 > rolling trusted set), §6.4 (compromise response), §11.2 #1 (the interim decision this closes).

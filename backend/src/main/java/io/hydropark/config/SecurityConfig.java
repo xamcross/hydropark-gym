@@ -79,12 +79,37 @@ public class SecurityConfig {
                     .permitAll()
                     // P1-19.3: the base model GGUF is a free, unauthenticated download (§8 calls
                     // this a cost risk, not a security one - mitigated by CDN caching and rate
-                    // limits, never by gating). NOTE: no handler exists behind this path yet - the
-                    // artifact registry / CDN epic (P1-19) is not started, so this currently
-                    // permits a route that 404s. Left in place deliberately, and flagged here so it
-                    // is not mistaken for an accidentally-exposed endpoint.
-                    .requestMatchers(HttpMethod.GET, "/v1/download/model/**")
+                    // limits, never by gating). Handler: DownloadController#model.
+                    .requestMatchers(HttpMethod.GET, "/v1/download/models/**")
                     .permitAll()
+                    // Dev-loop blob serving (LocalFs adapter): /blobs/** URLs are minted by
+                    // LocalFsBlobStore as short-TTL HMAC-signed URLs, and BlobServeController
+                    // re-verifies that signature before streaming a byte - the signature IS the
+                    // authorization (the same contract a prod signed CDN URL carries), so no
+                    // bearer token is required here. Handler: BlobServeController#serve.
+                    .requestMatchers(HttpMethod.GET, "/blobs/**")
+                    .permitAll()
+                    // P1-19.2: paid skill packages require a valid access token; DownloadController
+                    // additionally enforces free-or-active-grant entitlement and 403s otherwise.
+                    // Redundant with anyRequest().authenticated() below, kept explicit so the paid
+                    // vs. free split of /v1/download/** is legible right next to the public rule.
+                    .requestMatchers(HttpMethod.GET, "/v1/download/skills/**")
+                    .authenticated()
+                    // P1-20 registry submission (POST /v1/registry/**): certify-only, no side
+                    // effects, but an admin/pipeline op. The chain rule stays `.authenticated()` (a
+                    // valid access token, never public); the admin restriction itself is enforced at
+                    // the controller via a config-driven allowlist (hydropark.registry.admin-user-ids),
+                    // which 403s any authenticated caller who is not a named admin. Relocate under
+                    // /internal/** (InternalAuthFilter-gated) if publishing writes ever land behind it.
+                    .requestMatchers(HttpMethod.POST, "/v1/registry/**")
+                    .authenticated()
+                    // P1-25 admin analytics (GET /v1/admin/**): read-only business rollups + the
+                    // gross-margin / Phase-1→2 gates. Same shape as registry: the chain rule stays
+                    // `.authenticated()` (a valid access token, never public); the admin restriction
+                    // itself is enforced at AnalyticsController, which reuses the config-driven
+                    // allowlist (hydropark.registry.admin-user-ids) and 403s any non-admin caller.
+                    .requestMatchers(HttpMethod.GET, "/v1/admin/**")
+                    .authenticated()
                     .anyRequest()
                     .authenticated())
         .addFilterBefore(internalAuthFilter, UsernamePasswordAuthenticationFilter.class)

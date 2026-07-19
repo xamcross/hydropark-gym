@@ -1,0 +1,65 @@
+<section class="panel key-value-panel" [attr.data-density]="style.density || null" [attr.aria-label]="title || 'Details'">
+  <header>
+    <h2>{{ title || 'Details' }}</h2>
+  </header>
+
+  @if (resolved === 'loading') {
+    <div class="kv-loading" role="status" aria-live="polite">
+      <div class="kv-indeterminate" aria-hidden="true"><span class="kv-indeterminate-bar"></span></div>
+      <span class="kv-status-text">{{ states.loading || 'Calculating…' }}</span>
+    </div>
+  } @else if (resolved === 'error') {
+    <div class="kv-error" role="alert">
+      <p class="kv-error-msg">
+        <span class="kv-error-icon" aria-hidden="true">!</span>
+        {{ error?.message || states.error || 'Could not load these values.' }}
+      </p>
+      @if (error?.retryable !== false) {
+        <button type="button" class="kv-retry" (click)="retry.emit()">Try again</button>
+      }
+    </div>
+  } @else if (resolved === 'placeholder') {
+    <p class="kv-placeholder">This panel needs a newer version of the app.</p>
+  } @else if (resolved === 'empty') {
+    <p class="empty">{{ emptyMessage }}</p>
+  } @else {
+    @if (readonly && writer) {
+      <p class="kv-provenance">Values from {{ writer }}</p>
+    }
+
+    <dl
+      class="kv-list"
+      [attr.data-columns]="columns"
+      [attr.data-value-align]="valueAlign"
+      [attr.aria-live]="liveRegion === 'off' ? null : liveRegion"
+    >
+      @for (row of rows; track row.key) {
+        <div
+          class="kv-row"
+          [attr.data-tone]="row.tone"
+          [attr.data-emphasis]="row.emphasis"
+          [class.activatable]="interactive"
+          [attr.role]="interactive ? 'button' : null"
+          [attr.tabindex]="interactive ? 0 : null"
+          (click)="activate(row.key)"
+          (keydown.enter)="activate(row.key)"
+          (keydown.space)="onSpace($event, row.key)"
+        >
+          <dt class="kv-label">{{ row.label }}</dt>
+          <dd
+            class="kv-value"
+            [class.selectable]="selectableValues"
+            [class.missing]="!row.present"
+            (copy)="onCopy(row.key)"
+          >
+            {{ row.display }}
+          </dd>
+        </div>
+      }
+    </dl>
+
+    @if (caption) {
+      <p class="kv-caption">{{ caption }}</p>
+    }
+  }
+</section>

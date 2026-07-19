@@ -1,0 +1,14 @@
+{
+  "name": "hydropark-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "spike": "tsx src/spike.ts",
+    "e2e": "tsx src/run.ts"
+  },
+  "devDependencies": {
+    "playwright": "1.48.2",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  }
+}

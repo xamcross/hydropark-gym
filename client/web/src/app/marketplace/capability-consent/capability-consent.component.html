@@ -1,0 +1,46 @@
+<!-- Backdrop: click outside the dialog cancels (a11y: Escape does too). -->
+<div class="consent-backdrop" (click)="onBackdrop($event)">
+  <div
+    class="consent-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="consent-title"
+    tabindex="-1"
+  >
+    <header class="consent-head">
+      <h2 class="consent-title" id="consent-title">Before you install</h2>
+      <button type="button" class="consent-close" (click)="onCancel()" aria-label="Cancel">
+        <span aria-hidden="true">×</span>
+      </button>
+    </header>
+
+    @switch (phase()) {
+      @case ('loading') {
+        <div class="consent-state" role="status" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Checking what {{ skillName() }} can do…</span>
+        </div>
+      }
+
+      @case ('error') {
+        <div class="consent-state consent-state-error" role="alert">
+          <p class="state-title">Couldn't load the capability summary.</p>
+          <p class="state-msg">{{ errorMsg() }}</p>
+        </div>
+      }
+
+      @case ('ready') {
+        <div class="consent-body">
+          <p class="consent-disclosure">{{ disclosure() }}</p>
+        </div>
+      }
+    }
+
+    <footer class="consent-foot">
+      <button type="button" class="ghost-btn" (click)="onCancel()">Cancel</button>
+      <button type="button" class="install-btn" [disabled]="phase() !== 'ready'" (click)="onConfirm()">
+        Install
+      </button>
+    </footer>
+  </div>
+</div>

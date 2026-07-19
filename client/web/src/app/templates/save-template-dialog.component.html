@@ -1,0 +1,54 @@
+<!-- Backdrop: click outside the dialog cancels (a11y: Escape does too). -->
+<div class="save-tmpl-backdrop" (click)="onBackdrop($event)">
+  <div
+    class="save-tmpl-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="save-tmpl-title"
+    tabindex="-1"
+  >
+    <header class="save-tmpl-head">
+      <h2 class="save-tmpl-title" id="save-tmpl-title">Save as template</h2>
+      <button type="button" class="save-tmpl-close" (click)="onCancel()" aria-label="Cancel">
+        <span aria-hidden="true">×</span>
+      </button>
+    </header>
+
+    <form class="save-tmpl-body" (ngSubmit)="onSubmit()">
+      <label class="save-tmpl-label" for="save-tmpl-name-input">Template name</label>
+      <input
+        id="save-tmpl-name-input"
+        class="save-tmpl-name"
+        type="text"
+        placeholder="e.g. Weeknight Chef"
+        [ngModel]="name()"
+        (ngModelChange)="name.set($event)"
+        name="templateName"
+        autocomplete="off"
+        [attr.aria-invalid]="errorMsg() ? 'true' : null"
+        [attr.aria-describedby]="errorMsg() ? 'save-tmpl-error' : null"
+      />
+
+      @if (errorMsg(); as msg) {
+        <p class="save-tmpl-error" id="save-tmpl-error" role="alert">{{ msg }}</p>
+      }
+
+      @if (skillNames().length) {
+        <div class="save-tmpl-chips" aria-label="Skills this template will include">
+          @for (n of skillNames(); track n) {
+            <span class="save-tmpl-chip">{{ n }}</span>
+          }
+        </div>
+      } @else {
+        <p class="save-tmpl-hint">No skills are enabled right now — this template will save an empty combo.</p>
+      }
+
+      <footer class="save-tmpl-foot">
+        <button type="button" class="ghost-btn" (click)="onCancel()" [disabled]="submitting()">Cancel</button>
+        <button type="submit" class="save-btn" [disabled]="submitting()">
+          {{ submitting() ? 'Saving…' : 'Save template' }}
+        </button>
+      </footer>
+    </form>
+  </div>
+</div>

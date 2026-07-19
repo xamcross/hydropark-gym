@@ -1,0 +1,292 @@
+/* quick-actions — token-ONLY styling (contract §7 / non-token-styling lint, P1-20.1).
+   Zero literal hex; in-between sizes compose from the 4px --space scale with calc()
+   (the timer-stack precedent). 1px hairline borders follow the house convention.
+   No hue-only meaning (WCAG 1.4.1): disabled = dim + not-allowed cursor + aria-disabled;
+   read-only = lock icon + "Managed by" text; pending = spinner + aria-busy; the label
+   is always present so tone is never the sole signal. */
+
+.quick-actions {
+  gap: var(--space-2);
+}
+
+/* ---- status / error / empty --------------------------------------------- */
+.qa-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.qa-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-inline-start: calc(var(--space-1) * 0.75) solid var(--color-danger-fill); /* 3px rail */
+  border-radius: var(--radius-md);
+  background: var(--tone-danger-tint);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.qa-error-icon {
+  display: inline-flex;
+  flex: none;
+  inline-size: var(--space-4);
+  block-size: var(--space-4);
+  margin-block-start: calc(var(--space-1) * 0.25);
+}
+
+.qa-error-icon svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.qa-error-msg {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.qa-error-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.qa-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: underline;
+}
+
+/* ---- cluster layout ------------------------------------------------------ */
+.qa-cluster {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.qa-cluster.layout-row {
+  flex-flow: row wrap;
+}
+
+.qa-cluster.layout-column {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.qa-cluster.layout-grid {
+  display: grid;
+  /* default when no explicit column count: reflow at ~80px min (space-6 * 2.5) */
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-6) * 2.5), 1fr));
+}
+
+.qa-cluster.align-center {
+  justify-content: center;
+}
+
+.qa-cluster.align-end {
+  justify-content: flex-end;
+}
+
+.qa-item {
+  display: contents;
+}
+
+.qa-cluster.layout-column .qa-item,
+.qa-cluster.layout-grid .qa-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* ---- the button ---------------------------------------------------------- */
+.qa-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-tight);
+  transition: background var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.layout-column .qa-btn,
+.layout-grid .qa-btn {
+  inline-size: 100%;
+}
+
+.density-compact .qa-btn {
+  padding: var(--space-1) var(--space-2);
+}
+
+.qa-btn:hover:not(.is-disabled):not(.is-pending):not(.is-readonly) {
+  background: var(--color-surface-alt);
+  border-color: var(--color-text-muted);
+}
+
+/* pressed feedback (non-chromatic, momentary) */
+.qa-btn:active:not(.is-disabled):not(.is-pending):not(.is-readonly) {
+  transform: translateY(1px);
+}
+
+/* ---- tone + emphasis variants (token-mapped, per contract §7) ------------
+   The palette carries the fine/careful/danger triad + one accent (sulphur);
+   there is no dedicated "positive" hue, so `positive` maps to the neutral-good
+   `fine` tokens (documented assumption). */
+.qa-btn.tone-neutral {
+  color: var(--color-text-muted);
+}
+
+.qa-btn.tone-accent {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.qa-btn.tone-positive {
+  border-color: var(--tone-fine-fill);
+  color: var(--tone-fine-text);
+}
+
+.qa-btn.tone-caution {
+  border-color: var(--tone-careful-fill);
+  color: var(--tone-careful-text);
+}
+
+.qa-btn.tone-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+/* strong = the primary, filled button */
+.qa-btn.emphasis-strong {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.qa-btn.emphasis-strong:hover:not(.is-disabled):not(.is-pending):not(.is-readonly) {
+  background: var(--color-primary-strong);
+  border-color: var(--color-primary-strong);
+  color: var(--color-primary-contrast);
+}
+
+.qa-btn.tone-danger.emphasis-strong {
+  background: var(--color-danger-fill);
+  border-color: var(--color-danger-fill);
+  color: var(--color-on-danger);
+}
+
+.qa-btn.tone-accent.emphasis-strong {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+/* subtle = ghost (no border/fill until hover) */
+.qa-btn.emphasis-subtle {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* ---- disabled / read-only / pending states (never colour-only) ----------- */
+.qa-btn.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.qa-btn.is-readonly {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.qa-btn.is-pending {
+  cursor: progress;
+}
+
+.qa-icon,
+.qa-lock {
+  display: inline-flex;
+  flex: none;
+  inline-size: var(--space-4);
+  block-size: var(--space-4);
+}
+
+.qa-lock {
+  inline-size: var(--space-3);
+  block-size: var(--space-3);
+  opacity: 0.8;
+}
+
+.qa-icon svg,
+.qa-lock svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* ---- busy spinner (motion collapses under reduce-motion via global rule) -- */
+.spinner {
+  display: inline-block;
+  flex: none;
+  inline-size: var(--space-4);
+  block-size: var(--space-4);
+  border: calc(var(--space-1) * 0.5) solid var(--color-border); /* 2px ring */
+  border-top-color: var(--color-primary);
+  border-radius: var(--radius-pill);
+  animation: qa-spin 0.7s linear infinite;
+}
+
+.emphasis-strong .spinner {
+  border-color: var(--color-primary-contrast);
+  border-top-color: transparent;
+  opacity: 0.9;
+}
+
+@keyframes qa-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- confirmation step --------------------------------------------------- */
+.qa-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+}
+
+.qa-confirm-msg {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+
+.qa-confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.qa-confirm-actions .qa-btn {
+  flex: 1;
+}
+
+.confirm-no {
+  background: var(--color-surface);
+}

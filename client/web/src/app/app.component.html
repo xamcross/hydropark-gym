@@ -5,27 +5,125 @@
       <span class="brand-name">Hydropark</span>
       <span class="brand-tag">Phase 0 prototype</span>
     </div>
-    @if (isMock) {
-      <button type="button" class="dev-btn" (click)="downloadLog()" title="Dev-only: download the in-memory JSONL session log (P0-06.1)">
-        ⬇ session log
+
+    <nav class="shell-nav" aria-label="Primary">
+      <button
+        type="button"
+        class="nav-btn"
+        [class.on]="view() === 'assistant'"
+        [attr.aria-pressed]="view() === 'assistant'"
+        (click)="setView('assistant')"
+      >
+        Assistant
       </button>
-    }
+      <button
+        type="button"
+        class="nav-btn"
+        [class.on]="view() === 'marketplace'"
+        [attr.aria-pressed]="view() === 'marketplace'"
+        (click)="setView('marketplace')"
+      >
+        Marketplace
+      </button>
+      <button
+        type="button"
+        class="nav-btn"
+        [class.on]="view() === 'templates'"
+        [attr.aria-pressed]="view() === 'templates'"
+        (click)="setView('templates')"
+      >
+        Templates
+      </button>
+    </nav>
+
+    <div class="topbar-actions">
+      <!-- App auto-update affordance (P1-11.2): checks for a newer signed build;
+           silent/non-blocking on failure so it never breaks offline use (§18). -->
+      <app-update-check></app-update-check>
+      <!-- Account affordance (P1-09.1): PROMPTS login/register; never required. -->
+      <app-account-menu></app-account-menu>
+      <button
+        type="button"
+        class="theme-btn"
+        (click)="toggleTheme()"
+        [attr.aria-label]="'Switch to ' + (theme() === 'dark' ? 'light' : 'dark') + ' theme'"
+        [title]="'Switch to ' + (theme() === 'dark' ? 'light' : 'dark') + ' theme'"
+      >
+        <span aria-hidden="true">{{ theme() === 'dark' ? '☀' : '☾' }}</span>
+        <span>{{ theme() === 'dark' ? 'Light' : 'Dark' }}</span>
+      </button>
+      @if (isMock) {
+        <button type="button" class="dev-btn" (click)="downloadLog()" title="Dev-only: download the in-memory JSONL session log (P0-06.1)">
+          ⬇ session log
+        </button>
+        <button type="button" class="dev-btn" (click)="replayOnboarding()" title="Dev-only: replay the first-run onboarding (P1-11.4)">
+          ▶ tour
+        </button>
+      }
+    </div>
   </header>
 
-  <app-skill-toggle></app-skill-toggle>
-  <app-unlock></app-unlock>
+  <!-- Persistent, dismissible speed warning when the hardware tier is below
+       recommended (P1-02.6). Self-gates; renders nothing otherwise. -->
+  <app-hardware-warning></app-hardware-warning>
 
-  <main class="layout">
-    <section class="chat-region">
-      <app-chat></app-chat>
-    </section>
+  <!-- ── ASSISTANT / COMPOSE ─────────────────────────────────────────────── -->
+  @if (view() === 'assistant') {
+    <app-skill-toggle></app-skill-toggle>
+    <!-- W06 gap fix: installed skills beyond the two hardcoded P0 ones (e.g. a
+         just-installed free "Packing List") — see installed-skills.component.ts. -->
+    <app-installed-skills></app-installed-skills>
+    <app-unlock></app-unlock>
 
-    <app-panel-dock [open]="skillEnabled()">
-      <aside class="side-region" aria-label="Skill panels">
-        <app-timer-stack></app-timer-stack>
-        <app-editable-list></app-editable-list>
-        <app-segmented-toggle></app-segmented-toggle>
+    <main class="layout">
+      <section class="chat-region">
+        <app-chat></app-chat>
+      </section>
+
+      <!-- P0 skill panels. Both skills' panels share ONE scrollable lane here,
+           each self-gated, so the tall Cooking Assistant recipe no longer
+           mounts ABOVE the layout (in app-skill-toggle) and pushes the Kitchen
+           Timer panels + chat off-screen when both skills are on. The dock's
+           enter/exit transform still plays whenever the lane goes empty↔non-empty. -->
+      <app-panel-dock [open]="skillEnabled() || cookingEnabled()">
+        <aside class="side-region" aria-label="Skill panels">
+          @if (skillEnabled()) {
+            <app-timer-stack></app-timer-stack>
+            <app-editable-list></app-editable-list>
+            <app-segmented-toggle></app-segmented-toggle>
+          }
+          @if (cookingEnabled()) {
+            <app-cooking-assistant-panel></app-cooking-assistant-panel>
+          }
+        </aside>
+      </app-panel-dock>
+
+      <!-- P1 composition experience (additive): the SAME skills, mounted
+           dynamically via the composed agent + layout dock + bus. -->
+      <aside class="compose-region" aria-label="Composed agent">
+        <app-composed-panel-host></app-composed-panel-host>
       </aside>
-    </app-panel-dock>
-  </main>
+    </main>
+  }
+
+  <!-- ── MARKETPLACE ─────────────────────────────────────────────────────── -->
+  @if (view() === 'marketplace') {
+    <main class="marketplace-region">
+      <app-marketplace-view></app-marketplace-view>
+    </main>
+  }
+
+  <!-- ── MY TEMPLATES (Task 11b, SPEC §10) ───────────────────────────────── -->
+  @if (view() === 'templates') {
+    <main class="templates-region">
+      <app-templates-gallery (loaded)="onTemplateLoaded()"></app-templates-gallery>
+    </main>
+  }
 </div>
+
+<!-- Global in-app notification surface (SPEC §9.7 fallback) -->
+<app-toast-host></app-toast-host>
+
+<!-- First-run onboarding & guided tour (P1-11.4 · SPEC §16.1). Self-gates on
+     `onboarding.active()`; renders nothing once the flag is set. -->
+<app-onboarding-overlay></app-onboarding-overlay>

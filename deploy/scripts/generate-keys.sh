@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Generate an Ed25519 keypair for the License Issuer and an RSA-2048 keypair
-# for access-token signing, in the exact base64 form the backend expects.
+# Generate the backend's signing keys in the exact base64 form it expects:
+#   - an ES256 (P-256) keypair for the License Issuer,
+#   - an RSA-2048 private key for access-token signing, and
+#   - an Ed25519 keypair for skill PACKAGE signing (a SEPARATE key class from the
+#     sacred license key - SPEC 13.8/8.8; never reuse one for the other).
 # .sh twin of generate-keys.ps1 - see that file's header comment for details
 # on the exact key formats (PKCS#8 private / X.509 public, base64) and why.
 #
@@ -28,6 +31,7 @@ echo "WARNING: HP_LICENSE_PRIVATE_KEY must reach ONLY the issuer service. Never 
 echo "" >&2
 
 KID="hp-lic-$(date +%Y)a"
+PKG_KID="hp-pkg-$(date +%Y)a"
 
 if [ "$USE_JAVA" -eq 1 ] || ! command -v openssl >/dev/null 2>&1; then
   echo "==> openssl not found (or --use-java passed) - using the Java fallback." >&2
@@ -60,10 +64,21 @@ public class GenerateHydroparkKeys {
     String rsaPriv = Base64.getEncoder().encodeToString(rsaKp.getPrivate().getEncoded());
     String rsaPub = Base64.getEncoder().encodeToString(rsaKp.getPublic().getEncoded());
 
+    // Ed25519 - skill PACKAGE-signing key (SPEC 13.8/8.8). A SEPARATE key class from the license
+    // key above; the license key must never sign a package and vice versa. PKCS#8 private / X.509
+    // SPKI public, base64 - the exact containers hydropark.package-signing.keys binds. Java 21 has
+    // native Ed25519 (JEP 339), so no traditional-vs-PKCS#8 ambiguity here.
+    KeyPairGenerator edGen = KeyPairGenerator.getInstance("Ed25519");
+    KeyPair pkgKp = edGen.generateKeyPair();
+    String pkgPriv = Base64.getEncoder().encodeToString(pkgKp.getPrivate().getEncoded());
+    String pkgPub = Base64.getEncoder().encodeToString(pkgKp.getPublic().getEncoded());
+
     System.out.println("LICENSE_PRIVATE=" + licPriv);
     System.out.println("LICENSE_PUBLIC=" + licPub);
     System.out.println("RSA_PRIVATE=" + rsaPriv);
     System.out.println("RSA_PUBLIC=" + rsaPub);
+    System.out.println("PACKAGE_PRIVATE=" + pkgPriv);
+    System.out.println("PACKAGE_PUBLIC=" + pkgPub);
   }
 }
 EOF
@@ -72,6 +87,8 @@ EOF
   LIC_PRIV="$(echo "$OUTPUT" | grep '^LICENSE_PRIVATE=' | cut -d= -f2-)"
   LIC_PUB="$(echo "$OUTPUT" | grep '^LICENSE_PUBLIC=' | cut -d= -f2-)"
   RSA_PRIV="$(echo "$OUTPUT" | grep '^RSA_PRIVATE=' | cut -d= -f2-)"
+  PKG_PRIV="$(echo "$OUTPUT" | grep '^PACKAGE_PRIVATE=' | cut -d= -f2-)"
+  PKG_PUB="$(echo "$OUTPUT" | grep '^PACKAGE_PUBLIC=' | cut -d= -f2-)"
 else
   echo "==> Using openssl." >&2
 
@@ -100,11 +117,21 @@ else
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$TMP_DIR/rsa_priv.pem" 2>/dev/null
   openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/rsa_priv.pem" -outform DER -out "$TMP_DIR/rsa_priv.der" 2>/dev/null
 
+  # Ed25519 skill PACKAGE-signing key - a SEPARATE key class from the license key (SPEC 13.8/8.8).
+  # `genpkey -algorithm ED25519` already writes PKCS#8, but Ed25519 has NO traditional PKCS#1/SEC1
+  # form, so `pkcs8 -topk8 -nocrypt` is the correct (and here idempotent) way to get the exact
+  # PKCS#8 DER PackageTrustedKeySet reads; `pkey -pubout` gives the X.509 SPKI public half.
+  openssl genpkey -algorithm ED25519 -out "$TMP_DIR/pkg_priv.pem" 2>/dev/null
+  openssl pkcs8 -topk8 -nocrypt -in "$TMP_DIR/pkg_priv.pem" -outform DER -out "$TMP_DIR/pkg_priv.der" 2>/dev/null
+  openssl pkey -in "$TMP_DIR/pkg_priv.pem" -pubout -outform DER -out "$TMP_DIR/pkg_pub.der" 2>/dev/null
+
   # -A: single-line output, no 64-char wrapping - reads DER from a FILE
   # (never piped raw binary between two processes).
   LIC_PRIV="$(openssl base64 -A -in "$TMP_DIR/lic_priv.der")"
   LIC_PUB="$(openssl base64 -A -in "$TMP_DIR/lic_pub.der")"
   RSA_PRIV="$(openssl base64 -A -in "$TMP_DIR/rsa_priv.der")"
+  PKG_PRIV="$(openssl base64 -A -in "$TMP_DIR/pkg_priv.der")"
+  PKG_PUB="$(openssl base64 -A -in "$TMP_DIR/pkg_pub.der")"
 fi
 
 echo "" >&2
@@ -120,3 +147,11 @@ echo "HP_LICENSE_PUBLIC_KEY=$LIC_PUB"
 echo ""
 echo "# --- RSA-2048 access-token signing key - api service ---"
 echo "HP_JWT_PRIVATE_KEY=$RSA_PRIV"
+echo ""
+echo "# --- Ed25519 skill PACKAGE-signing keypair - registry/signing zone ONLY holds the private half ---"
+echo "# Separate key class from the license key above (SPEC 13.8/8.8). Set HP_PACKAGE_SIGNING_ENABLED=true"
+echo "# only on the zone that actually signs packages; every other zone ships just the PUBLIC key and"
+echo "# verifies offline. Never commit the private key."
+echo "HP_PACKAGE_SIGNING_KID=$PKG_KID"
+echo "HP_PACKAGE_SIGNING_PRIVATE_KEY=$PKG_PRIV"
+echo "HP_PACKAGE_SIGNING_PUBLIC_KEY=$PKG_PUB"

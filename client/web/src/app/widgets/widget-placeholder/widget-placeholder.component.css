@@ -1,0 +1,84 @@
+/* widget_placeholder — token-only styling (contract §7 / P1-20.1 non-token lint):
+   every colour/space/type/radius/motion value is a var(--token); in-between
+   sizes compose from the 4px space scale with calc(). The card reads as "careful"
+   (a heads-up, not a failure), so it uses the CAUTION tone tokens — always paired
+   with the icon + headline text so meaning is never carried by hue alone. */
+
+:host {
+  display: block;
+}
+
+.widget-placeholder {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-left: calc(var(--space-1) * 0.75) solid var(--tone-careful-fill);
+  border-radius: var(--radius-md);
+  background: var(--tone-careful-tint);
+  color: var(--color-text);
+}
+
+.wp-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--tone-careful-text);
+}
+.wp-icon svg {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.wp-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.wp-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-snug);
+  color: var(--color-text);
+}
+
+.wp-detail {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-muted);
+}
+
+.wp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+}
+
+.wp-type {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.wp-ver {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--tone-careful-text);
+}
+
+.wp-hint {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}

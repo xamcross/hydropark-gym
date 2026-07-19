@@ -74,22 +74,77 @@ public class SettlementService {
    */
   @Transactional
   public boolean settleSkillOrBundle(Order order, ProviderEvent event) {
-    Update u =
-        new Update()
-            .set("status", OrderStatus.PAID.wire())
-            .set("updatedAt", Instant.now());
-    if (event.providerOrderId() != null) {
-      u.set("morOrderId", event.providerOrderId()); // write-once: only reached while still pending
-    }
-    long modified = flip(order.getId(), List.of(OrderStatus.PENDING), u);
+    long modified = flip(order.getId(), List.of(OrderStatus.PENDING), paidUpdate(event));
     if (modified == 0) {
       return false; // monotonic guard: already paid / already terminal -> never re-grant
     }
+    recordAndGrant(order);
+    return true;
+  }
+
+  /**
+   * SF10 hold-grant-until-clear. Same {@code pending -> paid} flip as {@link #settleSkillOrBundle}
+   * (the funds are captured, the instrument fingerprint is stamped) but the grant is <b>withheld</b>:
+   * it writes {@code grant_held=true} and deliberately skips {@code settled_orders} and grant
+   * creation. With no settlement-log row and no active grant, the Issuer's
+   * {@link SettlementLogService#isSettledOrder} and {@code GrantPort.hasActiveGrant} both refuse
+   * offline issuance until {@link #clearHeldOrder} releases it. Returns false if the order was not
+   * {@code pending} (already settled / terminal), so a redelivery cannot re-hold.
+   */
+  @Transactional
+  public boolean settleSkillOrBundleOnHold(Order order, ProviderEvent event) {
+    Update u = paidUpdate(event).set("grantHeld", true);
+    return flip(order.getId(), List.of(OrderStatus.PENDING), u) != 0;
+  }
+
+  /**
+   * SF10 release of a held grant. Guarded on {@code {status: paid, grant_held: true}} so a duplicate
+   * clear (or a clear for an order that was never held) is a no-op that grants nothing. On the single
+   * matching release it flips {@code grant_held=false} and then runs the <b>exact same</b>
+   * {@code settled_orders} + grant writes as an ordinary settlement - no separate privileged write
+   * path. The chargeback account-block still applies: a chargeback landing before the clear moves the
+   * order to a terminal state, so this guarded flip matches zero and never grants.
+   */
+  @Transactional
+  public boolean clearHeldOrder(Order order) {
+    Query guard =
+        Query.query(
+            Criteria.where("id")
+                .is(order.getId())
+                .and("status")
+                .is(OrderStatus.PAID.wire())
+                .and("grantHeld")
+                .is(true));
+    UpdateResult r =
+        mongo.updateFirst(
+            guard,
+            new Update().set("grantHeld", false).set("updatedAt", Instant.now()),
+            Order.class);
+    if (r.getModifiedCount() == 0) {
+      return false;
+    }
+    recordAndGrant(order);
+    return true;
+  }
+
+  /** The paid-flip update shared by the immediate and held settlement paths. */
+  private static Update paidUpdate(ProviderEvent event) {
+    Update u = new Update().set("status", OrderStatus.PAID.wire()).set("updatedAt", Instant.now());
+    if (event.providerOrderId() != null) {
+      u.set("morOrderId", event.providerOrderId()); // write-once: only reached while still pending
+    }
+    if (event.paymentFingerprint() != null) {
+      u.set("paymentFingerprint", event.paymentFingerprint()); // SF10 per-instrument velocity
+    }
+    return u;
+  }
+
+  /** The append-only settlement-log write + one grant per member skill; the sole grant path. */
+  private void recordAndGrant(Order order) {
     settlementLog.recordSettled(order.getId(), order.getUserId());
     PurchaseKind kind = order.purchaseKind();
     List<String> skillIds = pricing.memberSkills(kind, order.getTargetId());
     grants.createGrants(order.getUserId(), order.getId(), sourceFor(kind), skillIds);
-    return true;
   }
 
   /** succeeded(wallet_topup): flip to paid and credit the settled top-up under the wallet lock. */

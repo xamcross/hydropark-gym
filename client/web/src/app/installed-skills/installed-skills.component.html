@@ -1,0 +1,22 @@
+@if (skills().length) {
+  <div class="installed-skills" aria-label="Installed skills">
+    @for (skill of skills(); track trackSkill($index, skill)) {
+      <label class="switch-row">
+        <button
+          type="button"
+          role="switch"
+          class="switch"
+          [class.on]="enabledSkills.isEnabled(skill.skill_id)()"
+          [attr.aria-checked]="enabledSkills.isEnabled(skill.skill_id)()"
+          (click)="toggle(skill.skill_id)"
+        >
+          <span class="knob"></span>
+        </button>
+        <span class="switch-label">
+          <strong>{{ skill.name }}</strong>
+          <small>{{ enabledSkills.isEnabled(skill.skill_id)() ? 'Enabled' : 'Installed · tap to enable' }}</small>
+        </span>
+      </label>
+    }
+  </div>
+}

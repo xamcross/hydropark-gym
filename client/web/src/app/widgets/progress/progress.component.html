@@ -1,0 +1,121 @@
+<section
+  class="panel progress"
+  [attr.data-density]="style.density || null"
+  [attr.data-tone]="style.tone || null"
+  [attr.aria-label]="title || 'Progress'"
+>
+  <header>
+    <h2>{{ title || 'Progress' }}</h2>
+  </header>
+
+  @if (resolved === 'loading') {
+    <div class="pg-row" role="status" aria-live="polite">
+      <div class="pg-track pg-track--busy" aria-hidden="true"><span class="pg-indeterminate-fill"></span></div>
+      <span class="pg-status">{{ states.loading || 'Starting…' }}</span>
+    </div>
+  } @else if (resolved === 'error') {
+    <div class="pg-error" role="alert">
+      <p class="pg-error-msg">
+        <span class="pg-error-icon" aria-hidden="true">!</span>
+        {{ error?.message || states.error || 'Something went wrong.' }}
+      </p>
+      @if (error?.retryable !== false) {
+        <button type="button" class="pg-retry" (click)="retry.emit()">Try again</button>
+      }
+    </div>
+  } @else if (resolved === 'empty') {
+    <p class="empty">{{ states.empty || 'Waiting to start.' }}</p>
+  } @else {
+    @if (effectiveMode === 'determinate') {
+      @if (shape === 'ring') {
+        <div class="pg-ring-wrap">
+          <div
+            class="pg-ring"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="1"
+            [attr.aria-valuenow]="clamped"
+            [attr.aria-valuetext]="percent + '%'"
+            [attr.aria-label]="title || 'Progress'"
+            [style.--pg-pct]="percent"
+            [class.done]="clamped >= 1"
+          >
+            <span class="pg-ring-hole"></span>
+          </div>
+          @if (valueDisplay === 'percent') {
+            <span class="pg-percent">
+              @if (clamped >= 1) {
+                <span class="pg-check" aria-hidden="true">✓</span>
+              }
+              {{ clamped >= 1 ? doneLabel() : percent + '%' }}
+            </span>
+          }
+        </div>
+      } @else {
+        <div class="pg-row">
+          <div
+            class="pg-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="1"
+            [attr.aria-valuenow]="clamped"
+            [attr.aria-valuetext]="percent + '%'"
+            [attr.aria-label]="title || 'Progress'"
+          >
+            <span class="pg-fill" [class.done]="clamped >= 1" [style.width.%]="percent"></span>
+          </div>
+          @if (valueDisplay === 'percent') {
+            <span class="pg-percent">
+              @if (clamped >= 1) {
+                <span class="pg-check" aria-hidden="true">✓</span>
+              }
+              {{ clamped >= 1 ? doneLabel() : percent + '%' }}
+            </span>
+          }
+        </div>
+      }
+    } @else {
+      <div class="pg-row">
+        <div
+          class="pg-track pg-track--busy"
+          role="progressbar"
+          [attr.aria-busy]="busy ? 'true' : null"
+          [attr.aria-label]="title || 'Progress'"
+          [attr.aria-valuetext]="busy ? workingLabel() : doneLabel()"
+        >
+          <span class="pg-indeterminate-fill" [class.idle]="!busy"></span>
+        </div>
+        <span class="pg-percent">
+          @if (!busy) {
+            <span class="pg-check" aria-hidden="true">✓</span>
+          }
+          {{ busy ? workingLabel() : doneLabel() }}
+        </span>
+      </div>
+    }
+
+    @if (caption) {
+      <p class="pg-caption">{{ caption }}</p>
+    }
+
+    @if (readonly && writer) {
+      <p class="pg-provenance">Managed by {{ writer }}</p>
+    }
+
+    @if (cancelable) {
+      <button
+        type="button"
+        class="pg-cancel"
+        (click)="onCancel()"
+        [disabled]="readonly"
+        [attr.aria-disabled]="readonly ? 'true' : null"
+        [attr.aria-label]="'Cancel ' + (title || 'task')"
+      >
+        Cancel
+      </button>
+    }
+  }
+
+  <!-- Polite, milestone-throttled announcements (25% buckets + completion). -->
+  <span class="sr-only" role="status" [attr.aria-live]="liveRegion === 'off' ? null : liveRegion">{{ liveText }}</span>
+</section>

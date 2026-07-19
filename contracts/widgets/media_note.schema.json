@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/media_note.schema.json",
+  "title": "Hydropark Widget — media_note (reference card: sanitized-SVG + text)",
+  "description": "The `media_note` widget (SPEC 9.4): a passive REFERENCE CARD that presents a short text note and/or a vetted, sanitized SVG (a technique diagram, a tip, a labeled illustration). It is the read-only end of the widget library — it has NO editor, NO buttons that mutate slots, and (by default) emits NO bus events. `allOf`-extends `_widget-base.schema.json`, pins `type` to the `media_note` const, and closes `props` with additionalProperties:false (contract §12.1). SAFE RENDERING (SPEC 9.1): the only skill-supplied visuals are localized strings and package-bundled, sanitized SVG assets — NO code, NO remote content, NO inline styles, NO raw color/size values. All styling is chosen from the closed semantic `style` variant vocabulary (§7) which maps first-party to design tokens. TYPE DEFAULTS applied at normalization (SPEC 9.2), documented here because they are not schema-expressible: region = `side`; priority = 40 (reference cards sit below primary interactive panels); emits = [] (see $defs/busContract); min_widget_version = `1.0`; a11y.live_region = `polite` when `binds_state` is set, else `off`. BINDING: media_note accepts a `scalar<string>` slot on `binds_state` and renders its live value as the note body; because it exposes no edit affordance it is ALWAYS a live read-only projection and NEVER writes the slot (see $defs/readOnlyBehavior). RUNTIME STATE, the mandatory loading/empty/error lifecycle, the bus contract, the read-only behavior, and the a11y contract are documented in $defs/* and on the relevant properties.",
+  "type": "object",
+  "allOf": [
+    { "$ref": "./_widget-base.schema.json" }
+  ],
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "const": "media_note",
+      "description": "Pins this instance to the media_note library type (one of $defs/knownWidgetTypeV1 in the base). Satisfies the base `widgetTypeName` pattern; an app whose installed library lacks this type still validates and degrades to a placeholder at render (SPEC 9.8)."
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed, immutable-per-instance configuration for the reference card. Runtime data (the resolved body text, collapse state, media-ready flag) is NOT authored here — it is the projected runtime state ($defs/mediaNoteRuntimeState), produced by the bound slot and local UI interaction. At least one of `props.body`, `props.media`, or the envelope's `binds_state` must be present (see the top-level anyOf) — a card with nothing to show is not authorable.",
+      "properties": {
+        "body": {
+          "$ref": "./_widget-base.schema.json#/$defs/localizableString",
+          "description": "The note text. Localizable (§8.7). Rendered per `format`. Ignored in favor of the live slot value when `binds_state` is set — in that case `body` is the fallback shown until the slot first resolves (and during the empty state if the slot is null)."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["plain", "markdown"],
+          "default": "plain",
+          "description": "How `body` / the bound slot string is rendered. `plain` = literal text with line breaks preserved. `markdown` = a SANITIZED inline+block subset (emphasis, strong, inline code, code block, bullet/ordered lists, blockquote, line breaks). Raw HTML is escaped; `<script>`/`<style>`/event handlers never execute; images and remote-scheme autolinks are STRIPPED (no remote content, SPEC 9.1); link targets are rendered as plain text unless they resolve to an app-allowlisted in-app scheme. This is a render mode only — it never introduces skill CSS or inline styles."
+        },
+        "media": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["asset"],
+          "description": "An optional vetted, sanitized SVG shown in the card (illustration/diagram). Package-bundled only — never remote (SPEC 9.1).",
+          "properties": {
+            "asset": { "$ref": "#/$defs/assetRef" },
+            "alt": {
+              "$ref": "./_widget-base.schema.json#/$defs/localizableString",
+              "description": "Alternative text for the SVG (localizable). REQUIRED unless `decorative` is true. Rendered as the image's accessible name (role=img, aria-label). Meaningful graphics must carry alt so the card is not hue-/image-only (WCAG 1.1.1 / 1.4.1)."
+            },
+            "decorative": {
+              "type": "boolean",
+              "default": false,
+              "description": "true → the SVG is purely decorative: it is hidden from assistive tech (aria-hidden, empty alt) and `alt` is not required. false (default) → the SVG is meaningful and `alt` is required."
+            }
+          },
+          "if": {
+            "required": ["decorative"],
+            "properties": { "decorative": { "const": true } }
+          },
+          "else": {
+            "required": ["alt"]
+          }
+        },
+        "icon": {
+          "$ref": "#/$defs/assetRef",
+          "description": "An optional small leading semantic icon (sanitized SVG), distinct from `media`. Its purpose is a11y pairing: when a `style.tone` (e.g. `caution`, `danger`, `positive`) colors the card, this icon (plus the note text) carries the SAME meaning non-chromatically so tone is never the sole signal (WCAG 1.4.1, contract §8.2). Themes via `currentColor`."
+        },
+        "caption": {
+          "$ref": "./_widget-base.schema.json#/$defs/localizableString",
+          "description": "Optional short caption rendered beneath the media (e.g. a figure label). Localizable. Its accessible association with the SVG (figure/figcaption semantics) is supplied by the widget-library implementation."
+        },
+        "collapsible": {
+          "type": "boolean",
+          "default": false,
+          "description": "true → the body renders as a keyboard-operable disclosure (a toggle button with aria-expanded controlling the body region) so long reference notes can be folded away. false (default) → the body is always shown; the card exposes no interactive affordance at all."
+        },
+        "initially_collapsed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Only meaningful when `collapsible` is true: the card first renders folded. Ignored otherwise."
+        },
+        "max_lines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40,
+          "description": "Optional soft clamp: render at most N lines of body text before truncating. When `collapsible` is also true the remainder is revealed by the disclosure toggle; otherwise truncation is purely visual and the full text remains available to assistive tech and text zoom (§8.5)."
+        }
+      }
+    },
+    "binds_state": {
+      "$ref": "./_widget-base.schema.json#/$defs/slotName",
+      "$comment": "acceptsSlotKind: scalar — specifically scalar<string> (the note body text). The concrete slot kind lives in shared_state, so widget↔slot fit is a cross-artifact certification check (P1-04.5), not an in-envelope constraint (base $defs/acceptsSlotKind).",
+      "description": "Optional two-way slot in the base envelope, but for media_note it is effectively READ-ONLY ALWAYS: the widget renders the bound `scalar<string>` slot's live value as the note body and re-renders on every update (bus direction 3), yet it has no editor and therefore NEVER writes the slot. Binding here does NOT make the owning skill contend for the slot's writer-of-record, and the §5 read-only treatment is the default and only mode — there are no edit affordances to disable (see $defs/readOnlyBehavior)."
+    },
+    "emits": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "./_widget-base.schema.json#/$defs/eventDecl" },
+      "description": "media_note's default event set is EMPTY — it is a passive reference card and posts nothing to chat. It CONSUMES the bus (re-renders on updates to `binds_state`/`reads_state` slots) but produces no events. Authors normally omit this; see $defs/busContract."
+    },
+    "a11y": {
+      "$ref": "./_widget-base.schema.json#/$defs/a11yMeta",
+      "description": "Accessible-name/description overrides. The mechanical a11y contract is guaranteed by the widget-library implementation and enforced by X-A11Y (see $defs/a11yContract). Type default for a11y.live_region: `polite` when `binds_state` is set (out-of-band slot text updates announce), else `off`."
+    }
+  },
+  "anyOf": [
+    {
+      "required": ["binds_state"],
+      "$comment": "Live-bound card: body text comes from the scalar<string> slot."
+    },
+    {
+      "required": ["props"],
+      "properties": {
+        "props": {
+          "anyOf": [
+            { "required": ["body"] },
+            { "required": ["media"] }
+          ]
+        }
+      },
+      "$comment": "Static card: must author at least a body or a media SVG. A card with no content source (no binds_state, no body, no media) is rejected."
+    }
+  ],
+  "$defs": {
+    "assetRef": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 256,
+      "pattern": "^(?!.*(\\.\\.|//))[a-z0-9][a-z0-9._/-]*\\.svg$",
+      "description": "A skill-PACKAGE-relative reference to a vetted, sanitized SVG asset (SPEC 9.1: 'the only skill-supplied visuals are vetted assets (sanitized SVG icons)'). It is NOT a URL: the pattern forbids any scheme (`://`) and any `..` path traversal, requires a package-relative path (no leading slash), and permits only `.svg`. Remote content is forbidden. At install the asset is SANITIZED — strip `<script>`, `<style>`, `on*` event handlers, `style=` attributes, `foreignObject`, and any external `href`/`xlink:href`/`url(...)` references. Meaningful SVGs must theme via `currentColor` / token-driven fills; embedded literal colors or inline styles fail the non-token-styling lint (contract §7, P1-20.1)."
+    },
+    "mediaNoteRuntimeState": {
+      "$comment": "NON-NORMATIVE (documentation): describes the runtime-state projection the renderer maintains per media_note instance. This is NOT authored in the manifest (contract §2) — it is produced by the bound slot, the merge layer, and local UI interaction, and drives the lifecycle state machine (contract §6). Recorded here as the single typed source of truth for the component (P1-06.4) and IPC projection.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["loading", "ready", "empty", "error", "read_only", "placeholder"],
+          "description": "Lifecycle phase (contract §6). read_only is media_note's steady state whenever `binds_state` is set (it never edits)."
+        },
+        "text": {
+          "type": ["string", "null"],
+          "description": "The resolved body: the live `binds_state` slot value if bound, else `props.body`. null while loading or when the bound slot is empty."
+        },
+        "expanded": {
+          "type": "boolean",
+          "description": "Disclosure open/closed; meaningful only when `props.collapsible` is true. Local UI state, session-scoped (SPEC 9.9); not a bus event."
+        },
+        "media_ready": {
+          "type": "boolean",
+          "description": "true once the sanitized SVG asset is resolved and safe to paint."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Always effectively true for media_note (no editor). Delivered by the merge layer (contract §5)."
+        },
+        "writer": {
+          "type": ["string", "null"],
+          "description": "Writer-of-record skill id/name for the bound slot, for the 'Managed by …' accessible description when another skill owns it. null when unbound or self-owned."
+        },
+        "error": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "message": { "type": "string" }
+          },
+          "description": "Populated in the `error` phase (e.g. asset failed sanitization/resolution); surfaced as a human message + recovery affordance, never swallowed (contract §6, SPEC 8.4)."
+        }
+      }
+    },
+    "busContract": {
+      "$comment": "NON-NORMATIVE (documentation): media_note's event-bus contract (contract §3, SPEC 9.3).",
+      "type": "null",
+      "description": "EMITS (widget → conversation, direction 4): none. The type default event set is [] — media_note posts no system lines to the transcript and fires no OS notification; it is reference content, not a time-critical signal. CONSUMES (tool/model → widget, direction 3): a write to the slot named in `binds_state` (or any slot in `reads_state`) re-renders the card live; routing is keyed on slot NAME. INVOKES (widget → tool, direction 2): none by default — media_note declares no `binds_tool` and exposes no action affordance; user interaction is limited to the local, non-bus disclosure toggle when `collapsible` is true. Because posting is only ever a consume-and-render, a media_note update never wakes the model (SPEC 9.3 #4)."
+    },
+    "readOnlyBehavior": {
+      "$comment": "NON-NORMATIVE (documentation): how media_note realizes the read-only-bound contract (contract §5, SPEC 8.3.4).",
+      "type": "null",
+      "description": "media_note has NO edit affordances (no inputs, toggles, add/remove/reorder/check controls). Consequently, when it binds a slot it is ALWAYS a live read-only projection: (1) it renders every slot update in real time; (2) there is nothing to disable — the '§5 disable all edit affordances' step is vacuously satisfied; (3) when the slot's writer-of-record is a DIFFERENT skill, the card still exposes an accessible description of the form 'Managed by {writer}' via runtime `writer`, for parity with editable widgets. Binding a media_note NEVER makes its skill the writer-of-record and it never writes back through direction 1; a note that must show tool/model-updated text does so purely by re-rendering the slot the writer maintains."
+    },
+    "statesContract": {
+      "$comment": "NON-NORMATIVE (documentation): media_note's mandatory lifecycle-state copy defaults (contract §6). Skills may override the localizable strings via the envelope `states` field but can never suppress a state.",
+      "type": "null",
+      "description": "loading → 'Loading note…' (skeleton/indeterminate affordance; never a blank panel while the bound slot or SVG resolves). empty → 'Nothing to show yet.' (bound successfully but the scalar<string> slot is null and no `props.body` fallback exists; non-alarming, distinct from error). error → 'This note couldn't be shown.' + a retry/dismiss affordance (e.g. the SVG failed sanitization or the asset is missing). read-only → the steady state whenever bound (renders live; no affordances to disable; owner named — see readOnlyBehavior). placeholder → 'This panel needs a newer version of the app' when the installed library predates media_note or the instance's min_widget_version (SPEC 9.8); terminal, no data render."
+    },
+    "a11yContract": {
+      "$comment": "NON-NORMATIVE (documentation): the per-widget a11y acceptance bar the X-A11Y gate enforces for media_note in BOTH themes on EVERY state (contract §8). The mechanical roles/focus/live-regions are supplied by the library implementation and are not waivable by a skill; only the accessible name/description are skill-overridable via `a11y`.",
+      "type": "null",
+      "description": "ROLES: the card is an ARIA `note` region (role=note) with an accessible name from `a11y.label`/`title`; a meaningful SVG is role=img with its `media.alt` as accessible name; a decorative SVG is aria-hidden with empty alt; `caption` associates with the media via figure/figcaption. KEYBOARD & FOCUS ORDER: a non-collapsible card has NO tab stop (it is passive, static content — text is selectable but not focusable); a `collapsible` card exposes exactly one focusable control — a disclosure button with aria-expanded and aria-controls pointing at the body region — reachable by Tab, toggled by Enter/Space, with a visible focus ring; focus order is title/heading → disclosure toggle → (revealed body). LIVE REGIONS: when `binds_state` is set the body is an aria-live region (default `polite`) so out-of-band slot updates are announced; unbound cards are `off`. CONTRAST: all text and meaningful SVG strokes meet WCAG-AA verified PER THEME (a token passing on dark may fail on light — the --sulphur-ink precedent, P1-01.4). NO HUE-ONLY MEANING (WCAG 1.4.1): a toned card (`style.tone` caution/danger/positive/…) always pairs the color with the note text and, where present, the `icon`; tone is never the sole signal. ZOOM/SCALE: the card reflows and remains usable with scaled text; `max_lines` truncation never hides text from assistive tech or zoom (§8.5). REDUCE MOTION: the disclosure expand/collapse transition collapses under the OS reduce-motion setting (motion tokens, §9.6)."
+    }
+  }
+}

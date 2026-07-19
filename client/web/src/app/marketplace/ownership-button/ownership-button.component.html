@@ -1,0 +1,50 @@
+<div class="ownership">
+  <div class="ownership-row">
+    <!-- Primary CTA: label + emphasis + busy/disabled all come from primaryCta(state). -->
+    <button
+      type="button"
+      class="own-btn own-primary"
+      [class.emphasis-strong]="cta().emphasis === 'strong'"
+      [class.emphasis-subtle]="cta().emphasis === 'subtle'"
+      [class.is-pending]="cta().pending"
+      [class.is-active]="state() === 'active'"
+      [disabled]="cta().disabled"
+      [attr.aria-busy]="cta().pending ? 'true' : null"
+      (click)="onPrimary()"
+    >
+      @if (cta().pending) {
+        <span class="spinner" aria-hidden="true"></span>
+      } @else if (state() === 'active') {
+        <span class="check" aria-hidden="true">✓</span>
+      }
+      <span>{{ cta().label }}</span>
+    </button>
+
+    <!-- "Enable, disabled until installed" — the next step, made visible + gated. -->
+    @if (showGatedEnable()) {
+      <button
+        type="button"
+        class="own-btn own-secondary is-gated"
+        disabled
+        aria-disabled="true"
+        title="Install this skill first"
+      >
+        Enable
+      </button>
+    }
+
+    <!-- Active → Disable. -->
+    @if (showDisable()) {
+      <button type="button" class="own-btn own-secondary" (click)="emit('disable')">Disable</button>
+    }
+  </div>
+
+  <!-- Uninstall to reclaim disk (owned skills reinstall free — SPEC §11.3). -->
+  @if (showUninstall()) {
+    <button type="button" class="own-link" (click)="emit('uninstall')">Uninstall</button>
+  }
+
+  @if (error()) {
+    <p class="own-error" role="alert">{{ error() }}</p>
+  }
+</div>

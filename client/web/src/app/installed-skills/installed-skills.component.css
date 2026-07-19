@@ -1,0 +1,60 @@
+/* Mirrors skill-toggle.component.css's switch styling (same visual language
+   for every skill toggle row, P0 or installed-skill). */
+
+.installed-skills {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  padding: 0;
+  flex-shrink: 0;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.switch.on {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform var(--transition-fast);
+}
+
+.switch.on .knob {
+  transform: translateX(20px);
+}
+
+.switch-label {
+  display: flex;
+  flex-direction: column;
+}
+
+.switch-label small {
+  color: var(--color-text-muted);
+}

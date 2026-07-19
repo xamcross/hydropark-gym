@@ -5,12 +5,67 @@ import { TelemetryService } from '../state/telemetry.service';
 import { ToolsService } from '../tools/tools.service';
 import { ToolName } from '../ipc/contract';
 
-/** Maps a tool to the panel that should absorb a fallback prefill (SPEC §8.4 "fallback → widget mapping"). */
-const TOOL_TO_WIDGET: Record<ToolName, string> = {
+/**
+ * Maps a tool to the panel that should absorb a fallback prefill (SPEC §8.4
+ * "fallback → widget mapping"). PARTIAL on purpose: the stateless catalog tools
+ * (`calculate`, `date_math`) have no bound widget, so a malformed call to one of
+ * them has no panel to prefill and degrades to the clarifying-question path.
+ */
+const TOOL_TO_WIDGET: Partial<Record<ToolName, string>> = {
   start_timer: 'timer_stack',
   convert_units: 'segmented_toggle',
   list_manage: 'editable_list',
 };
+
+/** `mm:ss`, matching `TimerStackComponent.formatRemaining`'s convention. */
+function formatDuration(totalSec: number): string {
+  const m = Math.floor(totalSec / 60)
+    .toString()
+    .padStart(2, '0');
+  const s = Math.floor(totalSec % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+/**
+ * W02a — a tidy, human-readable one-line description of a validated tool
+ * call, rendered as a system chat line in place of the raw wire JSON
+ * (`{"name":"start_timer","arguments":{...}}`). Rust has ALREADY validated
+ * and executed the call by the time `inference://tool_call_detected` fires
+ * (see the event's doc comment in `contract.ts`) — this only describes it.
+ * Defensive field reads (`args` is `Record<string, unknown>`, not a typed
+ * `ToolArgsMap[T]`) so a shape surprise degrades to a generic phrase rather
+ * than throwing.
+ */
+function describeToolCall(tool: ToolName, args: Record<string, unknown>): string {
+  switch (tool) {
+    case 'start_timer': {
+      const label = typeof args['label'] === 'string' ? args['label'] : 'Timer';
+      const duration = typeof args['duration_sec'] === 'number' ? ` — ${formatDuration(args['duration_sec'])}` : '';
+      return `⏱ Setting a timer: "${label}"${duration}`;
+    }
+    case 'convert_units': {
+      const value = args['value'];
+      const from = args['from_unit'];
+      const to = args['to_unit'];
+      if (typeof value === 'number' && typeof from === 'string' && typeof to === 'string') {
+        return `🔁 Converting ${value} ${from} to ${to}`;
+      }
+      return '🔁 Converting a unit';
+    }
+    case 'list_manage': {
+      const op = args['op'];
+      return typeof op === 'string' ? `📝 Updating the ingredient list (${op})` : '📝 Updating the ingredient list';
+    }
+    case 'calculate':
+      return '🧮 Running a calculation';
+    case 'date_math':
+      return '📅 Working out a date';
+    default:
+      return '🔧 Running a tool';
+  }
+}
 
 /**
  * Bridges streamed inference events (from the IPC port — real llama.cpp in
@@ -38,16 +93,33 @@ export class InferenceService implements OnDestroy {
       this.ipc.on('inference://token', (e) => {
         if (this.currentMessageId) this.session.appendToMessage(this.currentMessageId, e.token);
       }),
+      // W02a — render a clean, tidy line for a validated tool call instead of
+      // ever showing its raw wire JSON. `valid: false` (an invalid attempt
+      // mid-repair) has no clean shape to render — the eventual
+      // `tool_call_fallback` covers the user-facing UX for that case — and a
+      // `tool` of `null` means the wire has no ToolName slot for it
+      // (`calculate`/`date_math` — see `inference.rs`'s `ipc_tool`), so both
+      // are skipped here rather than guessed at.
+      this.ipc.on('inference://tool_call_detected', (e) => {
+        if (!e.valid || !e.tool) return;
+        this.session.addMessage({
+          id: crypto.randomUUID(),
+          role: 'system',
+          text: describeToolCall(e.tool, e.parsed_args ?? {}),
+          streaming: false,
+        });
+      }),
       this.ipc.on('inference://tool_call_result', (e) => {
         this.tools.applyResult(e.tool, e.result, 'model');
       }),
       this.ipc.on('inference://tool_call_fallback', (e) => {
-        if (e.tool && TOOL_TO_WIDGET[e.tool]) {
-          this.notifyPrefill(TOOL_TO_WIDGET[e.tool], e.parsed_args ?? {});
+        const widget = e.tool ? TOOL_TO_WIDGET[e.tool] : undefined;
+        if (widget) {
+          this.notifyPrefill(widget, e.parsed_args ?? {});
           this.session.addMessage({
             id: crypto.randomUUID(),
             role: 'system',
-            text: `I wasn't sure I got that right, so I've prefilled the ${TOOL_TO_WIDGET[e.tool].replace('_', ' ')} panel — please confirm.`,
+            text: `I wasn't sure I got that right, so I've prefilled the ${widget.replace('_', ' ')} panel — please confirm.`,
             streaming: false,
           });
         } else if (e.clarifying_question) {

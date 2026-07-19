@@ -1,0 +1,211 @@
+/* key-value-panel — token-only styling (contract §7 / P1-20.1 non-token lint).
+   Zero literal hex/px for colour/space/type/radius/motion: every such value is a
+   var(--token). In-between sizes are composed from the 4px space scale with
+   calc() (e.g. 3px = space-1 * 0.75), following the timer-stack precedent. Data-
+   driven LAYOUT values (grid column count, text-align) are structural, not design
+   tokens, so they are selected by [data-*] attribute rather than hard-coded. */
+
+.kv-provenance {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+/* ---- populated: description-list readout (dl/dt/dd → "label, value") -------- */
+.kv-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-1) var(--space-5);
+}
+.kv-list[data-columns='2'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.kv-list[data-columns='3'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.kv-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border-left: calc(var(--space-1) * 0.75) solid transparent; /* per-row tone rail */
+  border-radius: var(--radius-sm);
+}
+[data-density='compact'] .kv-row {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.kv-label {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.kv-value {
+  margin: 0;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.kv-list[data-value-align='start'] .kv-value {
+  text-align: left;
+}
+.kv-list[data-value-align='center'] .kv-value {
+  text-align: center;
+}
+.kv-list[data-value-align='end'] .kv-value {
+  text-align: right;
+}
+
+.kv-value.selectable {
+  user-select: text;
+  cursor: text;
+}
+.kv-value:not(.selectable) {
+  user-select: none;
+}
+.kv-value.missing {
+  color: var(--color-text-muted);
+}
+
+/* Per-row tone — a coloured rail + value colour, ALWAYS paired with the row's
+   label/value TEXT, so meaning is never carried by hue alone (WCAG 1.4.1). Tokens
+   resolve per-theme to AA-safe pairs. The style vocabulary's default/neutral/
+   accent/positive/caution/danger map onto the brand triad (chalk=fine · sulphur=
+   careful · rust=no) that tokens.css defines. */
+.kv-row[data-tone='neutral'] {
+  border-left-color: var(--color-text-muted);
+}
+.kv-row[data-tone='neutral'] .kv-value {
+  color: var(--color-text-muted);
+}
+.kv-row[data-tone='accent'] {
+  border-left-color: var(--tone-careful-fill);
+}
+.kv-row[data-tone='accent'] .kv-value {
+  color: var(--tone-careful-text);
+}
+.kv-row[data-tone='positive'] {
+  border-left-color: var(--tone-fine-fill);
+}
+.kv-row[data-tone='positive'] .kv-value {
+  color: var(--tone-fine-text);
+}
+.kv-row[data-tone='caution'] {
+  border-left-color: var(--tone-careful-fill);
+  background: var(--tone-careful-tint);
+}
+.kv-row[data-tone='caution'] .kv-value {
+  color: var(--tone-careful-text);
+}
+.kv-row[data-tone='danger'] {
+  border-left-color: var(--tone-danger-fill);
+  background: var(--tone-danger-tint);
+}
+.kv-row[data-tone='danger'] .kv-value {
+  color: var(--tone-danger-text);
+}
+
+/* Per-row emphasis — weight only (no raw sizes). */
+.kv-row[data-emphasis='subtle'] .kv-value {
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+}
+.kv-row[data-emphasis='strong'] .kv-value {
+  font-weight: var(--font-weight-bold);
+}
+.kv-row[data-emphasis='strong'] .kv-label {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+/* Interactive rows (only when a binds_tool is present) — focusable controls. */
+.kv-row.activatable {
+  cursor: pointer;
+}
+.kv-row.activatable:hover {
+  background: var(--color-surface-alt);
+}
+
+.kv-caption {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- loading (indeterminate affordance — never a blank panel) --------------- */
+.kv-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.kv-status-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.kv-indeterminate {
+  position: relative;
+  flex: 1;
+  height: calc(var(--space-1) * 1.5); /* 6px */
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  overflow: hidden;
+}
+.kv-indeterminate-bar {
+  position: absolute;
+  top: 0;
+  left: 30%; /* visible resting position → reduce-motion safe */
+  width: 40%;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  animation: kv-indeterminate var(--transition-slow) infinite alternate;
+}
+@keyframes kv-indeterminate {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+/* ---- error (human message + retry recovery affordance) ---------------------- */
+.kv-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kv-error-msg {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+.kv-error-icon {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-danger);
+}
+.kv-retry {
+  align-self: flex-start;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.kv-placeholder {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}

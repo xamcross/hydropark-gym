@@ -8,6 +8,7 @@ import com.stripe.model.Charge;
 import com.stripe.model.Dispute;
 import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.Review;
 import com.stripe.model.StripeObject;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
@@ -161,10 +162,65 @@ public class StripePaymentProvider implements PaymentProvider {
           providerOrderId = d.getCharge();
         }
       }
+      case "review.closed" -> {
+        // SF10 clear signal. A Radar review resolved: "approved" releases a held grant; any other
+        // reason (refunded/disputed) is a no-op here - the matching refund/dispute event carries the
+        // reversal. A Review has no metadata echo, so it correlates by the PaymentIntent id we stored
+        // as mor_order_id at settlement (the worker's fallback); the settlement path never grants an
+        // order it did not itself put on hold, so provider-id correlation here can only release.
+        if (obj instanceof Review r) {
+          if ("approved".equalsIgnoreCase(r.getReason())) {
+            type = CLEARED;
+            providerOrderId = r.getPaymentIntent();
+          }
+        }
+      }
       default -> type = IGNORED; // subscription.* etc.
     }
 
-    return new ProviderEvent(event.getId(), ourOrderId, providerOrderId, type, amount, country);
+    // SF10 instrument signals: pull the card fingerprint + Radar risk level off the settled charge
+    // when the event exposes it (Stripe surfaces them on the Charge; expand latest_charge on the
+    // webhook endpoint to populate them on session/payment_intent success). Null when unavailable.
+    String paymentFingerprint = null;
+    String riskLevel = null;
+    Charge charge = chargeOf(obj);
+    if (charge != null) {
+      paymentFingerprint = cardFingerprint(charge);
+      if (charge.getOutcome() != null) {
+        riskLevel = charge.getOutcome().getRiskLevel();
+      }
+    }
+
+    return new ProviderEvent(
+        event.getId(), ourOrderId, providerOrderId, type, amount, country, paymentFingerprint,
+        riskLevel);
+  }
+
+  /**
+   * The settled {@link Charge} behind an event, following the standard expandable references
+   * ({@code session -> payment_intent -> latest_charge}). Each {@code get*Object()} returns null when
+   * the reference was not expanded on delivery, so this is best-effort and never throws.
+   */
+  private static Charge chargeOf(StripeObject obj) {
+    if (obj instanceof Charge c) {
+      return c;
+    }
+    if (obj instanceof PaymentIntent pi) {
+      return pi.getLatestChargeObject();
+    }
+    if (obj instanceof Session s) {
+      PaymentIntent pi = s.getPaymentIntentObject();
+      return pi == null ? null : pi.getLatestChargeObject();
+    }
+    return null;
+  }
+
+  private static String cardFingerprint(Charge c) {
+    Charge.PaymentMethodDetails d = c.getPaymentMethodDetails();
+    if (d == null || d.getCard() == null) {
+      return null;
+    }
+    return d.getCard().getFingerprint();
   }
 
   /**

@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hydropark.app/schemas/widgets/date_time_picker.schema.json",
+  "title": "Hydropark Widget — date_time_picker (v1)",
+  "description": "Locale-aware date / time / date-time selection bound to a single scalar shared-state slot (SPEC 9.4 'date_time_picker — pick dates/times (schedules, trip dates)'). `allOf`-extends the base widget contract (_widget-base.schema.json): it pins `type` to the `date_time_picker` const, closes `props` with additionalProperties:false, and declares this type's default region, priority, and event set. The stored value is a LOCALE-NEUTRAL ISO 8601 string (see $defs/dateTimeValue) so the slot is portable across locales and skills; only the PRESENTATION is localized — display format, month/day names, first day of week, hour cycle (12/24h) and numeral system all derive from the active locale, overridable per-instance via props (SPEC 8.7). Unknown/too-new envelopes still validate and degrade to a placeholder at render (SPEC 9.8) via the base's non-enum `type`.",
+
+  "allOf": [
+    { "$ref": "./_widget-base.schema.json" }
+  ],
+
+  "type": "object",
+  "required": ["type"],
+
+  "properties": {
+    "type": {
+      "const": "date_time_picker",
+      "description": "Pinned widget-type discriminator. One of $defs/knownWidgetTypeV1 in the base; the renderer uses it to select this component, certification uses it to select this schema."
+    },
+
+    "region": {
+      "$ref": "./_widget-base.schema.json#/$defs/region",
+      "default": "side",
+      "description": "Default dock region for this type is `side` — a date/time picker is a compact bound-input panel (schedule/trip dates), not an inline chat card. Author may override to `inline` (a one-off in-conversation prompt) or `bottom`. Normalization fills `side` when omitted (SPEC 9.5)."
+    },
+
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 50,
+      "description": "Default placement order within the region (base default 50). Higher sorts first; ties break by type+id+binding dedup (SPEC 8.3.3 / 9.5)."
+    },
+
+    "binds_state": {
+      "$ref": "./_widget-base.schema.json#/$defs/slotName",
+      "$comment": "Accepted slot KIND: scalar (see $defs/acceptedSlotKind). The concrete slot lives in `shared_state`, so widget↔slot fit is a cross-artifact certification check (P1-04.5), not an in-envelope constraint.",
+      "description": "Primary two-way binding: the single selected instant. The bound slot MUST be `scalar<string>` holding an ISO 8601 value (see $defs/dateTimeValue) — `scalar<string>` chosen over `scalar<number>` (epoch) because the closed slot language has no date primitive and an ISO string is human-readable, locale-neutral, and range-comparable. Two-way IFF the owning skill is the slot's writer-of-record; otherwise READ-ONLY (renders live, edit affordances disabled, owner named — SPEC 8.3.4 / 9.3 #1, see $defs/readOnlyBehavior). Read/write mode is resolved at merge, never authored here."
+    },
+
+    "binds_tool": {
+      "$ref": "./_widget-base.schema.json#/$defs/toolRefName",
+      "description": "Optional. A committed selection may invoke this tool deterministically — the UI-first path, no model round-trip (SPEC 9.3 #2 / 8.4) — e.g. `set_trip_dates`. When the tool declares `writes_state` for the same slot, its result re-renders this and every other widget bound to that slot (SPEC 9.3 routing)."
+    },
+
+    "emits": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "./_widget-base.schema.json#/$defs/eventDecl" },
+      "default": [
+        { "name": "value_committed", "to_chat": false },
+        { "name": "cleared", "to_chat": false }
+      ],
+      "description": "Default event set for this type (see $defs/defaultEventSet). A date/time picker is NOT time-critical (unlike timer_stack), so both events default `to_chat:false` — the panel is the record; the author may raise `to_chat:true` per event (e.g. to log 'Trip start set to 20 Jul 2026' into the transcript). Posting an event NEVER auto-runs inference (SPEC 9.3 #4). Certification rejects duplicate event names.",
+      "$comment": "value_committed: user confirmed a selection (value changed & committed). cleared: user cleared the selection back to empty (only when props.clearable)."
+    },
+
+    "props": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Typed, immutable-per-instance configuration for this type. Closed with additionalProperties:false (conformance checklist #1). All fields optional; normalization applies the documented defaults.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["date", "time", "datetime"],
+          "default": "date",
+          "description": "What the user picks: a calendar date, a time-of-day, or both. Governs the stored value shape (see $defs/dateTimeValue) and which sub-controls (calendar grid / time spinners) render."
+        },
+        "time_granularity": {
+          "type": "string",
+          "enum": ["hour", "minute", "second"],
+          "default": "minute",
+          "description": "Finest selectable time unit; only meaningful when `mode` includes time. `minute` shows HH:mm, `second` adds :ss, `hour` locks minutes to :00."
+        },
+        "minute_step": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30,
+          "default": 1,
+          "description": "Increment (in minutes) for the minute spinner / arrow-key stepping; only meaningful when `mode` includes time and granularity is minute/second. E.g. 5 or 15 for appointment slots."
+        },
+        "hour_cycle": {
+          "type": "string",
+          "enum": ["locale", "h12", "h24"],
+          "default": "locale",
+          "description": "Clock format for the time control (SPEC 8.7 i18n). `locale` follows the active locale (e.g. h12 with AM/PM for en-US, h24 for de-DE); `h12`/`h24` force it. Presentation-only — the stored value stays 24h ISO."
+        },
+        "week_start": {
+          "type": "string",
+          "enum": ["locale", "saturday", "sunday", "monday"],
+          "default": "locale",
+          "description": "First day of the calendar week (SPEC 8.7 i18n); only meaningful when `mode` includes a date. `locale` derives it from the active locale; the explicit values force it. Presentation-only."
+        },
+        "min": {
+          "description": "Inclusive lower bound on the selectable value. An ISO 8601 string (see $defs/dateTimeValue) OR a relative sentinel resolved at render — `now` / `today` (e.g. min:`now` to forbid past instants for a scheduling picker). Values before it render `aria-disabled` and are non-selectable.",
+          "oneOf": [
+            { "$ref": "#/$defs/dateTimeValue" },
+            { "type": "string", "enum": ["now", "today"] }
+          ]
+        },
+        "max": {
+          "description": "Inclusive upper bound on the selectable value. Same shape as `min` (ISO 8601 string or `now`/`today`). Certification flags an inverted range where a literal `max` precedes a literal `min`.",
+          "oneOf": [
+            { "$ref": "#/$defs/dateTimeValue" },
+            { "type": "string", "enum": ["now", "today"] }
+          ]
+        },
+        "clearable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the user can clear the selection back to empty (emitting `cleared` and writing the slot's empty value). When false, the field can be changed but never returned to unset."
+        },
+        "now_shortcut": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a localized 'Today' / 'Now' quick-select affordance that snaps the selection to the current date/time (respecting `min`/`max`)."
+        },
+        "placeholder": {
+          "$ref": "./_widget-base.schema.json#/$defs/localizableString",
+          "description": "Localizable prompt text shown in the empty state before a value is chosen (e.g. 'Pick a date'). Distinct from the empty-state copy overridable via `states.empty`."
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "Rigor: forbid time-only props when the picker shows no time.",
+          "if": { "properties": { "mode": { "const": "date" } } },
+          "then": {
+            "properties": {
+              "time_granularity": false,
+              "minute_step": false,
+              "hour_cycle": false
+            }
+          }
+        },
+        {
+          "$comment": "Rigor: forbid the date-only prop when the picker shows no calendar.",
+          "if": {
+            "properties": { "mode": { "const": "time" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "properties": { "week_start": false }
+          }
+        }
+      ]
+    },
+
+    "states": {
+      "$ref": "./_widget-base.schema.json#/$defs/stateCopyOverrides",
+      "$comment": "Type-default copy the skill may override (strings only, never suppress a state) — see $defs/stateCopyDefaults. loading: 'Loading…'. empty: 'No date selected.' error: 'Couldn't set the date — check the value.'"
+    }
+  },
+
+  "$defs": {
+    "dateTimeValue": {
+      "type": "string",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(\\.\\d{1,3})?(Z|[+-]\\d{2}:\\d{2})?)?|\\d{2}:\\d{2}(:\\d{2})?)$",
+      "description": "The LOCALE-NEUTRAL ISO 8601 wire value carried in the bound `scalar<string>` slot and in `min`/`max`. Shape by `props.mode`: mode=date → `YYYY-MM-DD` (e.g. '2026-07-20'); mode=time → `HH:mm[:ss]` (e.g. '14:30'); mode=datetime → `YYYY-MM-DDTHH:mm[:ss][.SSS][Z|±HH:mm]` (e.g. '2026-07-20T14:30:00+02:00'). Only presentation is localized (SPEC 8.7); this stored form never is, so the slot round-trips across locales and skills. Empty selection is the slot's empty/absent value, not a member of this pattern."
+    },
+
+    "acceptedSlotKind": {
+      "type": "null",
+      "$comment": "acceptsSlotKind = scalar (base $defs/acceptsSlotKind). Concretely scalar<string> holding an ISO 8601 value; scalar<number> (epoch) is intentionally NOT accepted.",
+      "description": "NON-NORMATIVE (documentation node). `binds_state` accepts a scalar slot — specifically `scalar<string>` per $defs/dateTimeValue. Because the concrete slot kind lives in `shared_state`, this fit is a cross-artifact certification check (P1-04.5), not an in-envelope constraint (SPEC 9.9 of the base contract §9)."
+    },
+
+    "defaultEventSet": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node) — the widget-type default `emits` (SPEC 9.3 #4). [1] `value_committed` (to_chat:false): fires when the user confirms a new selection; carries the committed ISO value. [2] `cleared` (to_chat:false): fires when the user clears the selection (only when props.clearable). Neither is time-critical, so neither fires the OS notification path (SPEC 9.7); both are overridable to `to_chat:true` in the manifest. The slot write (direction 1) — not these events — is the primary data flow; events exist for the conversation/record path (direction 4)."
+    },
+
+    "runtimeStateProjection": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "NON-NORMATIVE (documentation node): the shape the CORE hands the webview to render (see IPC-CONTRACT responsibility split). Runtime state is NOT authored in the manifest — it is produced by the slot value, tool results, and user input, and is session-scoped by default (SPEC 9.9). Every instance passes through the base lifecycle machine (contract §6).",
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "$ref": "#/$defs/dateTimeValue" },
+            { "type": "null" }
+          ],
+          "description": "Current ISO 8601 selection, or null when unset/empty."
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["loading", "ready", "empty", "populated", "error", "readonly", "placeholder"],
+          "description": "Lifecycle phase (base contract §6)."
+        },
+        "in_range": {
+          "type": "boolean",
+          "description": "Whether `value` satisfies the resolved `min`/`max` bounds; false drives the error affordance."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "True when this skill is not the slot's writer-of-record; disables all edit affordances (see $defs/readOnlyBehavior)."
+        },
+        "writer": {
+          "type": "string",
+          "description": "Skill id / display name of the writer-of-record, surfaced as 'Managed by {writer}' when readonly."
+        },
+        "resolved_locale": {
+          "type": "string",
+          "description": "The BCP-47 locale actually used for presentation (format, month/day names, hour cycle, numerals) after applying props overrides — SPEC 8.7."
+        }
+      }
+    },
+
+    "stateCopyDefaults": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node): type-default copy for the mandatory states (base contract §6); a skill may override only the strings via `states`, never suppress a state. loading → label 'Loading…' with a determinate/indeterminate affordance, never a blank field. empty → 'No date selected.' (plain, non-alarming; distinct from error), using props.placeholder in the trigger. error → 'Couldn't set the date — check the value.' with a recovery affordance (re-open picker / clear), surfacing structured tool-execution errors, never swallowing them (SPEC 8.4). read-only and placeholder states per base §5/§11."
+    },
+
+    "readOnlyBehavior": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node): behavior when bound to a slot this skill does NOT own (base contract §5, resolved at merge). The picker MUST: (1) render LIVE — reflect every slot update to `value` in real time, month view following the value; (2) DISABLE all edit affordances — the trigger, calendar navigation, day cells, time spinners, Today/Now and Clear controls are non-interactive both visually and via `aria-disabled`/`disabled`, and it emits neither `value_committed` nor `cleared`; (3) NAME the owner — expose an accessible description 'Managed by {writer-of-record}'. Non-writers change the value only through a tool (scalar slots: only the writer-of-record may set)."
+    },
+
+    "i18nContract": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node), SPEC 8.7: the picker is locale-aware. Derived from the active locale (overridable via props): display/parse format, month & weekday names, first day of week (props.week_start), hour cycle 12/24h (props.hour_cycle), and numeral system. The STORED value stays a locale-neutral ISO 8601 string ($defs/dateTimeValue), so switching locale re-renders presentation without rewriting shared state. Measurement unit_system (US/Metric, SPEC 8.7) does not apply to dates. All type-default and skill-supplied strings are localizable (base $defs/localizableString); certification verifies key completeness per declared locale, with graceful fallback to default_locale."
+    },
+
+    "a11yContract": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node): the mechanical a11y guaranteed by the first-party implementation and enforced by the X-A11Y gate in BOTH themes on EVERY state (base contract §8) — not waivable by a skill (the skill may only override accessible name/description/live-region via `a11y`). KEYBOARD: trigger is Tab-reachable; Enter/Space opens the popup; within the calendar grid Arrow keys move by day, Up/Down by week, PageUp/PageDown by month, Shift+PageUp/PageDown by year, Home/End to week bounds; Enter/Space commits the focused day; Escape closes and returns focus to the trigger; time fields are spinbuttons stepped by Up/Down (honoring minute_step) with PageUp/PageDown for larger jumps. FOCUS ORDER: trigger → (popup opens) month/year nav → calendar grid (roving tabindex, focus on selected-or-today) → time spinners → Today/Now → Clear; focus is trapped in the dialog while open and restored to the trigger on close; focus is always visible via focus tokens. ARIA ROLES: trigger exposes `aria-haspopup=\"dialog\"` + `aria-expanded`; the popup is `role=\"dialog\"` with an accessible label; the calendar is `role=\"grid\"` with `row`/`gridcell`, each cell `aria-label` = localized long date, `aria-selected` on the chosen day, `aria-current=\"date\"` on today, `aria-disabled` on out-of-range days; time fields are `role=\"spinbutton\"` with `aria-valuemin/valuemax/valuenow/valuetext`; an `aria-live=\"polite\"` region announces the committed selection and month/year changes (out-of-band updates). PER-THEME AA: all text, borders, selected/today/disabled cell states and the focus ring meet WCAG-AA contrast verified independently for light and dark (a token passing on dark may fail on light — the --sulphur-ink precedent, P1-01.4). NO HUE-ONLY MEANING (WCAG 1.4.1): selected (filled shape + `aria-selected`), today (ring/underline + 'Today' in `aria-label` + `aria-current`), disabled/out-of-range (`aria-disabled` + reduced affordance), and the error state (icon + text, not red alone) are each conveyed by shape/text/icon in addition to color; `style.tone` is never the sole signal. Plus scalable text/zoom (base §8.5) and reduce-motion-aware popup transitions (base §8.6, motion tokens)."
+    },
+
+    "styleTokenNote": {
+      "type": "null",
+      "description": "NON-NORMATIVE (documentation node): this widget ships NO CSS and NO raw tokens (SPEC 9.1/9.10). Its entire skill-facing styling surface is the base `style` variant vocabulary (tone/emphasis/density/align, contract §7); the implementation draws only from the constrained design-token namespaces (base $defs/designTokenNamespace) — calendar grid, selected/today rings, time spinners, and focus ring all reference `var(--color-*/--space-*/--radius-*/--text-*/--motion-*)`, no literal hex/px/rem. Enforced by the non-token-styling lint (P1-03.8 / P1-20.1)."
+    }
+  }
+}

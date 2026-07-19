@@ -1,0 +1,202 @@
+/* slider-stepper — token-ONLY styling (contract §7 · non-token-styling lint
+   P1-20.1). Every colour/space/type/radius/motion value resolves through the
+   design-token vocabulary (tokens.css). Native controls are themed via
+   `accent-color` so the browser keeps role=slider/spinbutton + keyboard + AA
+   focus for free; in-between sizes are COMPOSED from the 4px space scale with
+   calc() so nothing escapes the system. */
+
+.slider-stepper .readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+
+.slider-stepper .readout .unit {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---- loading (contract §6) ---- */
+.state-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.state-loading .bar {
+  position: relative;
+  flex: 1;
+  height: calc(var(--space-1) * 1.5); /* 6px */
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.state-loading .bar-fill {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  animation: slider-indeterminate 1.1s var(--ease) infinite;
+}
+
+@keyframes slider-indeterminate {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+
+.state-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---- read-only owner note (contract §5) ---- */
+.managed-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- error (contract §6) — icon + text, never hue-only (§8) ---- */
+.state-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--tone-danger-fill);
+  border-radius: var(--radius-md);
+  background: var(--tone-danger-tint);
+  color: var(--tone-danger-text);
+  font-size: var(--text-sm);
+}
+
+/* ---- clamp badge — icon + text (caution), never hue-only (§8) ---- */
+.clamp-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--tone-careful-text);
+}
+
+.icon {
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* ---- slider presentation ---- */
+.slider-row {
+  display: flex;
+  align-items: center;
+}
+
+.range {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: var(--space-4);
+  margin: 0;
+  /* Themes the native track + thumb per-theme, keeping native a11y/focus. */
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.range:disabled {
+  accent-color: var(--color-border);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---- tick marks (slider only) ---- */
+.marks {
+  position: relative;
+  height: var(--space-4);
+  margin-top: calc(var(--space-1) * -1);
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: var(--space-2);
+  margin-left: calc(var(--space-1) * -0.25);
+  background: var(--color-border);
+}
+
+.mark-label {
+  position: absolute;
+  top: var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mark-min { left: 0; }
+.mark-max { right: 0; }
+
+/* ---- stepper presentation ---- */
+.stepper-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.step-btn {
+  flex-shrink: 0;
+  width: var(--space-6);
+  height: var(--space-6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-md);
+  font-size: var(--text-lg);
+  line-height: 1;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.step-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.step-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.value-field {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-md);
+  accent-color: var(--color-primary);
+}
+
+.value-field:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.unit-suffix {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}

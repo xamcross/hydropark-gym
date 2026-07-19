@@ -40,6 +40,7 @@ class SettlementWorkerTest {
   @Mock PaymentProvider provider;
   @Mock SettlementService settlement;
   @Mock PricingPort pricing;
+  @Mock AntiFraudService antiFraud;
 
   SettlementWorker worker;
 
@@ -56,7 +57,7 @@ class SettlementWorkerTest {
 
   @BeforeEach
   void setup() {
-    worker = new SettlementWorker(mongo, provider, settlement, pricing, 50, 5, 300_000L);
+    worker = new SettlementWorker(mongo, provider, settlement, pricing, antiFraud, 50, 5, 300_000L);
   }
 
   private static WebhookEvent row() {
@@ -81,6 +82,16 @@ class SettlementWorkerTest {
   private static ProviderEvent succeeded(long amount) {
     return new ProviderEvent(
         "evt-1", "order-1", "pi-1", PaymentProvider.SUCCEEDED, new Money(amount, "USD"), "US");
+  }
+
+  private static ProviderEvent succeededWith(long amount, String fingerprint, String risk) {
+    return new ProviderEvent(
+        "evt-1", "order-1", "pi-1", PaymentProvider.SUCCEEDED, new Money(amount, "USD"), "US",
+        fingerprint, risk);
+  }
+
+  private static ProviderEvent cleared() {
+    return new ProviderEvent("evt-2", "order-1", "pi-1", PaymentProvider.CLEARED, null, "US");
   }
 
   /** B2/B6 - a redelivered event (duplicate provider_event_id) grants exactly zero extra times. */
@@ -131,5 +142,65 @@ class SettlementWorkerTest {
     worker.processOne(row());
 
     verify(settlement, times(1)).settleSkillOrBundle(order, ev);
+  }
+
+  /**
+   * SF10 per-instrument velocity - a card fanned across too many accounts trips the fingerprint
+   * limit; the event is parked (dead-lettered) and nothing settles or is held.
+   */
+  @Test
+  void fingerprintVelocityTripParksAndNeverSettles() {
+    when(provider.verifyWebhook(any(), any())).thenReturn(succeededWith(500, "fp-card", null));
+    when(mongo.updateFirst(argThat(CLAIM), any(UpdateDefinition.class), eq(WebhookEvent.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+    when(mongo.findById("order-1", Order.class)).thenReturn(skillOrder());
+    when(mongo.updateFirst(argThat(STATUS), any(UpdateDefinition.class), eq(WebhookEvent.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+    when(antiFraud.isPaymentFingerprintOverVelocity("user-1", "fp-card")).thenReturn(true);
+
+    worker.processOne(row());
+
+    verify(settlement, never()).settleSkillOrBundle(any(), any());
+    verify(settlement, never()).settleSkillOrBundleOnHold(any(), any());
+  }
+
+  /**
+   * SF10 hold-grant-until-clear - a high-risk succeeded settles on hold (paid, grant withheld), never
+   * through the immediate grant path.
+   */
+  @Test
+  void highRiskOrderIsHeldNotGrantedImmediately() {
+    ProviderEvent ev = succeededWith(500, "fp-card", "highest");
+    Order order = skillOrder();
+    when(provider.verifyWebhook(any(), any())).thenReturn(ev);
+    when(mongo.updateFirst(argThat(CLAIM), any(UpdateDefinition.class), eq(WebhookEvent.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+    when(mongo.findById("order-1", Order.class)).thenReturn(order);
+    when(mongo.updateFirst(argThat(STATUS), any(UpdateDefinition.class), eq(WebhookEvent.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+    when(antiFraud.isHighRisk(order, ev)).thenReturn(true);
+
+    worker.processOne(row());
+
+    verify(settlement, times(1)).settleSkillOrBundleOnHold(order, ev);
+    verify(settlement, never()).settleSkillOrBundle(any(), any());
+  }
+
+  /** SF10 release - a clear event drives {@code clearHeldOrder}, never a fresh immediate settlement. */
+  @Test
+  void clearedEventReleasesHeldOrder() {
+    ProviderEvent ev = cleared();
+    Order order = skillOrder();
+    when(provider.verifyWebhook(any(), any())).thenReturn(ev);
+    when(mongo.updateFirst(argThat(CLAIM), any(UpdateDefinition.class), eq(WebhookEvent.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+    when(mongo.findById("order-1", Order.class)).thenReturn(order);
+    when(mongo.updateFirst(argThat(STATUS), any(UpdateDefinition.class), eq(WebhookEvent.class)))
+        .thenReturn(UpdateResult.acknowledged(1L, 1L, null));
+
+    worker.processOne(row());
+
+    verify(settlement, times(1)).clearHeldOrder(order);
+    verify(settlement, never()).settleSkillOrBundle(any(), any());
   }
 }

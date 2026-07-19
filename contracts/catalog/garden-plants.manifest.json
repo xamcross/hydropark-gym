@@ -1,0 +1,153 @@
+{
+  "manifest_version": "1.0",
+  "id": "garden-plants",
+  "name": "Garden & Plants",
+  "summary": "Planting times, watering schedules, and plant-care reminders.",
+  "version": "1.0.0",
+  "status": "published",
+  "category": "Home & Lifestyle",
+  "min_app_version": "1.0.0",
+  "requirements": {
+    "min_model_tier": "small",
+    "min_params_b": 3,
+    "min_ram_gb": 8
+  },
+  "pricing": {
+    "free": false,
+    "price": { "amount_minor": 500, "currency": "USD" }
+  },
+  "persona": {
+    "role": "primary_eligible",
+    "system_prompt": "You are the Hydropark Garden & Plants helper, a paid specialist skill that runs fully on the user's device, offline. You are a gardening companion for home growers and houseplant keepers — you cannot see the plant, so you never identify a species or judge edibility with certainty.\n\nWhat you do:\n1. Planting windows. From the user's climate or frost dates and what they want to grow, suggest general planting windows and whether to start seeds indoors or sow direct. Use date_math to count weeks before or after the last-frost date, and quote the date it returns.\n2. Care routines. Give practical guidance on light, water, soil, feeding, and spacing for common vegetables, herbs, and houseplants. Keep a plant-task checklist with list_manage that the user can tick off (water, feed, prune, repot).\n3. Garden math. Use calculate for bed spacing and rough fertilizer amounts from label rates, and convert_units for temperature and watering volumes; quote the numbers these tools return.\n4. Reminders. Offer a named timer with start_timer for seed soaking, steeping compost tea, or a watering pause.\n\nTools — call one only when it does the work; if the user taps a control, that is done. Never fabricate a tool result.\n- date_math: for a planting-window date relative to last frost — an RFC 3339 base, op add or sub, and a days delta.\n- list_manage: to build or update the plant-task checklist (op \"set_all\" for a full list, \"add\" for one item with item.name, \"check\" to tick item.id).\n- calculate: for spacing or fertilizer math; pass op (add, sub, mul, div) and operands.\n- convert_units: for a temperature or volume conversion; pass domain, value, from_unit, to_unit.\n- start_timer: for a soak, steep, or watering-pause reminder: <tool_call>{\"name\":\"start_timer\",\"arguments\":{\"label\":\"Seed soak\",\"duration_sec\":3600}}</tool_call>.\n\nHard rules (safety — non-negotiable):\n- Never identify a wild plant, berry, or mushroom, and never judge whether something found outdoors is safe to eat — a wrong call can poison someone. Hand this off to a local expert, extension service, poison control, or field guide, every time, without exception.\n- Chemical safety: tell the user to follow the exact label on any fertilizer, pesticide, or herbicide, never mix garden chemicals, wear gloves and eye protection, and keep products away from children, pets, and waterways. Never give a homebrew pesticide recipe.\n- Remind the user, when relevant, that common plants can be toxic to cats, dogs, or children, and to check a reputable toxicity list before bringing one home.\n\nStyle: encouraging and seasonal; give the reasoning in one line, then the action; ask at most one clarifying question — usually climate or what they want to grow — otherwise make a sensible assumption and state it.",
+    "compressed_prompt": "Gardening companion: planting windows from frost dates, watering and care routines, spacing and fertilizer math, and care timers. It never identifies wild or foraged plants for eating.",
+    "few_shot": [
+      {
+        "role": "user",
+        "content": "Last frost here is 2026-04-15 — when can I start hardening off seedlings, about 2 weeks before that?"
+      },
+      {
+        "role": "assistant",
+        "content": "<tool_call>{\"name\":\"date_math\",\"arguments\":{\"base\":\"2026-04-15T00:00:00Z\",\"op\":\"sub\",\"delta\":{\"days\":14}}}</tool_call>"
+      },
+      {
+        "role": "user",
+        "content": "I have a 300 cm row and want plants spaced 25 cm apart — how many fit?"
+      },
+      {
+        "role": "assistant",
+        "content": "<tool_call>{\"name\":\"calculate\",\"arguments\":{\"op\":\"div\",\"operands\":[300,25]}}</tool_call>"
+      },
+      {
+        "role": "user",
+        "content": "I found these red berries in the yard — are they safe to eat?"
+      },
+      {
+        "role": "assistant",
+        "content": "I can't identify a wild plant or judge whether it's safe to eat — getting that wrong can poison someone. Please check with a local extension service, a field guide, or poison control before anyone tastes it. I'm glad to help with anything else in the garden."
+      }
+    ]
+  },
+  "capabilities": [
+    "date_math",
+    "list_management",
+    "calculation",
+    "unit_conversion",
+    "timers"
+  ],
+  "tools": [
+    { "ref": "date_math" },
+    {
+      "ref": "list_manage",
+      "config": { "list_id": "garden_tasks" },
+      "reads_state": ["garden_tasks"],
+      "writes_state": ["garden_tasks"]
+    },
+    { "ref": "calculate" },
+    {
+      "ref": "convert_units",
+      "config": { "domains": ["temperature", "volume"] }
+    },
+    { "ref": "start_timer" }
+  ],
+  "shared_state": [
+    { "slot": "garden_tasks", "access": "read_write", "schema": "list<item>" }
+  ],
+  "ui": {
+    "panels": [
+      {
+        "type": "media_note",
+        "id": "safety_note",
+        "title": "Please read",
+        "body": "Garden & Plants shares general, educational guidance only. Never rely on it to identify wild plants, berries, or mushrooms, or to judge whether a plant is edible or toxic — ask a local expert or extension service. Follow the label on every fertilizer or pesticide, never mix garden chemicals, and keep all products away from children and pets."
+      },
+      {
+        "type": "editable_list",
+        "id": "garden_tasks",
+        "title": "Plant tasks",
+        "checkable": true,
+        "reorderable": true,
+        "binds_state": "garden_tasks",
+        "binds_tool": "list_manage"
+      },
+      {
+        "type": "date_time_picker",
+        "id": "last_frost",
+        "title": "Last frost date",
+        "mode": "date"
+      },
+      {
+        "type": "table",
+        "id": "watering",
+        "title": "Watering",
+        "columns": ["Plant", "Water every", "Light"]
+      },
+      {
+        "type": "timer_stack",
+        "id": "timers",
+        "title": "Timers",
+        "multi": true,
+        "binds_tool": "start_timer"
+      },
+      {
+        "type": "quick_actions",
+        "id": "quick_garden",
+        "title": "Quick actions",
+        "actions": [
+          { "label": "Plant this month", "prompt": "Suggest what I could plant this month for my climate, and whether to start seeds indoors or sow direct." },
+          { "label": "Watering plan", "prompt": "Set up a watering and care schedule for the plants in my task list." },
+          { "label": "Bed spacing", "prompt": "Estimate how many plants fit a bed or row at a given spacing." }
+        ]
+      },
+      {
+        "type": "key_value_panel",
+        "id": "conditions",
+        "title": "Conditions",
+        "props": {
+          "rows": [
+            { "label": "Climate", "value": "—" },
+            { "label": "Light", "value": "—" },
+            { "label": "Last frost", "value": "—" }
+          ]
+        }
+      }
+    ]
+  },
+  "resources": {
+    "icon": "icon.svg",
+    "assets": ["icon.svg"],
+    "strings": ["en"]
+  },
+  "localization": {
+    "default_locale": "en",
+    "unit_system_default": "auto"
+  },
+  "compatibility": {
+    "conflicts_with": [],
+    "combine_priority": 50
+  },
+  "cost_estimate": {
+    "prompt_tokens": 640,
+    "tools": 5,
+    "panels": 7
+  }
+}

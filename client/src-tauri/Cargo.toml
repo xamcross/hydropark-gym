@@ -6,15 +6,18 @@ authors = ["xamcross@gmail.com"]
 edition = "2021"
 rust-version = "1.77"
 publish = false
+# The capture_preview bin (Task 17) makes `cargo run` ambiguous; pin the app as
+# the default so the documented `cargo run` dev workflow keeps launching it.
+default-run = "hydropark"
 
-# NOTE TO BUILDERS: this crate is AUTHORED but has never been compiled in
-# this environment — there is no `cargo` on this machine (see
-# client/README.md "What does not build today"). Treat it as a careful
-# first draft: the shapes, the module boundaries, and the IPC contract are
-# meant to be right; individual API calls against `tauri`/`llama-cpp-2`
-# should be re-checked against those crates' current docs on first real
-# build, since they were written from spec + training knowledge, not a
-# compiler.
+# NOTE TO BUILDERS: the default (`mock-inference`) crate builds, links, and
+# runs on Windows (see client/README.md). The `real-inference` feature has
+# now been BUILT AND RUN on this machine (MSVC + CMake + LLVM/libclang for
+# bindgen) — it loads the bundled Qwen2.5-7B GGUF (swapped from 3B 2026-07-19)
+# and streams tokens; see
+# client/docs/REAL-INFERENCE.md for the one-shot build + run + benchmark and
+# the measured throughput (P0-02.3). The `llama-cpp-2` 0.1.151 API calls in
+# `inference.rs::real` are compiler-checked as of that build.
 
 # Desktop-only for Phase 0 (PHASE0-PLAN §2: "Win + macOS if cheap, else Win
 # only") — no mobile target, so this stays a plain binary crate rather than
@@ -24,12 +27,39 @@ publish = false
 name = "hydropark"
 path = "src/main.rs"
 
+# Plan Task 17 (phase 1/2): offline preview-transcript capture tool — loads the
+# real inference engine + one skill's persona, runs a FIXED set of demo inputs,
+# and writes `previews/<skill-id>.json` (try-before-buy raw material, SPEC
+# §11.4 / BE §4.2 N1). A separate binary crate root (`src/bin/capture_preview.rs`)
+# that re-declares the sibling modules it needs via `#[path]` (see that file's
+# module doc) rather than restructuring this crate into lib+bin. NOT gated by
+# `required-features`: its core capture logic is engine-agnostic and must stay
+# reachable by `cargo test --no-default-features --features mock-inference`;
+# only its `main()` + real-engine glue are internally `#[cfg(feature =
+# "real-inference")]`-gated. A normal `cargo build`/`cargo tauri build` of the
+# `hydropark` binary is unaffected either way — this is purely an extra target.
+[[bin]]
+name = "capture_preview"
+path = "src/bin/capture_preview.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"
+# P1-01.2 purchase-callback deep link: registers the `hydropark://` scheme so the
+# hosted-checkout redirect routes the OS back into the app (see tauri.conf.json
+# `plugins.deep-link` + capabilities `deep-link:default`).
+tauri-plugin-deep-link = "2"
+# P1-11.2 app auto-update SEAM: checks a signed-build endpoint and (later) applies
+# a verified update. GATED — the update SERVER + minisign signing key are not yet
+# provisioned, so `tauri.conf.json` `plugins.updater` ships a clearly-marked
+# PLACEHOLDER endpoint + pubkey and every real check fails CLOSED and SILENT
+# (offline-safe, §18). The seam + the `check_for_update` command compile now; wiring
+# a real endpoint/key is all that's left to make it live. Pure-Rust (reqwest/rustls
+# already in-tree), so it builds under the toolchain-free `mock-inference` feature too.
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
@@ -37,6 +67,40 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
 thiserror = "1"
 sysinfo = "0.30"
+
+# Skill-package signature verification (P1-03.3): RFC 8785 JCS canonicalization + Ed25519 verify,
+# cross-checked byte-for-byte against the backend golden vector
+# (contracts/testdata/package-signing-golden.json). All pure-Rust, so it builds under the
+# toolchain-free `mock-inference` feature too.
+ed25519-dalek = "2"
+base64 = "0.22"
+serde_jcs = "0.1"
+
+# Offline license verification (P1-09.4/.5): compact JWS verified with the per-`kid` PINNED
+# algorithm - ES256 (ECDSA P-256) for new issuance, EdDSA for legacy keys - never the token
+# `alg` header (ADR-001). Pure-Rust (no C), so it builds under `mock-inference` too.
+p256 = { version = "0.13", features = ["ecdsa"] }
+sha2 = "0.10"
+
+# Device identity (P1-09.3/.8): a persisted Ed25519 device keypair (via `ed25519-dalek`
+# above) whose 32-byte seed comes from the OS RNG, plus a coarse SHA-256 hardware
+# fingerprint. `getrandom` is a direct dep only for the key seed; it is already in
+# the tree transitively (uuid/ring), so this adds no new crate to compile.
+getrandom = "0.2"
+
+# On-device store (P1-10.1/.4): local SQLite (offline; unrelated to the cloud Atlas store).
+# `bundled` compiles SQLite from vendored C via `cc` - the same MSVC toolchain the mock build
+# already needs for its linker.
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# .hpskill package/archive format (P1-03.2): a zip container (manifest + assets + localized strings +
+# signature). Pure-Rust deflate (miniz_oxide) - no zlib-ng C backend - so it builds under mock too.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Backend HTTP client (P1-08.6 / networking): the Rust core owns network egress (the webview CSP is
+# `connect-src 'self'`), so catalog / orders / entitlements / license / download calls cross the IPC
+# boundary as Tauri commands. rustls (ring) keeps it off a system OpenSSL.
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 
 # Embedded llama.cpp binding (P0-02.1). Optional + gated behind the
 # `real-inference` feature so the default `mock-inference` build needs no
@@ -48,7 +112,7 @@ sysinfo = "0.30"
 llama-cpp-2 = { version = "0.1.151", optional = true }
 
 [features]
-default = ["mock-inference"]
+default = ["real-inference"]
 
 # Serve the embedded frontend bundle instead of `build.devUrl`.
 #
@@ -61,14 +125,18 @@ default = ["mock-inference"]
 #   production : cargo build --release --features custom-protocol
 #   dev        : cargo run                    (devUrl + `npm --prefix ../web run start`)
 custom-protocol = ["tauri/custom-protocol"]
-# The mock engine (inference.rs) — scripted/deterministic token stream, no
-# model file, no native inference dependency. Default so the crate means
-# something (and is reviewable/testable) without the GGUF or a C++ toolchain.
-mock-inference = []
-# The real engine (inference.rs `real` module): embeds llama.cpp and loads
-# the Qwen2.5-3B GGUF in-process. CPU-only by default. Build with:
-#   cargo build --release --features real-inference
+# The real engine (inference.rs `mod real`): embeds llama.cpp and loads the
+# Qwen2.5-7B GGUF in-process (swapped from 3B 2026-07-19). **Default** — the
+# engine the app ships and runs.
+# CPU-only unless the `cuda` feature is added. A build needs the native
+# toolchain (MSVC + CMake + LLVM/libclang for bindgen); see
+# client/docs/REAL-INFERENCE.md.
 real-inference = ["dep:llama-cpp-2"]
+# The mock engine (inference.rs `mod mock`) — scripted/deterministic token
+# stream, no model file, no native dependency. The toolchain-free escape hatch
+# for review / CI / UI-dev without a GGUF:
+#   cargo build --no-default-features --features mock-inference
+mock-inference = []
 # Opt-in NVIDIA GPU offload. Requires the CUDA toolkit (nvcc) on PATH at
 # build time; without it the llama.cpp cmake build fails. A plain
 # `real-inference` build is CPU-only and silently ignores n_gpu_layers.

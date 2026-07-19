@@ -1,0 +1,144 @@
+/* ownership-button — token-only styling (no literal hex; house 1px hairlines).
+   State is never colour-only (WCAG 1.4.1): pending = spinner + aria-busy,
+   active = ✓ glyph + label, gated/disabled = dim + not-allowed + aria-disabled. */
+
+.ownership {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ownership-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.own-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-tight);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.own-btn:hover:not(:disabled) {
+  background: var(--color-surface-alt);
+  border-color: var(--color-text-muted);
+}
+
+.own-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.own-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* strong = the primary, filled action (Buy / Install / Enable). */
+.own-btn.emphasis-strong {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.own-btn.emphasis-strong:hover:not(:disabled) {
+  background: var(--color-primary-strong);
+  border-color: var(--color-primary-strong);
+  color: var(--color-primary-contrast);
+}
+
+/* subtle = the "Active" status pill (ghost, non-actionable). */
+.own-btn.emphasis-subtle {
+  border-color: var(--tone-fine-fill);
+  background: var(--tone-fine-tint);
+  color: var(--color-text);
+}
+
+.own-btn.is-active .check {
+  color: var(--tone-fine-fill);
+  font-weight: var(--font-weight-bold);
+}
+
+.own-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Active is disabled-by-design (a status), not "unavailable" — keep it legible. */
+.own-btn.is-active:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.own-btn.is-pending {
+  cursor: progress;
+}
+
+.own-secondary.is-gated {
+  opacity: 0.55;
+}
+
+.own-link {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.own-link:hover {
+  color: var(--color-text);
+}
+
+.own-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.own-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+}
+
+/* busy spinner — collapses under the global reduce-motion rule. */
+.spinner {
+  display: inline-block;
+  flex: none;
+  inline-size: var(--space-3);
+  block-size: var(--space-3);
+  border: calc(var(--space-1) * 0.5) solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: var(--radius-pill);
+  animation: own-spin 0.7s linear infinite;
+}
+
+.emphasis-strong .spinner {
+  border-color: var(--color-primary-contrast);
+  border-top-color: transparent;
+  opacity: 0.9;
+}
+
+@keyframes own-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
