@@ -74,6 +74,8 @@ npm-debug.log*
 /DEMO-SHOTLIST.md
 /demos/
 /.superpowers/
+# superpowers-generated planning docs (same untracked-docs convention as above)
+/docs/
 # local dev-loop state (demo-readiness push): mongo replica-set data + blobstore root
 # (blobstore-dev unanchored: the backend resolves its default ./blobstore-dev against
 # its own working dir, so the root lands at backend/blobstore-dev in the dev loop)
@@ -90,6 +92,10 @@ backend/docs/KEY-COMPROMISE-RUNBOOK.md
 # binary and the exact dependency graph should be reproducible.
 # ---------------------------------------------------------------------------
 client/src-tauri/gen/
+# T17 preview capture output: raw per-skill transcripts from real model runs.
+# The CURATED transcripts are committed in web preview-transcripts.ts; these raw
+# JSON artifacts are regenerable capture output, not source.
+client/src-tauri/previews/
 
 # Python + eval transient output
 __pycache__/
