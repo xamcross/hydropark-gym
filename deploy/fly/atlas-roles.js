@@ -92,6 +92,22 @@ const LICENSING_COLLECTIONS = ["licenses", "license_audit"];
 const DEVICES_COLLECTIONS = ["devices", "device_slot_counters"];
 const WALLET_COLLECTIONS = ["wallet_accounts", "wallet_transactions"];
 
+// Content-delivery event logs (P1-19), written in the api zone: DownloadService
+// records a watermark buyer-token per issued download, EgressMeter appends an
+// egress sample per served blob; GrossMarginService + AnalyticsQueryService read
+// them (all api-zone). download_records rows are deleted by the GDPR erasure
+// scrub (P1-12.6, api zone) via findByUserId → delete, so the api needs `remove`
+// there (see API_DELETABLE below); cdn_egress is append-only. V012 indexes both,
+// so hp_migrator must reach them — hence they are in ALL_COLLECTIONS.
+const DELIVERY_COLLECTIONS = ["download_records", "cdn_egress"];
+
+// Business-continuity batches (§28.2). Written ONLY in the isolated issuer zone
+// (ContinuityBatchService is @ConditionalOnProperty hydropark.issuer.enabled),
+// and no other zone reads them. Deliberately kept OUT of ALL_COLLECTIONS so the
+// public api tier never gains access — only hp_issuer (write) and hp_migrator
+// (index) below reference it.
+const CONTINUITY_COLLECTIONS = ["continuity_batches"];
+
 // The migration ledger and its distributed lock. No running zone ever touches
 // these - `hydropark.migration.enabled` is false in the `fly` profile - so they
 // belong to hp_migrator alone and are deliberately kept out of ALL_COLLECTIONS.
@@ -105,6 +121,7 @@ const ALL_COLLECTIONS = [
   ...LICENSING_COLLECTIONS,
   ...DEVICES_COLLECTIONS,
   ...WALLET_COLLECTIONS,
+  ...DELIVERY_COLLECTIONS,
 ];
 
 /**
@@ -196,6 +213,8 @@ dropRoleIfExists("hp_api");
 const API_DELETABLE = [
   ...AUTH_COLLECTIONS.filter((c) => c !== "users"),
   "idempotency_keys",
+  // GDPR erasure scrub (P1-12.6) deletes a subject's download history by user_id.
+  "download_records",
 ];
 
 // The api zone READS these and never writes them:
@@ -290,6 +309,12 @@ db.createRole({
       resource: { db: DB_NAME, collection: c },
       actions: readWriteActions(),
     })),
+    // Business-continuity batches live only in the issuer zone (§28.2): it alone
+    // packages the emergency license bundle, so it alone writes this log.
+    ...CONTINUITY_COLLECTIONS.map((c) => ({
+      resource: { db: DB_NAME, collection: c },
+      actions: readWriteActions(),
+    })),
   ],
   roles: [],
 });
@@ -315,7 +340,10 @@ print("=== hp_migrator ===");
 dropRoleIfExists("hp_migrator");
 db.createRole({
   role: "hp_migrator",
-  privileges: [...ALL_COLLECTIONS, ...SYSTEM_COLLECTIONS].map((c) => ({
+  // CONTINUITY_COLLECTIONS is appended explicitly because it is intentionally not
+  // in ALL_COLLECTIONS (issuer-only for the running zones) — but the migrator must
+  // still be able to index every collection a future changeset may touch.
+  privileges: [...ALL_COLLECTIONS, ...SYSTEM_COLLECTIONS, ...CONTINUITY_COLLECTIONS].map((c) => ({
     resource: { db: DB_NAME, collection: c },
     actions: migratorActions(),
   })),
