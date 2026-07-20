@@ -1,0 +1,83 @@
+name: Build macOS (dmg)
+
+# Builds the macOS installer on a GitHub-hosted Mac (free for public repos) and
+# attaches it to an existing GitHub Release. macOS binaries can only be produced
+# on macOS, so this is the path when you don't have a Mac locally.
+#
+# NOTE: the .dmg is UNSIGNED (no Apple Developer cert), so macOS Gatekeeper will
+# warn "developer cannot be verified" — users right-click → Open (or run
+# `xattr -cr /Applications/Hydropark.app`). A proper Developer-ID signed +
+# notarized build needs an Apple Developer account ($99/yr).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the .dmg to"
+        required: true
+        default: "v0.1.0"
+  # Once this workflow lives on the default branch, publishing a release also
+  # triggers a macOS build that attaches to it automatically.
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    # macos-latest is Apple Silicon (arm64) → produces an arm64 dmg.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native build deps (cmake + libclang for the real-inference build)
+        run: |
+          brew install cmake llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install web dependencies
+        working-directory: client/web
+        run: npm ci
+
+      - name: Build the Angular frontend
+        working-directory: client/web
+        run: npm run build
+
+      - name: Build macOS app + dmg (real inference)
+        working-directory: client/src-tauri
+        # `--bundles dmg` overrides tauri.conf.json's Windows-only ["nsis"] target.
+        # `--config` disables the beforeBuildCommand (its `../web` path resolves from
+        # the wrong cwd; the frontend is already built in the step above).
+        run: |
+          ../web/node_modules/.bin/tauri build \
+            --bundles dmg \
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Stage the dmg under a stable name
+        id: dmg
+        working-directory: client/src-tauri
+        run: |
+          src="$(ls -t target/release/bundle/dmg/*.dmg | head -1)"
+          echo "built: $src"
+          dest="$RUNNER_TEMP/Hydropark-aarch64.dmg"
+          cp "$src" "$dest"
+          echo "path=$dest" >> "$GITHUB_OUTPUT"
+
+      - name: Attach the dmg to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.event.release.tag_name }}"
+          echo "attaching to release $TAG"
+          gh release upload "$TAG" "${{ steps.dmg.outputs.path }}" --clobber
