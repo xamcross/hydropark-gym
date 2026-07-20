@@ -56,13 +56,20 @@ jobs:
 
       - name: Build macOS app + dmg (real inference)
         working-directory: client/src-tauri
+        env:
+          # llama.cpp's ggml uses std::filesystem, which is only available on
+          # macOS 10.15+. Tauri defaults the deployment target to 10.13, which
+          # makes std::filesystem "unavailable" and fails the ggml compile.
+          # arm64 (Apple Silicon) is 11.0+ regardless, so target 11.0.
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         # `--bundles dmg` overrides tauri.conf.json's Windows-only ["nsis"] target.
         # `--config` disables the beforeBuildCommand (its `../web` path resolves from
-        # the wrong cwd; the frontend is already built in the step above).
+        # the wrong cwd; the frontend is already built above) and pins the bundle's
+        # minimum system version so Tauri doesn't reset the deployment target to 10.13.
         run: |
           ../web/node_modules/.bin/tauri build \
             --bundles dmg \
-            --config '{"build":{"beforeBuildCommand":""}}'
+            --config '{"build":{"beforeBuildCommand":""},"bundle":{"macOS":{"minimumSystemVersion":"11.0"}}}'
 
       - name: Stage the dmg under a stable name
         id: dmg
