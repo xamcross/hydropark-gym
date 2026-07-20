@@ -35,9 +35,11 @@
   // (version-less) names, so `latest/download/<name>` always resolves to the
   // newest build. Unknown OS falls back to the releases page.
   var RELEASES = 'https://github.com/xamcross/hydropark-gym/releases';
+  // Windows ships an NSIS installer (.exe). macOS has no build yet, so mac/other
+  // land on the releases page rather than a 404.
   var DOWNLOADS = {
-    win: RELEASES + '/latest/download/Hydropark-Setup-x64.msi',
-    mac: RELEASES + '/latest/download/Hydropark-x64.dmg',
+    win: RELEASES + '/latest/download/Hydropark-Setup-x64.exe',
+    mac: RELEASES + '/latest',
     other: RELEASES + '/latest'
   };
   var CHECKOUT_URL = 'https://hydropark.app/checkout/REPLACE_ME';   // MoR hosted-checkout seam — GATE (checkout not live)
@@ -676,7 +678,7 @@
     if (loc === 'hero' || loc === 'closer') {
       var d = resolveDownload();
       if (d.os === 'win') btn.textContent = 'Download for Windows';
-      else if (d.os === 'mac') btn.textContent = 'Download for macOS';
+      else if (d.os === 'mac') btn.textContent = 'macOS coming soon';
     }
     btn.addEventListener('click', function () {
       var r = resolveDownload();
