@@ -69,4 +69,34 @@ describe('TourService self-skip', () => {
     svc.next(); // nothing resolvable after → complete
     expect(svc.active()).toBeFalse();
   });
+
+  it('start() self-skips an unregistered first step and opens on the first resolvable one', () => {
+    try { localStorage.clear(); } catch {}
+    TestBed.configureTestingModule({ providers: [{ provide: IPC_PORT, useValue: { invoke: () => Promise.resolve(undefined as any), on: () => () => {} } }] });
+    const svc = TestBed.inject(TourService);
+    const mk = () => { const el = document.createElement('div'); document.body.appendChild(el); return new ElementRef<HTMLElement>(el); };
+    // Register only 'speed' (index 2); 'chat' (0) and 'panels' (1) are unregistered.
+    svc.registerAnchor('speed', mk());
+    svc.start(true);
+    expect(svc.active()).toBeTrue();
+    expect(svc.step().id).toBe('speed');
+    expect(svc.stepNumber()).toBe(3);
+  });
+
+  it('back() self-skips unregistered steps', () => {
+    try { localStorage.clear(); } catch {}
+    TestBed.configureTestingModule({ providers: [{ provide: IPC_PORT, useValue: { invoke: () => Promise.resolve(undefined as any), on: () => () => {} } }] });
+    const svc = TestBed.inject(TourService);
+    const mk = () => { const el = document.createElement('div'); document.body.appendChild(el); return new ElementRef<HTMLElement>(el); };
+    // Register 'chat' (0), 'speed' (2), 'account' (5); 'panels','marketplace','templates' unregistered.
+    svc.registerAnchor('chat', mk());
+    svc.registerAnchor('speed', mk());
+    svc.registerAnchor('account', mk());
+    svc.start(true);   // chat (step 1)
+    svc.next();        // skips panels → speed (step 3)
+    svc.next();        // skips marketplace, templates → account (step 6)
+    expect(svc.step().id).toBe('account');
+    svc.back();        // skips templates, marketplace → speed (step 3)
+    expect(svc.step().id).toBe('speed');
+  });
 });
