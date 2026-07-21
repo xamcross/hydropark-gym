@@ -59,4 +59,26 @@ describe('TourOverlayComponent', () => {
     f.detectChanges();
     expect(svc.active()).toBeFalse();
   });
+
+  it('does not advance when Enter is pressed on an action button (native activation, no hijack)', () => {
+    svc.start(true);
+    const f = TestBed.createComponent(TourOverlayComponent);
+    f.detectChanges();
+    const sendBtn = (f.nativeElement as HTMLElement).querySelector('[data-act="send"]') as HTMLElement;
+    expect(sendBtn).not.toBeNull();
+    sendBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    f.detectChanges();
+    expect(svc.step().id).toBe('chat');
+    expect(svc.active()).toBeTrue();
+  });
+
+  it('ArrowRight advances to the next step', () => {
+    svc.start(true);
+    const f = TestBed.createComponent(TourOverlayComponent);
+    f.detectChanges();
+    const dialog = (f.nativeElement as HTMLElement).querySelector('.tour-tooltip') as HTMLElement;
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    f.detectChanges();
+    expect(svc.step().id).toBe('panels');
+  });
 });

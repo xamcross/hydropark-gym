@@ -56,7 +56,7 @@ export class TourOverlayComponent {
     const belowTop = r.top + r.height + 14;
     const placeAbove = belowTop + 180 > window.innerHeight; // rough tooltip height budget
     const top = placeAbove ? Math.max(12, r.top - 14 - 180) : belowTop;
-    const left = Math.min(Math.max(12, r.left), window.innerWidth - 340);
+    const left = Math.max(12, Math.min(r.left, window.innerWidth - 340));
     return { top: `${top}px`, left: `${left}px`, transform: 'none' };
   });
 
@@ -68,7 +68,7 @@ export class TourOverlayComponent {
 
   constructor() {
     // (Re)attach observers + measure whenever the tour opens or the step changes.
-    effect(() => {
+    effect((onCleanup) => {
       const active = this.tour.active();
       const anchor = this.tour.currentAnchor(); // register dependency
       this.teardownObservers();
@@ -82,6 +82,7 @@ export class TourOverlayComponent {
       window.addEventListener('scroll', this.onWindowChange, { passive: true, capture: true });
       // Move focus to the new step's heading (screen-reader lands on the title).
       setTimeout(() => this.heading()?.nativeElement.focus(), 0);
+      onCleanup(() => this.teardownObservers());
     });
   }
 
@@ -112,7 +113,6 @@ export class TourOverlayComponent {
   onKeydown(event: KeyboardEvent): void {
     switch (event.key) {
       case 'Escape': event.preventDefault(); this.skip(); break;
-      case 'Enter':
       case 'ArrowRight': event.preventDefault(); this.next(); break;
       case 'ArrowLeft':
       case 'Backspace': event.preventDefault(); this.back(); break;
