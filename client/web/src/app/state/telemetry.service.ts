@@ -122,6 +122,11 @@ export class TelemetryService {
     this.log({ ...this.base(), event: 'outcome', name, detail });
   }
 
+  /** First-run guided tour lifecycle (P1-11.4 tour). `step` is the 1-based step reached. */
+  tour(action: 'start' | 'advance' | 'complete' | 'skip', step: number): void {
+    this.log({ ...this.base(), event: 'tour', action, step });
+  }
+
   // --- product metrics (P1-25.1) -------------------------------------------
 
   /**
