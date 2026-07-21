@@ -19,6 +19,7 @@
       <button
         type="button"
         class="nav-btn"
+        tourAnchor="marketplace"
         [class.on]="view() === 'marketplace'"
         [attr.aria-pressed]="view() === 'marketplace'"
         (click)="setView('marketplace')"
@@ -28,6 +29,7 @@
       <button
         type="button"
         class="nav-btn"
+        tourAnchor="templates"
         [class.on]="view() === 'templates'"
         [attr.aria-pressed]="view() === 'templates'"
         (click)="setView('templates')"
@@ -41,7 +43,7 @@
            silent/non-blocking on failure so it never breaks offline use (§18). -->
       <app-update-check></app-update-check>
       <!-- Account affordance (P1-09.1): PROMPTS login/register; never required. -->
-      <app-account-menu></app-account-menu>
+      <span tourAnchor="account"><app-account-menu></app-account-menu></span>
       <button
         type="button"
         class="theme-btn"
@@ -51,6 +53,10 @@
       >
         <span aria-hidden="true">{{ theme() === 'dark' ? '☀' : '☾' }}</span>
         <span>{{ theme() === 'dark' ? 'Light' : 'Dark' }}</span>
+      </button>
+      <button type="button" class="theme-btn" (click)="startTour()" title="Replay the guided tour">
+        <span aria-hidden="true">🎓</span>
+        <span>Tutorial</span>
       </button>
       @if (isMock) {
         <button type="button" class="dev-btn" (click)="downloadLog()" title="Dev-only: download the in-memory JSONL session log (P0-06.1)">
@@ -76,7 +82,7 @@
     <app-unlock></app-unlock>
 
     <main class="layout">
-      <section class="chat-region">
+      <section class="chat-region" tourAnchor="chat">
         <app-chat></app-chat>
       </section>
 
@@ -85,7 +91,7 @@
            mounts ABOVE the layout (in app-skill-toggle) and pushes the Kitchen
            Timer panels + chat off-screen when both skills are on. The dock's
            enter/exit transform still plays whenever the lane goes empty↔non-empty. -->
-      <app-panel-dock [open]="skillEnabled() || cookingEnabled()">
+      <app-panel-dock tourAnchor="panels" [open]="skillEnabled() || cookingEnabled()">
         <aside class="side-region" aria-label="Skill panels">
           @if (skillEnabled()) {
             <app-timer-stack></app-timer-stack>
@@ -127,3 +133,4 @@
 <!-- First-run onboarding & guided tour (P1-11.4 · SPEC §16.1). Self-gates on
      `onboarding.active()`; renders nothing once the flag is set. -->
 <app-onboarding-overlay></app-onboarding-overlay>
+<app-tour-overlay></app-tour-overlay>

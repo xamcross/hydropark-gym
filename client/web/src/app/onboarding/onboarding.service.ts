@@ -4,6 +4,7 @@ import { SessionService } from '../state/session.service';
 import { TelemetryService } from '../state/telemetry.service';
 import { SkillId } from '../ipc/contract';
 import { HardwareVerdict, estimateHardware } from './hardware-tier';
+import { TourService } from '../tour/tour.service';
 
 /** The ordered onboarding steps (SPEC §16.1 first-run flow). */
 export type OnboardingStep = 'welcome' | 'hardware' | 'model' | 'tour' | 'email';
@@ -91,7 +92,8 @@ export class OnboardingService {
   constructor(
     @Inject(IPC_PORT) private readonly ipc: IpcPort,
     private readonly session: SessionService,
-    private readonly telemetry: TelemetryService
+    private readonly telemetry: TelemetryService,
+    private readonly tour: TourService
   ) {
     this._emailCaptured.set(this.read(EMAIL_KEY));
     // Auto-show on the very first run only. Later runs (flag present) start hidden;
@@ -119,6 +121,7 @@ export class OnboardingService {
   complete(): void {
     this.write(SEEN_KEY, '1');
     this._active.set(false);
+    this.tour.start(); // non-forced: runs once, only if the tour flag is unset
   }
 
   /** "Skip for now" / Escape — same durable effect as finishing (the flow is one-time). */
