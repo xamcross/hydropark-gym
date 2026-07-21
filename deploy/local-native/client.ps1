@@ -24,21 +24,12 @@ Assert-Path $Hp.LibclangPath "libclang native dir (LIBCLANG_PATH)"
 Assert-Path $Hp.ModelPath "Qwen GGUF model (client/models or HYDROPARK_MODEL_PATH)"
 
 # --- Angular dev server (Tauri devUrl = http://localhost:4200) --------------
-function Test-NgUp {
-  try { (Invoke-WebRequest -Uri "http://localhost:4200" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200 }
-  catch { $false }
-}
-
-if (-not $SkipNgServe -and -not (Test-NgUp)) {
-  Write-Host "==> starting Angular dev server (npm run start) in a new window..." -ForegroundColor Cyan
-  Start-Process powershell -ArgumentList @(
-    "-NoExit", "-Command",
-    "Set-Location '$($Hp.WebDir)'; npm run start"
-  ) | Out-Null
-  Write-Host "    waiting for http://localhost:4200 ..." -ForegroundColor DarkGray
-  $deadline = (Get-Date).AddSeconds(120)
-  while ((Get-Date) -lt $deadline -and -not (Test-NgUp)) { Start-Sleep -Seconds 2 }
-  if (-not (Test-NgUp)) { Write-Warning "Angular dev server not up yet; the app window may show a connection error until it is." }
+# Start-HpNgServe lives in _env.ps1 so e2e-up.ps1 can ask for :4200 too, without
+# also starting this real-inference client.
+if (-not $SkipNgServe) {
+  if (-not (Start-HpNgServe)) {
+    Write-Warning "Angular dev server not up yet; the app window may show a connection error until it is."
+  }
 }
 
 # --- real-inference build env ----------------------------------------------

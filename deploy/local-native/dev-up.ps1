@@ -60,5 +60,6 @@ if (-not $SkipClient) {
 }
 
 Write-Host ""
-Write-Host "Stack windows: hp-mongo, hp-backend, hp-client. Close them (or .\dev-down.ps1) to stop." -ForegroundColor DarkGray
+$windows = if ($SkipClient) { "hp-mongo, hp-backend" } else { "hp-mongo, hp-backend, hp-client" }
+Write-Host "Stack windows: $windows. Close them (or .\dev-down.ps1) to stop." -ForegroundColor DarkGray
 Write-Host "Backend: http://localhost:8080/v1/catalog   Angular: http://localhost:4200" -ForegroundColor DarkGray

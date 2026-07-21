@@ -93,6 +93,29 @@ function Get-HpPackageKeys {
   return "$($env:HP_PACKAGE_SIGNING_KID)=$($env:HP_PACKAGE_SIGNING_PUBLIC_KEY)"
 }
 
+# The Angular dev server both app builds load their frontend from: it is the
+# Tauri devUrl, and the mock-inference binary the E2E harness spawns is built
+# without `custom-protocol`, so it has no bundled assets to fall back on.
+function Test-HpNgUp {
+  try { (Invoke-WebRequest -Uri "http://localhost:4200" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200 }
+  catch { $false }
+}
+
+# Start ng in its own window if :4200 is cold; $true once it answers. Idempotent,
+# so callers can just ask for it rather than tracking whose job it was.
+function Start-HpNgServe($timeoutSec = 120) {
+  if (Test-HpNgUp) { return $true }
+  Write-Host "==> starting Angular dev server (npm run start) in a new window..." -ForegroundColor Cyan
+  Start-Process powershell -ArgumentList @(
+    "-NoExit", "-Command",
+    "`$host.UI.RawUI.WindowTitle='hp-ng'; Set-Location '$($Hp.WebDir)'; npm run start"
+  ) | Out-Null
+  Write-Host "    waiting for http://localhost:4200 ..." -ForegroundColor DarkGray
+  $deadline = (Get-Date).AddSeconds($timeoutSec)
+  while ((Get-Date) -lt $deadline -and -not (Test-HpNgUp)) { Start-Sleep -Seconds 2 }
+  return (Test-HpNgUp)
+}
+
 function Assert-Path($value, $label) {
   if (-not $value) {
     throw "$label not found. Set its override env var (see deploy/local-native/README.md) and retry."
