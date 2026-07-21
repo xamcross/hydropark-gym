@@ -6,6 +6,7 @@ import { paidBuy } from '../scenarios/20-paid-buy.js';
 import { chatToolRender } from '../scenarios/30-chat-tool-render.js';
 import { installedVisible } from '../scenarios/40-installed-visible.js';
 import { paidEnable } from '../scenarios/50-paid-enable.js';
+import { firstRunTour } from '../scenarios/60-first-run-tour.js';
 
 const scenarios: { name: string; fn: Parameters<typeof runScenario>[1]; fresh: boolean }[] = [
   { name: 'smoke', fn: smoke, fresh: true },
@@ -14,6 +15,7 @@ const scenarios: { name: string; fn: Parameters<typeof runScenario>[1]; fresh: b
   { name: 'chat-tool-render', fn: chatToolRender, fresh: true },
   { name: 'installed-visible', fn: installedVisible, fresh: true },
   { name: 'paid-enable', fn: paidEnable, fresh: true },
+  { name: 'first-run-tour', fn: firstRunTour, fresh: true },
 ];
 
 console.log('=== building mock-inference binary (once) ===');
