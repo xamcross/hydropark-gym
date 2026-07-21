@@ -115,7 +115,7 @@ describe('TourService magic beat', () => {
     timerCb = null; enabled = [];
     const ipc: Partial<IpcPort> = {
       invoke: (cmd: string, args: any) => { if (cmd === 'skill_enable') enabled.push(args.skill_id); return Promise.resolve(undefined as any); },
-      on: (ev: string, cb: any) => { if (ev === 'timer://updated') timerCb = cb; return () => { timerCb = null; }; },
+      on: (ev: string, cb: any) => { if (ev === 'timer://tick') timerCb = cb; return () => { timerCb = null; }; },
     };
     TestBed.configureTestingModule({ providers: [{ provide: IPC_PORT, useValue: ipc }] });
     svc = TestBed.inject(TourService);
@@ -132,7 +132,7 @@ describe('TourService magic beat', () => {
     expect(svc.suggestedPrompt()).toBe('Help me cook carbonara for 4');
   });
 
-  it('fireSuggestedSend enables the free skill, sends, and advances on timer://updated', async () => {
+  it('fireSuggestedSend enables the free skill, sends, and advances on timer://tick', async () => {
     let sent = 0;
     svc.registerChat({ prefill: () => {}, send: () => { sent++; } });
     svc.start(true);
@@ -159,7 +159,7 @@ describe('TourService magic beat', () => {
   it('tolerates an IPC rejection when enabling the skill (never throws; still sends + awaits)', async () => {
     const ipc: Partial<IpcPort> = {
       invoke: (cmd: string) => cmd === 'skill_enable' ? Promise.reject(new Error('nope')) : Promise.resolve(undefined as any),
-      on: (ev: string, cb: any) => { if (ev === 'timer://updated') timerCb = cb; return () => { timerCb = null; }; },
+      on: (ev: string, cb: any) => { if (ev === 'timer://tick') timerCb = cb; return () => { timerCb = null; }; },
     };
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({ providers: [{ provide: IPC_PORT, useValue: ipc }] });

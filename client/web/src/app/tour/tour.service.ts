@@ -141,14 +141,27 @@ export class TourService {
 
   async fireSuggestedSend(): Promise<void> {
     if (this._awaitingMagic()) return;
-    await this.ensureFreeSkillEnabled();
     this._awaitingMagic.set(true);
     this._magicSlow.set(false);
-    // Advance on the agent's first timer event (the carbonara turn starts a timer).
-    this.magicUnlisten = this.ipc.on('timer://updated', () => {
+    // Register BEFORE the skill-enable/send round-trips, not after: the real
+    // `TauriIpcService.on()` attaches its listener via an async `listen()` call
+    // (a Tauri round-trip in its own right), while `ensureFreeSkillEnabled()`
+    // + `chat.send()` kick off the very turn that starts the agent's timer. In
+    // the real app (unlike the synchronous fake used by this file's unit
+    // tests) a fast mock-inference reply can land before a listener registered
+    // *after* the send would have finished attaching, so the tour would wait
+    // forever. Registering first — then awaiting the skill-enable round-trip,
+    // which gives the listener's own attachment time to complete — closes that
+    // window (found via the E2E scenario driving the real Tauri build).
+    // The tour advances on the agent's first timer TICK: the backend emits
+    // `timer://tick` every second while a started timer counts down; it never
+    // emits a `timer://updated` event, so listening for that name left the
+    // tour stuck waiting forever after the magic beat.
+    this.magicUnlisten = this.ipc.on('timer://tick', () => {
       this.next(); // clears the wait + advances (self-skips unresolved)
     });
     this.magicTimer = setTimeout(() => this._magicSlow.set(true), MAGIC_SLOW_MS);
+    await this.ensureFreeSkillEnabled();
     this.chat?.send();
   }
 
