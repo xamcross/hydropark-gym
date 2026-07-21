@@ -24,5 +24,7 @@ $env:HYDROPARK_PACKAGE_SIGNING_KEYS = Get-HpPackageKeys
 Write-Host '==> running Playwright E2E runner' -ForegroundColor Cyan
 Push-Location (Join-Path $Hp.RepoRoot 'client\e2e')
 try { & npm run e2e; $code = $LASTEXITCODE } finally { Pop-Location }
-if (-not $KeepUp) { Get-Process hydropark -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+# Belt for a harness that died before its own stopApp(); scoped by CDP port so it
+# never takes down a developer's client.ps1 run.
+if (-not $KeepUp) { Stop-HpCdpApp }
 exit $code

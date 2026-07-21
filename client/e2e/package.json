@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "spike": "tsx src/spike.ts",
-    "e2e": "tsx src/run.ts"
+    "e2e": "tsx src/run.ts",
+    "check:isolation": "tsx src/check-dev-client-isolation.ts"
   },
   "devDependencies": {
     "playwright": "1.48.2",
