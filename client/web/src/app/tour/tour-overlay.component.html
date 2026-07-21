@@ -1,0 +1,46 @@
+@if (tour.active()) {
+  <div class="tour-blocker"></div>
+
+  @if (ringStyle(); as rs) {
+    <div class="tour-ring" [style.top]="rs.top" [style.left]="rs.left" [style.width]="rs.width" [style.height]="rs.height" aria-hidden="true"></div>
+  }
+
+  <div
+    #dialog
+    class="tour-tooltip"
+    role="dialog"
+    aria-modal="true"
+    [attr.aria-labelledby]="titleId"
+    [attr.aria-describedby]="descId"
+    [style.top]="tooltipStyle().top"
+    [style.left]="tooltipStyle().left"
+    [style.transform]="tooltipStyle().transform"
+    (keydown)="onKeydown($event)"
+  >
+    <p class="tour-count">Step {{ tour.stepNumber() }} of {{ totalSteps }}</p>
+    <h2 #heading class="tour-title" [id]="titleId" tabindex="-1">{{ tour.step().title }}</h2>
+    <p class="tour-body" [id]="descId">{{ tour.step().body }}</p>
+
+    @if (isMagic() && tour.awaitingMagic()) {
+      <p class="tour-waiting" role="status">
+        {{ tour.magicSlow() ? 'Still working — your machine is thinking. You can move on any time.' : 'Watching the agent build your panels…' }}
+      </p>
+    }
+
+    <div class="tour-actions">
+      <button type="button" class="tour-btn ghost" data-act="skip" (click)="skip()">Skip</button>
+      <span class="tour-spacer"></span>
+      @if (tour.stepNumber() > 1) {
+        <button type="button" class="tour-btn" data-act="back" (click)="back()">Back</button>
+      }
+      @if (isMagic() && !tour.awaitingMagic()) {
+        <button type="button" class="tour-btn primary" data-act="send" (click)="send()">Send it →</button>
+        <button type="button" class="tour-btn" data-act="next" (click)="next()">Skip this</button>
+      } @else {
+        <button type="button" class="tour-btn primary" data-act="next" (click)="next()">
+          {{ tour.isLast() ? 'Finish' : 'Next' }}
+        </button>
+      }
+    </div>
+  </div>
+}
