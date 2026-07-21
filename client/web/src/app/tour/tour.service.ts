@@ -141,7 +141,32 @@ export class TourService {
   // --- magic beat (fully implemented in Task 4) ----------------------------
 
   async fireSuggestedSend(): Promise<void> {
-    // Implemented in Task 4.
+    if (this._awaitingMagic()) return;
+    await this.ensureFreeSkillEnabled();
+    // Baseline so a stale timer from a prior run can't false-trigger the advance.
+    this.magicBaseline = Object.keys(this.session.timers()).length;
+    this._awaitingMagic.set(true);
+    this._magicSlow.set(false);
+    // Advance on the agent's first timer event (the carbonara turn starts a timer).
+    this.magicUnlisten = this.ipc.on('timer://updated', () => {
+      if (Object.keys(this.session.timers()).length <= this.magicBaseline && !this.session.timerList().length) {
+        // still nothing new — keep waiting
+      }
+      this.next(); // clears the wait + advances (self-skips unresolved)
+    });
+    this.magicTimer = setTimeout(() => this._magicSlow.set(true), MAGIC_SLOW_MS);
+    this.chat?.send();
+  }
+
+  private async ensureFreeSkillEnabled(): Promise<void> {
+    if (this.session.kitchenSkillEnabled()) return;
+    try {
+      await this.ipc.invoke('skill_enable', { skill_id: FREE_SKILL_ID });
+      this.session.kitchenSkillEnabled.set(true);
+      this.telemetry.skillEnabled(FREE_SKILL_ID);
+    } catch {
+      /* The overlay always keeps a visible "Next", so the user is never blocked. */
+    }
   }
   private clearMagicWait(): void {
     if (this.magicUnlisten) { this.magicUnlisten(); this.magicUnlisten = null; }
