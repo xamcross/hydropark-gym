@@ -155,4 +155,23 @@ describe('TourService magic beat', () => {
     await svc.fireSuggestedSend();
     expect(enabled).toEqual([]);
   });
+
+  it('tolerates an IPC rejection when enabling the skill (never throws; still sends + awaits)', async () => {
+    const ipc: Partial<IpcPort> = {
+      invoke: (cmd: string) => cmd === 'skill_enable' ? Promise.reject(new Error('nope')) : Promise.resolve(undefined as any),
+      on: (ev: string, cb: any) => { if (ev === 'timer://updated') timerCb = cb; return () => { timerCb = null; }; },
+    };
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [{ provide: IPC_PORT, useValue: ipc }] });
+    const svc2 = TestBed.inject(TourService);
+    const session2 = TestBed.inject(SessionService);
+    for (const id of ['chat','panels','speed','marketplace','templates','account'] as const) svc2.registerAnchor(id, mk());
+    let sent = 0;
+    svc2.registerChat({ prefill: () => {}, send: () => { sent++; } });
+    svc2.start(true);
+    await svc2.fireSuggestedSend(); // must not throw
+    expect(sent).toBe(1);
+    expect(svc2.awaitingMagic()).toBeTrue();
+    expect(session2.kitchenSkillEnabled()).toBeFalse();
+  });
 });
