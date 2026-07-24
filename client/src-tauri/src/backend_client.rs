@@ -27,9 +27,31 @@ use crate::ipc::{
     SkillDetail,
 };
 
-/// Dev default when `HYDROPARK_API_BASE` is unset — the port the local stack
-/// (deploy/local) and the README's `curl localhost:8080/v1/catalog` use.
-pub const DEFAULT_API_BASE: &str = "http://localhost:8080";
+/// Cloud backend a SHIPPED (release) build talks to when `HYDROPARK_API_BASE`
+/// is unset — the Fly app serving the public catalog/commerce API. Without this,
+/// an installed app fell back to `localhost:8080`, which no end user runs, so the
+/// Marketplace failed with "connection refused" (os error 10061).
+pub const PROD_API_BASE: &str = "https://hydropark-api.fly.dev";
+
+/// Local dev stack (`deploy/local-native`, README `curl localhost:8080/...`).
+/// Debug builds default here so the dev loop keeps hitting the local backend.
+pub const DEV_API_BASE: &str = "http://localhost:8080";
+
+/// Default API base for the build profile: the local stack in debug, the cloud
+/// in release. Pure + `debug`-parameterized so BOTH arms are unit-testable even
+/// though the test binary itself is always a debug build. `HYDROPARK_API_BASE`
+/// still overrides the result — see [`base_url`].
+pub const fn default_api_base(debug: bool) -> &'static str {
+    if debug {
+        DEV_API_BASE
+    } else {
+        PROD_API_BASE
+    }
+}
+
+/// The default API base when `HYDROPARK_API_BASE` is unset: cloud for a shipped
+/// release, localhost for a debug/dev build.
+pub const DEFAULT_API_BASE: &str = default_api_base(cfg!(debug_assertions));
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -992,6 +1014,16 @@ mod tests {
         assert_eq!(resolve_base(Some("   ".to_string())), DEFAULT_API_BASE);
         assert_eq!(resolve_base(Some(String::new())), DEFAULT_API_BASE);
         assert_eq!(resolve_base(Some("http://x:9".to_string())), "http://x:9");
+    }
+
+    // Regression: an installed (release) build with no HYDROPARK_API_BASE override
+    // must target the CLOUD backend, not localhost:8080 — a fresh install has no
+    // local dev stack, so the old unconditional localhost default meant every
+    // backend call (catalog, entitlements, …) failed with connection-refused.
+    #[test]
+    fn default_api_base_is_cloud_in_release_localhost_in_debug() {
+        assert_eq!(default_api_base(false), "https://hydropark-api.fly.dev");
+        assert_eq!(default_api_base(true), "http://localhost:8080");
     }
 
     #[test]

@@ -31,8 +31,31 @@
      downstream depends on the provider. The live MoR merchant account is a launch
      gate: do NOT point this at a test link (that is exactly what P1-24.1 removes).
      Keep the `REPLACE_ME` sentinel until the real MoR checkout base URL exists. */
-  var DOWNLOAD_URL = 'https://hydropark.app/download/REPLACE_ME';
-  var CHECKOUT_URL = 'https://hydropark.app/checkout/REPLACE_ME';   // MoR hosted-checkout seam — GATE
+  // Signed installers are published as GitHub Releases assets with STABLE
+  // (version-less) names, so `latest/download/<name>` always resolves to the
+  // newest build. Unknown OS falls back to the releases page.
+  var RELEASES = 'https://github.com/xamcross/hydropark-gym/releases';
+  // Windows: NSIS installer (.exe). macOS: Apple Silicon (arm64) .dmg — Intel
+  // Macs aren't covered yet, so `other` falls back to the releases page.
+  var DOWNLOADS = {
+    win: RELEASES + '/latest/download/Hydropark-Setup-x64.exe',
+    mac: RELEASES + '/latest/download/Hydropark-aarch64.dmg',
+    other: RELEASES + '/latest'
+  };
+  var CHECKOUT_URL = 'https://hydropark.app/checkout/REPLACE_ME';   // MoR hosted-checkout seam — GATE (checkout not live)
+
+  function detectOs() {
+    var p = (navigator.userAgentData && navigator.userAgentData.platform) ||
+            navigator.platform || navigator.userAgent || '';
+    p = p.toLowerCase();
+    if (p.indexOf('win') !== -1) return 'win';
+    if (p.indexOf('mac') !== -1 || p.indexOf('iphone') !== -1 || p.indexOf('ipad') !== -1) return 'mac';
+    return 'other';
+  }
+  function resolveDownload() {
+    var os = detectOs();
+    return { url: DOWNLOADS[os] || DOWNLOADS.other, os: os };
+  }
 
   // ---- Capacity-meter constants — copied verbatim from capacity.rs ---------
   // (client/src-tauri/src/capacity.rs). The page follows the shipped model.
@@ -650,13 +673,17 @@
   });
 
   $$('[data-track="download"]').forEach(function (btn) {
+    // Relabel the prominent CTAs (hero + closer) to the visitor's OS.
+    var loc = btn.getAttribute('data-loc');
+    if (loc === 'hero' || loc === 'closer') {
+      var d = resolveDownload();
+      if (d.os === 'win') btn.textContent = 'Download for Windows';
+      else if (d.os === 'mac') btn.textContent = 'Download for macOS';
+    }
     btn.addEventListener('click', function () {
-      track('download_click', { location: btn.getAttribute('data-loc') || 'unknown' });
-      if (DOWNLOAD_URL.indexOf('REPLACE_ME') !== -1) {
-        console.warn('[hydropark] DOWNLOAD_URL is still a placeholder — set it in app.js.');
-        return;
-      }
-      location.href = DOWNLOAD_URL;
+      var r = resolveDownload();
+      track('download_click', { location: btn.getAttribute('data-loc') || 'unknown', os: r.os });
+      location.href = r.url;
     });
   });
 

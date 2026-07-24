@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#15181A"/>
+  <g fill="#F0C21B" transform="translate(96,150) scale(6)">
+    <rect x="7" y="8" width="4" height="16" rx="1.2"/><rect x="11" y="14.4" width="10" height="3.2"/><rect x="21" y="8" width="4" height="16" rx="1.2"/>
+  </g>
+  <text x="96" y="430" fill="#F4F1EA" font-family="Archivo, Arial, sans-serif" font-size="84" font-weight="800">The gym for your agent</text>
+  <text x="96" y="500" fill="#9AA0A6" font-family="Chivo, Arial, sans-serif" font-size="34">A free local AI agent you equip with skills. Offline, $5 a skill, forever.</text>
+</svg>

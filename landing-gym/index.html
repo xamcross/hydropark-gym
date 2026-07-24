@@ -6,14 +6,18 @@
 <title>Hydropark — the gym for your agent</title>
 <meta name="description" content="A free local AI agent that starts out empty. Bolt on skills — timers, lists, planners, unit switches — in any combination, and the app becomes the tool you needed. $5 a skill, yours forever, runs offline on your own machine.">
 <meta name="theme-color" content="#15181A">
-<link rel="canonical" href="https://hydropark.app/gym">
+<link rel="canonical" href="https://hydropark.app/">
 
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://hydropark.app/">
 <meta property="og:title" content="The gym for your agent">
 <meta property="og:description" content="Load the bar. Your agent becomes the tool you needed — offline, on your own machine.">
+<meta property="og:image" content="https://hydropark.app/og-image.svg">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://hydropark.app/og-image.svg">
 
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%2315181A'/%3E%3Cg fill='%23F0C21B'%3E%3Crect x='7' y='8' width='4' height='16' rx='1.2'/%3E%3Crect x='11' y='14.4' width='10' height='3.2'/%3E%3Crect x='21' y='8' width='4' height='16' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/site.webmanifest">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -43,11 +47,34 @@
     (window.plausible.q = window.plausible.q || []).push(arguments);
   };
 </script>
-<!-- Enable at launch (P1-24.2): set the domain, then un-comment.
-<script defer data-domain="REPLACE_ME_DOMAIN" src="https://plausible.io/js/script.manual.js"></script>
--->
+<!-- Analytics is Cloudflare Web Analytics (cookieless pageviews), NOT Plausible.
+     The dataLayer/plausible shim above stays ONLY so app.js's track() calls never
+     throw; with no Plausible loader those custom funnel events are inert by design.
+     Set the beacon token in Task 13 (Cloudflare dashboard → Web Analytics). -->
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon='{"token": "eb227ed0b9114e06af65225618e0010d"}'></script>
 
 <link rel="stylesheet" href="styles.css">
+
+<script type="application/ld+json">
+{ "@context":"https://schema.org","@type":"SoftwareApplication","name":"Hydropark","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows, macOS","description":"A free local AI agent you equip with skills. Runs 100% offline on your own machine.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://hydropark.app/","downloadUrl":"https://github.com/xamcross/hydropark-gym/releases"}
+</script>
+<script type="application/ld+json">
+{ "@context":"https://schema.org","@type":"Organization","name":"Hydropark","url":"https://hydropark.app/","logo":"https://hydropark.app/favicon.svg"}
+</script>
+<script type="application/ld+json">
+{ "@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://hydropark.app/"}]}
+</script>
+<script type="application/ld+json">
+{ "@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"So I really can't train it?","acceptedAnswer":{"@type":"Answer","text":"No. The model's weights are fixed and identical on every machine. A skill changes the instructions it runs under, the tools it can reach, and the interface you see — not what it learned. It is not fine-tuning; if you want a model trained on your data, this is the wrong product."}},
+{"@type":"Question","name":"How many skills can it hold at once?","acceptedAnswer":{"@type":"Answer","text":"There is no fixed number, which is why there is a meter. Each skill spends part of the fixed on-device context window; when the next would not fit, the planner refuses it before you enable it and names one to drop. The budget is the same on every machine — a stronger machine buys speed, not more skills."}},
+{"@type":"Question","name":"Why does one skill have to lead?","acceptedAnswer":{"@type":"Answer","text":"The lead skill's full instructions go in; every other skill contributes one line describing what it can do, plus its tools and panels. You pick the leader, and the order is deterministic, so the same loadout assembles the same way on every launch."}},
+{"@type":"Question","name":"What happens when two skills disagree?","acceptedAnswer":{"@type":"Answer","text":"Some pairs are simply refused. Where two skills touch the same list, exactly one owns it and the other reads or appends — the app decides deterministically and tells you which. Panels that are genuinely identical are merged rather than drawn twice."}},
+{"@type":"Question","name":"Can I write my own skill?","acceptedAnswer":{"@type":"Answer","text":"Not yet. The catalogue is first-party and curated so the safety story holds. A closed-beta SDK goes to a handful of design partners first, and a public one — with the same certification pipeline and a revenue share — comes after that."}},
+{"@type":"Question","name":"Is it as good as ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"At answering anything, no, and it is not pretending to. It is a small model on your processor. What it has instead is a timer already running, a list that stays on screen, a unit switch that works mid-sentence, and no internet connection. For a structured job you repeat every week, that is a better tool."}}
+]}
+</script>
 </head>
 <body>
 
@@ -88,11 +115,13 @@
 
     <div class="hero__body">
       <p class="lede rv" style="--d:150ms">
-        Hydropark runs a small AI on your own computer. Out of the box it can hold
-        a conversation and very little else. Bolt on <strong>skills</strong> — timers,
-        lists, planners, a switch that turns cups into grams — in whatever combination
-        you want, and the app rebuilds itself around the job. Save the combination.
-        Come back to it on Tuesday.
+        Hydropark is a <strong>free local agent</strong> — a small AI that runs entirely
+        <strong>offline</strong> on your own computer, nothing sent to the cloud. Out of the
+        box it can hold a conversation and very little else. Bolt on <strong>skills</strong> —
+        timers, lists, planners, a switch that turns cups into grams — in whatever combination
+        you want, and the app rebuilds itself around the job. Each skill is <strong>$5, yours
+        forever</strong>. Save the combination; come back to it on Tuesday.
+        <span class="hero__os">Windows &amp; macOS.</span>
       </p>
       <div class="hero__acts rv" style="--d:230ms">
         <button class="btn btn--lg" data-track="download" data-loc="hero">Download — free</button>

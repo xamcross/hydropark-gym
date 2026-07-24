@@ -1,0 +1,65 @@
+:host {
+  --tour-scrim: color-mix(in srgb, var(--color-text) 62%, transparent);
+}
+.tour-blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: auto;
+  background: transparent;
+}
+.tour-ring {
+  position: fixed;
+  z-index: 901;
+  pointer-events: none;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 100vmax var(--tour-scrim);
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.tour-tooltip {
+  position: fixed;
+  z-index: 902;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-text) 25%, transparent);
+  pointer-events: auto;
+}
+.tour-count {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.tour-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-bold);
+  outline: none;
+}
+.tour-body { margin: 0; font-size: var(--text-sm); line-height: var(--leading-relaxed); color: var(--color-text); }
+.tour-waiting { margin: var(--space-3) 0 0; font-size: var(--text-xs); color: var(--color-text-muted); }
+.tour-actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
+.tour-spacer { flex: 1 1 auto; }
+.tour-btn {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.tour-btn.primary { background: var(--color-primary); border-color: var(--color-primary-strong); color: var(--color-primary-contrast); }
+.tour-btn.ghost { border-color: transparent; background: transparent; color: var(--color-text-muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .tour-ring { transition: top var(--transition-slow), left var(--transition-slow), width var(--transition-slow), height var(--transition-slow); }
+  .tour-tooltip { transition: top var(--transition-slow), left var(--transition-slow); }
+}

@@ -7,6 +7,7 @@ import { CompositionService } from './composition/composition.service';
 import { ComposeError, ComposedAgentView } from './ipc/contract';
 import { SessionService } from './state/session.service';
 import { CookingAssistantService } from './skills/cooking-assistant/cooking-assistant.service';
+import { TourService } from './tour/tour.service';
 
 describe('AppComponent', () => {
   beforeEach(async () => {
@@ -164,5 +165,39 @@ describe('AppComponent — both skills share one layout panel lane (no off-scree
     // Still exactly one of each panel across the whole view (no duplicate mount).
     expect(compiled.querySelectorAll('app-cooking-assistant-panel').length).toBe(1);
     expect(compiled.querySelectorAll('app-timer-stack').length).toBe(1);
+  });
+});
+
+describe('AppComponent × tour', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppComponent],
+      providers: [{ provide: IPC_PORT, useClass: MockIpcService }],
+    }).compileComponents();
+  });
+
+  it('renders the tour overlay host and a Tutorial button', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('app-tour-overlay')).toBeTruthy();
+    const buttons = Array.from(host.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    // Icon + label live in adjacent <span>s (same pattern as the theme-toggle button);
+    // Angular's default whitespace collapsing removes the newline between them, so the
+    // rendered text is "🎓Tutorial" with no separator — assert the label is present via
+    // substring match rather than requiring exact equality to the bare word.
+    expect(buttons).toContain(jasmine.stringContaining('Tutorial'));
+  });
+
+  it('startTour() switches to the assistant view and force-starts the tour', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const app = fixture.componentInstance;
+    const tour = TestBed.inject(TourService);
+    const spy = spyOn(tour, 'start');
+    app.setView('marketplace');
+    app.startTour();
+    expect(app.view()).toBe('assistant');
+    expect(spy).toHaveBeenCalledWith(true);
   });
 });

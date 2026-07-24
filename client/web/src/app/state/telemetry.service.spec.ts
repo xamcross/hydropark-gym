@@ -105,3 +105,28 @@ describe('TelemetryService (P1-25.1 product metrics)', () => {
     expect(only('offline_usage')[0]['backend_calls']).toBe(0);
   });
 });
+
+describe('TelemetryService.tour', () => {
+  let ipc: CapturingIpc;
+  let telemetry: TelemetryService;
+
+  const only = (name: string) => ipc.logged.filter((e) => e['event'] === name);
+
+  beforeEach(() => {
+    ipc = new CapturingIpc();
+    TestBed.configureTestingModule({
+      providers: [{ provide: IPC_PORT, useValue: ipc }],
+    });
+    telemetry = TestBed.inject(TelemetryService);
+  });
+
+  it('emits a tour event with action and step', () => {
+    telemetry.tour('start', 1);
+
+    const ev = only('tour')[0];
+    expect(ev).toBeTruthy();
+    expect(ev['action']).toBe('start');
+    expect(ev['step']).toBe(1);
+    expect(typeof ev['session_id']).toBe('string');
+  });
+});

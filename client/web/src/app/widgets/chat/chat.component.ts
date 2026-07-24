@@ -1,9 +1,12 @@
-import { Component, computed, ElementRef, signal, viewChild } from '@angular/core';
+import { Component, computed, ElementRef, OnDestroy, signal, viewChild, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ChatMessage, SessionService } from '../../state/session.service';
 import { InferenceService } from '../../inference/inference.service';
 import { expressInSystem } from '../../tools/unit-math';
 import { UnitId } from '../../ipc/contract';
+import { TourService } from '../../tour/tour.service';
+import { TourChatBridge } from '../../tour/tour.model';
+import { TourAnchorDirective } from '../../tour/tour-anchor.directive';
 
 /** Matches inline quantity tokens like `{{q:150:g}}` — see mock-ipc.service.ts's scripted replies. */
 const QTY_TOKEN = /\{\{q:(-?\d+(?:\.\d+)?):([a-z_]+)\}\}/g;
@@ -16,12 +19,13 @@ interface RenderPiece {
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, TourAnchorDirective],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css',
 })
-export class ChatComponent {
+export class ChatComponent implements OnDestroy {
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
+  private readonly tour = inject(TourService);
 
   draft = signal('');
 
@@ -29,7 +33,19 @@ export class ChatComponent {
   readonly unitSystem = computed(() => this.session.unitSystem());
   readonly tokPerSec = computed(() => this.session.lastTokPerSec());
 
-  constructor(private readonly session: SessionService, private readonly inference: InferenceService) {}
+  /** Lets the tour's magic beat prefill and send from the real composer (Task 6). */
+  private readonly tourBridge: TourChatBridge = {
+    prefill: (text: string) => this.draft.set(text),
+    send: () => this.send(),
+  };
+
+  constructor(private readonly session: SessionService, private readonly inference: InferenceService) {
+    this.tour.registerChat(this.tourBridge);
+  }
+
+  ngOnDestroy(): void {
+    this.tour.unregisterChat(this.tourBridge);
+  }
 
   /** Splits a message's raw text into plain-text / quantity pieces, converting quantities to the current unit system live (exact arithmetic, see unit-math.ts). */
   renderPieces(msg: ChatMessage): RenderPiece[] {

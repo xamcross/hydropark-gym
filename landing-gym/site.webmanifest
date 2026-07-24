@@ -1,0 +1,12 @@
+{
+  "name": "Hydropark",
+  "short_name": "Hydropark",
+  "description": "A free local AI agent you equip with skills. Offline, on your own machine.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#15181A",
+  "theme_color": "#15181A",
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" }
+  ]
+}

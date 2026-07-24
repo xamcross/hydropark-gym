@@ -1,4 +1,4 @@
-import { Component, Inject, OnInit, computed, signal } from '@angular/core';
+import { Component, Inject, OnInit, computed, inject, signal } from '@angular/core';
 import { ChatComponent } from './widgets/chat/chat.component';
 import { TimerStackComponent } from './widgets/timer-stack/timer-stack.component';
 import { EditableListComponent } from './widgets/editable-list/editable-list.component';
@@ -24,6 +24,9 @@ import { IPC_PORT, IpcPort } from './ipc/ipc.port';
 import { MockIpcService } from './ipc/mock-ipc.service';
 import { ThemeService } from './shared/theme.service';
 import { TemplatesGalleryComponent } from './templates/templates-gallery.component';
+import { TourOverlayComponent } from './tour/tour-overlay.component';
+import { TourAnchorDirective } from './tour/tour-anchor.directive';
+import { TourService } from './tour/tour.service';
 
 /** Which top-level surface the shell shows. */
 type ShellView = 'assistant' | 'marketplace' | 'templates';
@@ -49,6 +52,8 @@ type ShellView = 'assistant' | 'marketplace' | 'templates';
     HardwareWarningComponent,
     OnboardingOverlayComponent,
     TemplatesGalleryComponent,
+    TourOverlayComponent,
+    TourAnchorDirective,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -67,6 +72,9 @@ export class AppComponent implements OnInit {
   readonly isMock: boolean;
   /** Rendered theme (resolves the OS default when the user has made no explicit choice). */
   readonly theme = computed(() => this.themeSvc.preference() ?? this.themeSvc.resolved());
+  /** First-run guided tour (P1-11.4 follow-up) — mounted via `<app-tour-overlay>`; anchors
+   *  are registered by `[tourAnchor]` directives placed on shell elements below. */
+  readonly tour = inject(TourService);
 
   constructor(
     @Inject(IPC_PORT) private readonly ipc: IpcPort,
@@ -95,6 +103,12 @@ export class AppComponent implements OnInit {
 
   setView(view: ShellView): void {
     this.view.set(view);
+  }
+
+  /** Topbar "Tutorial" affordance: replay the guided tour from the top (on the Assistant view). */
+  startTour(): void {
+    this.setView('assistant');
+    this.tour.start(true);
   }
 
   /** A template finished loading successfully (Task 11b) — bring the user to see the composed result. */

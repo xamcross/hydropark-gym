@@ -93,6 +93,46 @@ function Get-HpPackageKeys {
   return "$($env:HP_PACKAGE_SIGNING_KID)=$($env:HP_PACKAGE_SIGNING_PUBLIC_KEY)"
 }
 
+# The Angular dev server both app builds load their frontend from: it is the
+# Tauri devUrl, and the mock-inference binary the E2E harness spawns is built
+# without `custom-protocol`, so it has no bundled assets to fall back on.
+function Test-HpNgUp {
+  try { (Invoke-WebRequest -Uri "http://localhost:4200" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200 }
+  catch { $false }
+}
+
+# Start ng in its own window if :4200 is cold; $true once it answers. Idempotent,
+# so callers can just ask for it rather than tracking whose job it was.
+function Start-HpNgServe($timeoutSec = 120) {
+  if (Test-HpNgUp) { return $true }
+  Write-Host "==> starting Angular dev server (npm run start) in a new window..." -ForegroundColor Cyan
+  Start-Process powershell -ArgumentList @(
+    "-NoExit", "-Command",
+    "`$host.UI.RawUI.WindowTitle='hp-ng'; Set-Location '$($Hp.WebDir)'; npm run start"
+  ) | Out-Null
+  Write-Host "    waiting for http://localhost:4200 ..." -ForegroundColor DarkGray
+  $deadline = (Get-Date).AddSeconds($timeoutSec)
+  while ((Get-Date) -lt $deadline -and -not (Test-HpNgUp)) { Start-Sleep -Seconds 2 }
+  return (Test-HpNgUp)
+}
+
+# Stop the E2E harness's app without touching a developer's client. Only the
+# harness passes --remote-debugging-port, so whatever holds :9222 is by
+# construction one of its apps -- but the listener is a WebView2 CHILD, so walk
+# up to the hydropark parent and kill THAT pid. Never match by image name: that
+# also kills a client.ps1 run. Mirrors stopApp() in client/e2e/src/app-lifecycle.ts.
+function Stop-HpCdpApp {
+  $conn = Get-NetTCPConnection -LocalPort 9222 -State Listen -ErrorAction SilentlyContinue
+  if (-not $conn) { return }
+  $proc = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $conn[0].OwningProcess)
+  if ($proc.Name -ne "hydropark.exe") {
+    $proc = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $proc.ParentProcessId)
+  }
+  if ($proc -and $proc.Name -eq "hydropark.exe") {
+    Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Assert-Path($value, $label) {
   if (-not $value) {
     throw "$label not found. Set its override env var (see deploy/local-native/README.md) and retry."

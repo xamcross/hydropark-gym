@@ -102,11 +102,22 @@ $SETTLEMENT = @("settled_orders","grants")
 $LICENSING  = @("licenses","license_audit")
 $DEVICES    = @("devices","device_slot_counters")
 $WALLET     = @("wallet_accounts","wallet_transactions")
+# Content-delivery event logs (P1-19), api-written: DownloadService (watermark
+# buyer-token per download) + EgressMeter (egress sample per served blob), read by
+# GrossMargin/Analytics (all api-zone). download_records is GDPR-scrubbed by
+# user_id (api zone), so it needs REMOVE - see $API_DELETABLE. V012 indexes both,
+# so hp_migrator must reach them (they are in $ALL).
+$DELIVERY   = @("download_records","cdn_egress")
+# Business-continuity batches (§28.2): written ONLY by the issuer zone
+# (ContinuityBatchService, issuer-gated); no other zone touches them. Kept OUT of
+# $ALL so the api never gains access - granted to hp_issuer + hp_migrator only.
+$CONTINUITY = @("continuity_batches")
 $SYSTEM     = @("schema_migrations","schema_migrations_lock")
-$ALL        = $AUTH + $CATALOG + $ORDERS + $SETTLEMENT + $LICENSING + $DEVICES + $WALLET
+$ALL        = $AUTH + $CATALOG + $ORDERS + $SETTLEMENT + $LICENSING + $DEVICES + $WALLET + $DELIVERY
 
 # api deletes only these; never `users` (anonymized in place, not dropped).
-$API_DELETABLE = ($AUTH | Where-Object { $_ -ne "users" }) + @("idempotency_keys")
+# download_records: the GDPR erasure scrub (P1-12.6) deletes a subject's history by user_id.
+$API_DELETABLE = ($AUTH | Where-Object { $_ -ne "users" }) + @("idempotency_keys","download_records")
 # api reads but never writes these.
 $API_READ_ONLY = $SETTLEMENT + $LICENSING + $WALLET
 
@@ -157,8 +168,11 @@ $roles = @(
       (New-Grant $CATALOG $RO)))),
   (New-Role "hp_issuer" (Merge @(
       (New-Grant ($SETTLEMENT + $DEVICES) $RO),
-      (New-Grant $LICENSING $RW)))),
-  (New-Role "hp_migrator" (New-Grant ($ALL + $SYSTEM) $MIGRATE))
+      (New-Grant $LICENSING $RW),
+      (New-Grant $CONTINUITY $RW)))),
+  # $CONTINUITY is appended explicitly: it is intentionally NOT in $ALL (issuer-only
+  # for running zones), but the migrator must be able to index every collection.
+  (New-Role "hp_migrator" (New-Grant ($ALL + $SYSTEM + $CONTINUITY) $MIGRATE))
 )
 
 # --- Discover the project if not supplied. ------------------------------------

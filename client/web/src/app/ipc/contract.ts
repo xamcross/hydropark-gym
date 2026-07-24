@@ -464,6 +464,13 @@ export interface CrashFreeSessionEvent extends TelemetryEventBase {
   errors: number;
 }
 
+/** First-run guided tour lifecycle (P1-11.4 tour). `step` is the 1-based step reached. */
+export interface TourEvent extends TelemetryEventBase {
+  event: 'tour';
+  action: 'start' | 'advance' | 'complete' | 'skip';
+  step: number;
+}
+
 export type TelemetryEvent =
   | SkillEnabledEvent
   | SkillDisabledEvent
@@ -475,7 +482,8 @@ export type TelemetryEvent =
   | ActivationEvent
   | CompositionEvent
   | OfflineUsageEvent
-  | CrashFreeSessionEvent;
+  | CrashFreeSessionEvent
+  | TourEvent;
 
 // ---------------------------------------------------------------------------
 // Marketplace + agent-composition commands (P1 live-flow wiring)

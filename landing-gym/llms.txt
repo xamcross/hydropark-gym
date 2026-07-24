@@ -1,0 +1,19 @@
+# Hydropark
+
+Hydropark is a free desktop AI agent that runs 100% offline on your own machine
+(Windows & macOS). It starts empty; you equip it with skills. Skills compose:
+enable several and the app becomes the tool you need. Each skill costs $5 once and
+is yours forever — no subscription, no account required.
+
+Key facts:
+- Offline / on-device: the model runs locally; no conversation data leaves the device.
+- Free base app; skills are $5 each, one-time, perpetual.
+- Skills compose — timers, lists, planners, unit switches, etc. — deduplicated and
+  fit against a fixed on-device context budget (a meter refuses a skill that will not fit).
+- You are NOT training or fine-tuning a model; the weights never change.
+
+Links:
+- Home: https://hydropark.app/
+- Download (Windows & macOS): https://github.com/xamcross/hydropark-gym/releases
+- Privacy: https://hydropark.app/privacy
+- Terms (offline-forever commitment): https://hydropark.app/terms
